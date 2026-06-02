@@ -9,6 +9,7 @@
  */
 import "server-only";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { generateSlug } from "@/lib/slug";
 import { formatPgError } from "@/lib/pg-error";
 import { getConnectionForUser } from "@/lib/connections";
@@ -78,6 +79,25 @@ export async function getLinkForUser(args: {
 
   if (error) {
     throw new Error(formatPgError("Failed to load link", error));
+  }
+  return (data ?? null) as UploadLinkRow | null;
+}
+
+/**
+ * Load the FULL link row by slug using the service-role client. Used by the
+ * anonymous /api/upload/* routes — the public view intentionally hides
+ * folder_id / storage_connection_id / user_id, but the server needs them to
+ * route the upload. Never return this row shape to the browser.
+ */
+export async function getLinkBySlugAdmin(slug: string): Promise<UploadLinkRow | null> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("upload_links")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) {
+    throw new Error(formatPgError("Failed to load link by slug", error));
   }
   return (data ?? null) as UploadLinkRow | null;
 }

@@ -13,6 +13,7 @@
  */
 import { Upload, ShieldCheck } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PublicUploader } from "@/components/public-uploader";
 import type { UploadLinkPublicRow } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
@@ -73,53 +74,17 @@ export default async function PublicUploadPage({ params }: { params: { slug: str
             <p className="mt-2 text-ink-500">{link.description}</p>
           )}
 
-          {/* Uploader fields (owner-configured) */}
-          <div className="mt-6 space-y-4">
-            {link.require_name && (
-              <div>
-                <label className="label mb-1" htmlFor="uploader-name">
-                  Your name <span className="text-red-500">*</span>
-                </label>
-                <input id="uploader-name" className="input" placeholder="Jane Doe" disabled />
-              </div>
-            )}
-            {link.require_email && (
-              <div>
-                <label className="label mb-1" htmlFor="uploader-email">
-                  Your email <span className="text-red-500">*</span>
-                </label>
-                <input id="uploader-email" type="email" className="input" placeholder="jane@example.com" disabled />
-              </div>
-            )}
-            {link.show_message_field && (
-              <div>
-                <label className="label mb-1" htmlFor="uploader-message">
-                  Message <span className="font-normal text-ink-400">(optional)</span>
-                </label>
-                <textarea id="uploader-message" className="input min-h-[72px]" placeholder="Anything we should know?" disabled />
-              </div>
-            )}
-
-            {/* Drop zone (disabled in M6) */}
-            <div
-              className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-ink-300 px-6 py-12 text-center dark:border-ink-700"
-              aria-disabled
-            >
-              <Upload className="mb-3 h-8 w-8 text-ink-400" />
-              <p className="font-medium text-ink-700 dark:text-ink-200">Drag &amp; drop files here</p>
-              <p className="mt-1 text-sm text-ink-400">
-                or tap to choose — up to {formatSize(link.max_file_size_mb)} per file
-              </p>
-            </div>
-
-            {/* M6 notice — replaced by the working uploader in M7 */}
-            <div
-              className="rounded-lg px-4 py-3 text-sm"
-              style={{ backgroundColor: `${accent}14`, color: accent }}
-            >
-              This uploader is being set up and will go live shortly. Please check
-              back soon.
-            </div>
+          {/* Working uploader (M7) */}
+          <div className="mt-6">
+            <PublicUploader
+              slug={link.slug}
+              requireName={link.require_name}
+              requireEmail={link.require_email}
+              showMessageField={link.show_message_field}
+              maxFileSizeMb={link.max_file_size_mb}
+              allowedMimeTypes={link.allowed_mime_types}
+              accent={accent}
+            />
           </div>
         </div>
 
@@ -130,12 +95,4 @@ export default async function PublicUploadPage({ params }: { params: { slug: str
       </div>
     </main>
   );
-}
-
-function formatSize(mb: number): string {
-  if (mb >= 1024) {
-    const gb = mb / 1024;
-    return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
-  }
-  return `${mb} MB`;
 }

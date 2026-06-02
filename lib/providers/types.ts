@@ -19,7 +19,7 @@
  * Adapters are intentionally NOT classes — they're plain objects implementing
  * this interface. That keeps things tree-shakable and side-effect-free.
  */
-import type { StorageProvider, StorageConnectionRow } from "@/lib/db-types";
+import type { StorageProvider } from "@/lib/db-types";
 
 /** Identity + UI metadata for a provider. */
 export interface ProviderInfo {
@@ -86,12 +86,13 @@ export interface ProviderAdapter {
   /** Storage operations — server only. */
   storage: {
     /**
-     * Start a resumable upload to `folderId` on `connection`. Returns a URL
-     * the browser can PUT chunks to directly. Implementations are
-     * responsible for getting a valid access token (refreshing if needed).
+     * Start a resumable upload to `folderId`. Returns a URL the browser can
+     * PUT chunks to directly. Token freshness is the caller's concern
+     * (route uses getValidAccessToken, which is provider-agnostic), so this
+     * receives a ready-to-use access token rather than the connection row.
      */
     initiateResumableUpload(args: {
-      connection: StorageConnectionRow;
+      accessToken: string;
       folderId: string;
       filename: string;
       mimeType: string;

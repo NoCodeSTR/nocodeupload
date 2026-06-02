@@ -41,15 +41,27 @@ export const uploadInitiateSchema = z.object({
   size: z.number().int().nonnegative(),
   mimeType: z.string().min(1).max(255),
   uploaderName: z.string().max(120).optional().nullable(),
-  uploaderEmail: z.string().email().max(255).optional().nullable(),
+  // Not .email() here — this is optional metadata. When the link sets
+  // require_email, the initiate route enforces a valid format server-side.
+  uploaderEmail: z.string().max(255).optional().nullable(),
   uploaderMessage: z.string().max(2000).optional().nullable(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;
 
-export const uploadCompleteSchema = z.object({
-  uploadId: z.string().uuid(),
-  providerFileId: z.string().min(1),
-});
+/**
+ * Finalize an upload — either success (providerFileId set) or failure
+ * (errorMessage set). The browser calls this after the direct-to-provider
+ * upload finishes or errors.
+ */
+export const uploadFinalizeSchema = z
+  .object({
+    uploadId: z.string().uuid(),
+    providerFileId: z.string().min(1).optional(),
+    errorMessage: z.string().max(500).optional(),
+  })
+  .refine((v) => Boolean(v.providerFileId) || Boolean(v.errorMessage), {
+    message: "Either providerFileId (success) or errorMessage (failure) is required",
+  });
 
-export type UploadCompleteInput = z.infer<typeof uploadCompleteSchema>;
+export type UploadFinalizeInput = z.infer<typeof uploadFinalizeSchema>;
