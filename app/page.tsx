@@ -94,7 +94,7 @@ export default function HomePage() {
         <div className="grid gap-6 md:grid-cols-3">
           {[
             { icon: Shield, title: "Tokens stay server-side", body: "Your Google OAuth credentials never reach a browser. Encrypted at rest." },
-            { icon: Zap, title: "Large videos, no problem", body: "Files upload directly from the visitor's browser to Drive — no server middleman." },
+            { icon: Zap, title: "Large videos, no problem", body: "Files upload in resumable chunks, so multi-gigabyte videos send reliably without timing out." },
             { icon: Folder, title: "Least-privilege access", body: "We only see files our app created. Your existing Drive stays private." },
           ].map(({ icon: Icon, title, body }) => (
             <div key={title}>

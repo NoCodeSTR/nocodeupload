@@ -35,10 +35,16 @@ interface FileItem {
   error?: string;
 }
 
-// ---- Resumable upload (browser → Google session URL) ----------------------
+// ---- Server-relayed resumable upload (browser → our API → Google) ----------
 
-function putChunk(
-  sessionUrl: string,
+interface ChunkMeta {
+  uploadId: string;
+  sessionToken: string;
+}
+
+/** POST one chunk to our same-origin relay. XHR gives upload progress. */
+function postChunk(
+  meta: ChunkMeta,
   chunk: Blob,
   start: number,
   end: number,
@@ -47,25 +53,32 @@ function putChunk(
 ): Promise<{ done: boolean; fileId?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", sessionUrl, true);
-    xhr.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${total}`);
+    xhr.open("POST", "/api/upload/chunk", true);
+    xhr.setRequestHeader("x-nc-upload-id", meta.uploadId);
+    xhr.setRequestHeader("x-nc-session", meta.sessionToken);
+    xhr.setRequestHeader("x-nc-range", `bytes ${start}-${end - 1}/${total}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onAbsoluteProgress(start + e.loaded);
     };
     xhr.onload = () => {
-      // 308 = Resume Incomplete (more chunks expected). 200/201 = finished.
-      if (xhr.status === 308) {
-        resolve({ done: false });
-      } else if (xhr.status === 200 || xhr.status === 201) {
-        let fileId: string | undefined;
+      if (xhr.status === 200) {
+        let body: { status?: string; fileId?: string } = {};
         try {
-          fileId = JSON.parse(xhr.responseText)?.id;
+          body = JSON.parse(xhr.responseText);
         } catch {
-          /* no body / non-JSON */
+          /* ignore */
         }
-        resolve({ done: true, fileId });
+        if (body.status === "complete") resolve({ done: true, fileId: body.fileId });
+        else resolve({ done: false });
       } else {
-        reject(new Error(`Drive responded ${xhr.status}`));
+        let msg = `Upload failed (${xhr.status})`;
+        try {
+          const b = JSON.parse(xhr.responseText);
+          if (b?.detail) msg = `Upload rejected: ${b.detail}`;
+        } catch {
+          /* ignore */
+        }
+        reject(new Error(msg));
       }
     };
     xhr.onerror = () => reject(new Error("Network error during upload"));
@@ -74,8 +87,8 @@ function putChunk(
   });
 }
 
-async function uploadResumable(
-  sessionUrl: string,
+async function uploadViaRelay(
+  meta: ChunkMeta,
   file: File,
   chunkSize: number,
   onProgress: (percent: number) => void,
@@ -87,12 +100,12 @@ async function uploadResumable(
     const end = Math.min(start + chunkSize, total);
     const chunk = file.slice(start, end);
 
-    // Up to 3 attempts per chunk for transient network blips.
+    // Up to 3 attempts per chunk for transient blips.
     let attempt = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
-        const result = await putChunk(sessionUrl, chunk, start, end, total, (loaded) =>
+        const result = await postChunk(meta, chunk, start, end, total, (loaded) =>
           onProgress(Math.min(100, Math.round((loaded / total) * 100))),
         );
         if (result.done) {
@@ -100,7 +113,7 @@ async function uploadResumable(
           onProgress(100);
           return result.fileId;
         }
-        break; // chunk accepted (308) — move to next
+        break; // 308-equivalent — chunk accepted, continue
       } catch (err) {
         attempt += 1;
         if (attempt >= 3) throw err;
@@ -176,8 +189,8 @@ export function PublicUploader({
   async function uploadOne(item: FileItem): Promise<void> {
     setItem(item.id, { status: "uploading", progress: 0, error: undefined });
 
-    // 1. initiate
-    let initiate: { uploadId: string; sessionUrl: string; chunkSize: number };
+    // 1. initiate — get an opaque session token + chunk size
+    let initiate: { uploadId: string; sessionToken: string; chunkSize: number };
     try {
       const res = await fetch("/api/upload/initiate", {
         method: "POST",
@@ -202,18 +215,17 @@ export function PublicUploader({
       return;
     }
 
-    // 2. chunked PUT to the session URL
-    let driveFileId: string;
+    // 2. relay chunks through our API (same-origin). The chunk route finalizes
+    //    the upload server-side when Google accepts the last chunk.
     try {
-      driveFileId = await uploadResumable(
-        initiate.sessionUrl,
+      await uploadViaRelay(
+        { uploadId: initiate.uploadId, sessionToken: initiate.sessionToken },
         item.file,
         initiate.chunkSize,
         (percent) => setItem(item.id, { progress: percent }),
       );
     } catch (err) {
       setItem(item.id, { status: "failed", error: err instanceof Error ? err.message : "Upload failed." });
-      // best-effort mark failed server-side
       void fetch("/api/upload/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -222,16 +234,6 @@ export function PublicUploader({
       return;
     }
 
-    // 3. complete
-    try {
-      await fetch("/api/upload/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId: initiate.uploadId, providerFileId: driveFileId }),
-      });
-    } catch {
-      /* file is in Drive; finalize is best-effort */
-    }
     setItem(item.id, { status: "done", progress: 100 });
   }
 

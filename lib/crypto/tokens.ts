@@ -51,3 +51,22 @@ export function decryptString(blob: EncryptedBlob): string {
   const dec = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return dec.toString("utf8");
 }
+
+/**
+ * Encrypt a string into a single compact, URL-safe token (the three blob
+ * parts joined and base64url-encoded). Used to hand the browser an opaque
+ * handle (e.g. a resumable session URL) it can echo back without being able
+ * to read or tamper with it.
+ */
+export function encryptToToken(plaintext: string): string {
+  const blob = encryptString(plaintext);
+  const packed = JSON.stringify(blob);
+  return Buffer.from(packed, "utf8").toString("base64url");
+}
+
+/** Inverse of encryptToToken. Throws if the token is malformed or tampered. */
+export function decryptFromToken(token: string): string {
+  const packed = Buffer.from(token, "base64url").toString("utf8");
+  const blob = JSON.parse(packed) as EncryptedBlob;
+  return decryptString(blob);
+}

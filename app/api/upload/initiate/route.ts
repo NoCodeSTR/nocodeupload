@@ -25,6 +25,7 @@ import { getValidAccessToken, TokenError } from "@/lib/tokens";
 import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed } from "@/lib/upload-validation";
 import { hashIp } from "@/lib/slug";
+import { encryptToToken } from "@/lib/crypto/tokens";
 
 function clientIp(request: NextRequest): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -147,9 +148,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
 
+  // Hand the browser an OPAQUE, encrypted handle for the session — never the
+  // raw Google session URL. The browser echoes it back with each chunk; the
+  // chunk route decrypts it server-side and relays the bytes to Google.
+  const sessionToken = encryptToToken(session.sessionUrl);
+
   return NextResponse.json({
     uploadId,
-    sessionUrl: session.sessionUrl,
+    sessionToken,
     chunkSize: session.chunkSize,
+    totalSize: input.size,
   });
 }
