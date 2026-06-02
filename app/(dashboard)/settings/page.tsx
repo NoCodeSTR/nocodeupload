@@ -25,9 +25,8 @@ import {
 } from "lucide-react";
 import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
-import { PickerTestWidget } from "@/components/picker-test-widget";
 import { requireUser } from "@/lib/auth";
-import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
+import { isGoogleConfigured } from "@/lib/env";
 import { PROVIDER_INFO, PROVIDER_DISPLAY_ORDER } from "@/lib/providers/registry";
 import { listUserConnections, type ConnectionSummary } from "@/lib/connections";
 import type { StorageProvider } from "@/lib/db-types";
@@ -64,21 +63,19 @@ interface SettingsPageProps {
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const user = await requireUser();
-  const allConnections = await listUserConnections(user.id);
 
-  // Pull the public Google env once on the server and pass it down to the
-  // picker test widget. publicGoogleEnv() throws if Google isn't configured,
-  // so guard with isGoogleConfigured() first.
-  const googleReady = isGoogleConfigured();
-  const googlePickerConfig = googleReady
-    ? (() => {
-        const env = publicGoogleEnv();
-        return {
-          apiKey: env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY,
-          projectNumber: env.NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER,
-        };
-      })()
-    : null;
+  // Resilient load: a DB / permissions hiccup shows a banner instead of 500-ing
+  // the whole Settings page (which would also block the user from connecting).
+  let allConnections: ConnectionSummary[] = [];
+  let connectionsError: string | null = null;
+  try {
+    allConnections = await listUserConnections(user.id);
+  } catch (err) {
+    connectionsError =
+      "We couldn't load your connected accounts just now. You can still connect a new one below; refresh to retry.";
+    // eslint-disable-next-line no-console
+    console.error("[settings] failed to load connections:", err);
+  }
 
   const byProvider: Record<StorageProvider, ConnectionSummary[]> = {
     google_drive: [],
@@ -119,6 +116,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           {searchParams.error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
               {searchParams.error}
+            </div>
+          )}
+          {connectionsError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
+              {connectionsError}
             </div>
           )}
 
@@ -177,14 +179,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                                 label={c.provider_email ?? info.displayName}
                               />
                             </div>
-
-                            {/* M5: picker test widget — Google connections only */}
-                            {c.provider === "google_drive" && googlePickerConfig && (
-                              <PickerTestWidget
-                                connectionId={c.id}
-                                config={googlePickerConfig}
-                              />
-                            )}
                           </li>
                         ))}
                       </ul>

@@ -314,5 +314,33 @@ group by l.id, l.user_id;
 grant select on public.upload_link_stats to authenticated;
 
 -- -----------------------------------------------------------------------------
+-- Role grants
+-- -----------------------------------------------------------------------------
+-- Supabase normally auto-grants anon/authenticated/service_role on new public
+-- tables via default privileges, but that is environment-dependent and cannot
+-- be assumed. We grant explicitly so this migration is self-contained: without
+-- these, PostgREST returns "permission denied for table" (code 42501) even
+-- though RLS policies exist. Remember: RLS gates WHICH ROWS a role sees; the
+-- GRANT below governs whether the role may touch the table at all. service_role
+-- bypasses RLS but STILL needs the table grant.
+grant usage on schema public to anon, authenticated, service_role;
+
+-- service_role: trusted server-side (OAuth token storage, upload logging).
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+
+-- authenticated: owner-scoped CRUD; RLS policies restrict to their own rows.
+grant select, insert, update, delete on public.storage_connections to authenticated;
+grant select, insert, update, delete on public.upload_links to authenticated;
+grant select, insert, update on public.profiles to authenticated;
+grant select on public.uploads to authenticated;
+
+-- Ensure any future tables/sequences inherit the same grants.
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;
+
+-- -----------------------------------------------------------------------------
 -- Done.
 -- -----------------------------------------------------------------------------

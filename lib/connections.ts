@@ -37,6 +37,28 @@ const SAFE_COLUMNS =
   "id, provider, provider_email, status, connected_at, last_refreshed_at, provider_metadata";
 
 /**
+ * Format a Supabase/PostgREST error into something actually debuggable.
+ *
+ * PostgrestError carries message, code, details, and hint — but a plain
+ * `error.message` is often empty (notably for `head: true` count requests,
+ * which have no response body for the client to read the error from).
+ * Always log all four fields so production logs point straight at the cause
+ * (e.g. code 42501 = "permission denied for table", 42P01 = "undefined table").
+ */
+function formatPgError(
+  prefix: string,
+  error: { message?: string; code?: string; details?: string; hint?: string },
+): string {
+  const parts = [
+    error.message && error.message.length > 0 ? error.message : "(empty message)",
+    error.code ? `code=${error.code}` : null,
+    error.details ? `details=${error.details}` : null,
+    error.hint ? `hint=${error.hint}` : null,
+  ].filter(Boolean);
+  return `${prefix}: ${parts.join(" | ")}`;
+}
+
+/**
  * List the current user's active storage connections, ordered most-recent first.
  * Uses the regular server client so RLS guards the query.
  */
@@ -52,26 +74,33 @@ export async function listUserConnections(
     .order("connected_at", { ascending: false });
 
   if (error) {
-    throw new Error(`Failed to list connections: ${error.message}`);
+    throw new Error(formatPgError("Failed to list connections", error));
   }
   return (data ?? []) as ConnectionSummary[];
 }
 
 /**
  * Count of active connections for a given user (used by the dashboard banner).
+ *
+ * NOTE: deliberately does a plain SELECT and counts the rows rather than using
+ * `{ count: "exact", head: true }`. A HEAD request returns no body, so when it
+ * errors the client surfaces an empty message — which is exactly the opaque
+ * "Failed to count connections:" symptom we hit in production. A per-user
+ * connection count is tiny (a handful of rows), so selecting ids and reading
+ * `.length` is both cheaper to reason about and gives real error messages.
  */
 export async function countUserActiveConnections(userId: string): Promise<number> {
   const supabase = createSupabaseServerClient();
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from("storage_connections")
-    .select("id", { count: "exact", head: true })
+    .select("id")
     .eq("user_id", userId)
     .eq("status", "active");
 
   if (error) {
-    throw new Error(`Failed to count connections: ${error.message}`);
+    throw new Error(formatPgError("Failed to count connections", error));
   }
-  return count ?? 0;
+  return data?.length ?? 0;
 }
 
 /**
@@ -116,7 +145,7 @@ export async function upsertConnection(args: {
     .single();
 
   if (error) {
-    throw new Error(`Failed to upsert connection: ${error.message}`);
+    throw new Error(formatPgError("Failed to upsert connection", error));
   }
   return { id: (data as { id: string }).id };
 }
@@ -138,7 +167,7 @@ export async function getConnectionForUser(args: {
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to load connection: ${error.message}`);
+    throw new Error(formatPgError("Failed to load connection", error));
   }
   return (data ?? null) as StorageConnectionRow | null;
 }

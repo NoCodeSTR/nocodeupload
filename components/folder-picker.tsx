@@ -177,23 +177,20 @@ export function FolderPicker({
         throw new Error("Picker SDK didn't initialize as expected.");
       }
 
-      const myDriveFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      // Single folders view. (We previously added a second "shared with me"
+      // view, but both render with the label "Folders", producing a confusing
+      // duplicate tab. One view covering the user's Drive folders is what STR
+      // hosts need; revisit shared-drive support if requested.)
+      const folderView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
         .setIncludeFolders(true)
-        .setMimeTypes("application/vnd.google-apps.folder");
-
-      const sharedFolders = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-        .setSelectFolderEnabled(true)
-        .setIncludeFolders(true)
-        .setOwnedByMe(false)
         .setMimeTypes("application/vnd.google-apps.folder");
 
       const picker = new google.picker.PickerBuilder()
         .setAppId(config.projectNumber)
         .setOAuthToken(accessToken)
         .setDeveloperKey(config.apiKey)
-        .addView(myDriveFolders)
-        .addView(sharedFolders)
+        .addView(folderView)
         .setTitle("Choose a Drive folder")
         .setCallback((data: PickerCallbackData) => {
           if (data.action === google.picker.Action.PICKED) {
