@@ -25,8 +25,10 @@ import {
 } from "lucide-react";
 import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
+import { LogoUploader } from "@/components/logo-uploader";
 import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured } from "@/lib/env";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PROVIDER_INFO, PROVIDER_DISPLAY_ORDER } from "@/lib/providers/registry";
 import { listUserConnections, type ConnectionSummary } from "@/lib/connections";
 import type { StorageProvider } from "@/lib/db-types";
@@ -75,6 +77,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       "We couldn't load your connected accounts just now. You can still connect a new one below; refresh to retry.";
     // eslint-disable-next-line no-console
     console.error("[settings] failed to load connections:", err);
+  }
+
+  // Current account logo (best-effort).
+  let logoUrl: string | null = null;
+  try {
+    const supabase = createSupabaseServerClient();
+    const { data } = await supabase.from("profiles").select("logo_url").eq("id", user.id).maybeSingle();
+    logoUrl = (data as { logo_url: string | null } | null)?.logo_url ?? null;
+  } catch {
+    /* non-fatal */
   }
 
   const byProvider: Record<StorageProvider, ConnectionSummary[]> = {
@@ -198,6 +210,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
             );
           })}
+
+          <div className="pt-4">
+            <h2 className="font-display text-xl font-semibold">Branding</h2>
+            <p className="mt-1 text-sm text-ink-500">
+              Personalize your upload pages and notification emails.
+            </p>
+            <div className="mt-3">
+              <LogoUploader currentLogoUrl={logoUrl} />
+            </div>
+          </div>
 
           <div className="pt-4">
             <h2 className="font-display text-xl font-semibold">Account</h2>

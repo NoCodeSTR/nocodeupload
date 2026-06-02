@@ -22,6 +22,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { decryptFromToken } from "@/lib/crypto/tokens";
 import { putChunkToSession } from "@/lib/providers/google/drive";
 import { finalizeUpload } from "@/lib/uploads";
+import { sendUploadNotification } from "@/lib/email";
 
 // Each chunk relay receives ≤4 MB and forwards it to Google. Give it headroom.
 export const maxDuration = 60;
@@ -79,6 +80,14 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
+    }
+    // Notify the owner (no-op unless Resend is configured). Awaited so it runs
+    // before the serverless function exits, but never fails the response.
+    try {
+      await sendUploadNotification(uploadId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[upload/chunk] notification failed:", err);
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

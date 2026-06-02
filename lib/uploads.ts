@@ -7,8 +7,9 @@
  */
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
-import type { UploadLinkRow } from "@/lib/db-types";
+import type { UploadLinkRow, UploadRow } from "@/lib/db-types";
 
 /**
  * Insert an 'uploading' row when a resumable session starts. Returns the
@@ -51,6 +52,30 @@ export async function createUploadRecord(args: {
     throw new Error(formatPgError("Failed to create upload record", error));
   }
   return (data as { id: string }).id;
+}
+
+/**
+ * List uploads for a link, scoped to the owner (RLS: uploads owner can read).
+ * Newest first. Used by the dashboard submissions view.
+ */
+export async function listUploadsForLink(args: {
+  userId: string;
+  linkId: string;
+  limit?: number;
+}): Promise<UploadRow[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("uploads")
+    .select("*")
+    .eq("upload_link_id", args.linkId)
+    .eq("user_id", args.userId)
+    .order("created_at", { ascending: false })
+    .limit(args.limit ?? 200);
+
+  if (error) {
+    throw new Error(formatPgError("Failed to list uploads", error));
+  }
+  return (data ?? []) as UploadRow[];
 }
 
 /**

@@ -11,7 +11,7 @@
  *
  * Files upload sequentially to keep memory and network sane on phones.
  */
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide-react";
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
 
@@ -146,6 +146,18 @@ export function PublicUploader({
   const [formError, setFormError] = useState<string | null>(null);
 
   const maxBytes = maxFileSizeMb * 1024 * 1024;
+
+  // Warn before leaving while an upload is in progress — the in-flight file
+  // would be interrupted (completed files are already safely in Drive).
+  useEffect(() => {
+    if (!uploading) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [uploading]);
 
   const setItem = useCallback((id: string, patch: Partial<FileItem>) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));

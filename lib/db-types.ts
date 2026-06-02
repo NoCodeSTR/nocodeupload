@@ -14,6 +14,7 @@ export interface ProfileRow {
   id: string;
   email: string | null;
   display_name: string | null;
+  logo_url: string | null;
   created_at: string;
   updated_at: string;
 }

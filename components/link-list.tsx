@@ -102,8 +102,13 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
             <CopyButton value={publicUrl} label="Copy link" />
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-400">
-            <span>{link.completed_count} {link.completed_count === 1 ? "upload" : "uploads"}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-ink-400">
+            <Link
+              href={`/dashboard/links/${link.id}/uploads`}
+              className="font-medium text-brand hover:underline"
+            >
+              {link.completed_count} {link.completed_count === 1 ? "upload" : "uploads"} →
+            </Link>
             <span>Created {formatDate(link.created_at)}</span>
             {link.expires_at && <span>Expires {formatDate(link.expires_at)}</span>}
           </div>

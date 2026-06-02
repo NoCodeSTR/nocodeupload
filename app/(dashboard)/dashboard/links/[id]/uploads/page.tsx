@@ -1,0 +1,154 @@
+/**
+ * Submissions view — every upload sent to one link, with the uploader's
+ * name/email/message, file details, status, and an open-in-Drive link.
+ * Surfaces the metadata captured at upload time (including the message).
+ */
+import { redirect, notFound } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, FileUp, ExternalLink, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Topbar } from "@/components/topbar";
+import { requireUser } from "@/lib/auth";
+import { getLinkForUser } from "@/lib/links";
+import { listUploadsForLink } from "@/lib/uploads";
+import { formatBytes } from "@/lib/upload-validation";
+import type { UploadRow } from "@/lib/db-types";
+
+export const dynamic = "force-dynamic";
+
+export default async function LinkUploadsPage({ params }: { params: { id: string } }) {
+  const user = await requireUser();
+
+  const link = await getLinkForUser({ userId: user.id, linkId: params.id });
+  if (!link) notFound();
+
+  let uploads: UploadRow[] = [];
+  let loadError = false;
+  try {
+    uploads = await listUploadsForLink({ userId: user.id, linkId: params.id });
+  } catch {
+    loadError = true;
+  }
+
+  const completed = uploads.filter((u) => u.status === "complete");
+
+  return (
+    <>
+      <Topbar email={user.email} title="Submissions" />
+      <main className="flex-1 px-6 py-8">
+        <div className="mx-auto max-w-4xl">
+          <Link
+            href="/dashboard"
+            className="mb-6 inline-flex items-center gap-1 text-sm text-ink-500 hover:text-ink-900 dark:hover:text-ink-50"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to links
+          </Link>
+
+          <div className="mb-6">
+            <h2 className="font-display text-xl font-semibold">{link.name}</h2>
+            <p className="mt-1 text-sm text-ink-500">
+              {completed.length} {completed.length === 1 ? "file" : "files"} received
+              {link.folder_name ? ` · ${link.folder_name}` : ""}
+            </p>
+          </div>
+
+          {loadError && (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
+              Couldn&apos;t load submissions just now — refresh in a moment.
+            </div>
+          )}
+
+          {uploads.length === 0 && !loadError ? (
+            <div className="card flex flex-col items-center py-16 text-center">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/40 dark:text-brand-100">
+                <FileUp className="h-6 w-6" />
+              </div>
+              <h3 className="mb-1 font-display text-lg font-semibold">No uploads yet</h3>
+              <p className="max-w-md text-sm text-ink-500">
+                When someone uploads through this link, their files and details show up here.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {uploads.map((u) => (
+                <UploadRowCard key={u.id} upload={u} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </main>
+    </>
+  );
+}
+
+function UploadRowCard({ upload }: { upload: UploadRow }) {
+  const driveUrl = upload.provider_file_id
+    ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
+    : null;
+
+  return (
+    <li className="card">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <StatusIcon status={upload.status} />
+            <h3 className="truncate font-medium">{upload.original_filename}</h3>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-400">
+            {upload.file_size_bytes != null && <span>{formatBytes(upload.file_size_bytes)}</span>}
+            <span>{formatDateTime(upload.created_at)}</span>
+            {upload.mime_type && <span>{upload.mime_type}</span>}
+          </div>
+
+          {(upload.uploader_name || upload.uploader_email || upload.uploader_message) && (
+            <div className="mt-3 space-y-1 rounded-lg bg-ink-50 px-3 py-2 text-sm dark:bg-ink-900/60">
+              {(upload.uploader_name || upload.uploader_email) && (
+                <p className="text-ink-700 dark:text-ink-200">
+                  <span className="font-medium">{upload.uploader_name ?? "Anonymous"}</span>
+                  {upload.uploader_email && (
+                    <span className="text-ink-400"> · {upload.uploader_email}</span>
+                  )}
+                </p>
+              )}
+              {upload.uploader_message && (
+                <p className="text-ink-600 dark:text-ink-300">“{upload.uploader_message}”</p>
+              )}
+            </div>
+          )}
+
+          {upload.status === "failed" && upload.error_message && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-300">{upload.error_message}</p>
+          )}
+        </div>
+
+        {driveUrl && (
+          <a
+            href={driveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-secondary h-8 text-xs"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in Drive
+          </a>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function StatusIcon({ status }: { status: UploadRow["status"] }) {
+  if (status === "complete") return <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-green-600" />;
+  if (status === "failed") return <XCircle className="h-4 w-4 flex-shrink-0 text-red-500" />;
+  return <Clock className="h-4 w-4 flex-shrink-0 text-ink-400" />;
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

@@ -54,6 +54,9 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   display_name text,
+  -- Account-level company logo (public URL in the "branding" Storage bucket).
+  -- Shown on upload pages and in notification emails.
+  logo_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -236,22 +239,24 @@ create trigger upload_links_set_updated_at
 -- which folder, or whose account their file lands in.
 create or replace view public.upload_links_public as
 select
-  id,
-  slug,
-  name,
-  description,
-  is_active,
-  expires_at,
-  max_file_size_mb,
-  allowed_mime_types,
-  require_name,
-  require_email,
-  show_message_field,
-  branding_logo_url,
-  branding_color
-from public.upload_links
-where is_active = true
-  and (expires_at is null or expires_at > now());
+  l.id,
+  l.slug,
+  l.name,
+  l.description,
+  l.is_active,
+  l.expires_at,
+  l.max_file_size_mb,
+  l.allowed_mime_types,
+  l.require_name,
+  l.require_email,
+  l.show_message_field,
+  -- Effective logo: per-link override, else the owner's account logo.
+  coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
+  l.branding_color
+from public.upload_links l
+join public.profiles p on p.id = l.user_id
+where l.is_active = true
+  and (l.expires_at is null or l.expires_at > now());
 
 grant select on public.upload_links_public to anon, authenticated;
 
