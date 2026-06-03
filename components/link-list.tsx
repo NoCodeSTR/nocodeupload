@@ -11,7 +11,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Link2, Pencil, Trash2, FolderOpen } from "lucide-react";
+import { Link2, Pencil, Trash2, FolderOpen, Code2 } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import type { UploadLinkWithStats } from "@/lib/links";
 
@@ -117,6 +117,14 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1">
+          <Link
+            href={`/dashboard/links/${link.id}/embed`}
+            className="btn-ghost h-8 px-2 text-xs"
+            aria-label="Embed"
+          >
+            <Code2 className="h-4 w-4" />
+            Embed
+          </Link>
           <Link
             href={`/dashboard/links/${link.id}/edit`}
             className="btn-ghost h-8 px-2 text-xs"

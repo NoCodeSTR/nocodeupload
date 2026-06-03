@@ -13,8 +13,31 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { generateSlug } from "@/lib/slug";
 import { formatPgError } from "@/lib/pg-error";
 import { getConnectionForUser } from "@/lib/connections";
-import type { UploadLinkRow } from "@/lib/db-types";
+import type { UploadLinkRow, UploadLinkPublicRow } from "@/lib/db-types";
 import type { UploadLinkCreateInput, UploadLinkUpdateInput } from "@/lib/schemas";
+
+/**
+ * Read the PUBLIC projection of a link by slug (the upload_links_public view).
+ * Safe for anonymous visitors — excludes folder_id / provider / owner. Shared
+ * by the public upload page (/u/[slug]) and the embeddable page (/embed/[slug]).
+ * Returns null for unknown / inactive / expired links.
+ */
+export async function getPublicLinkBySlug(
+  slug: string,
+): Promise<UploadLinkPublicRow | null> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("upload_links_public")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[getPublicLinkBySlug] query failed:", error.message);
+    return null;
+  }
+  return (data ?? null) as UploadLinkPublicRow | null;
+}
 
 export interface UploadLinkWithStats extends UploadLinkRow {
   completed_count: number;

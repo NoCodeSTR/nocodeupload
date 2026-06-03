@@ -70,6 +70,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Framing policy: only /embed/* may be embedded in third-party sites; every
+  // other route denies framing to prevent clickjacking (esp. the dashboard).
+  if (pathname.startsWith("/embed")) {
+    response.headers.set("Content-Security-Policy", "frame-ancestors *");
+    response.headers.delete("X-Frame-Options");
+  } else {
+    response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+    response.headers.set("X-Frame-Options", "DENY");
+  }
+
   return response;
 }
 
