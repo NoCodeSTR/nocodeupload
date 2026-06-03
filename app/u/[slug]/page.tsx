@@ -38,7 +38,7 @@ export default async function PublicUploadPage({ params }: { params: { slug: str
 
   if (!link) {
     return (
-      <main className="flex min-h-screen items-center justify-center px-6">
+      <main className="flex min-h-screen flex-col items-center justify-center px-6">
         <div className="max-w-md text-center">
           <h1 className="font-display text-2xl font-bold">This upload link isn&apos;t available</h1>
           <p className="mt-2 text-ink-500">
@@ -46,6 +46,7 @@ export default async function PublicUploadPage({ params }: { params: { slug: str
             Double-check with whoever shared it with you.
           </p>
         </div>
+        <PoweredBy />
       </main>
     );
   }
@@ -92,7 +93,25 @@ export default async function PublicUploadPage({ params }: { params: { slug: str
           <ShieldCheck className="h-3.5 w-3.5" />
           Files upload privately. You won&apos;t see other people&apos;s uploads or the owner&apos;s files.
         </div>
+        <PoweredBy />
       </div>
     </main>
+  );
+}
+
+/** Brand attribution shown on every public page — a viral-growth surface. */
+function PoweredBy() {
+  return (
+    <p className="mt-6 text-center text-xs text-ink-400">
+      Powered by{" "}
+      <a
+        href="https://nocodeupload.com/?ref=upload"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-ink-500 hover:text-brand hover:underline dark:text-ink-300"
+      >
+        NoCodeUpload.com
+      </a>
+    </p>
   );
 }

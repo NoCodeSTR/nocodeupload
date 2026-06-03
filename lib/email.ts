@@ -91,7 +91,10 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
         : ""
     }
     <p style="margin-top:28px;color:#a1a1aa;font-size:12px">
-      <a href="${appUrl}/dashboard" style="color:#a1a1aa">Manage your upload links</a> · NoCode Upload
+      <a href="${appUrl}/dashboard" style="color:#a1a1aa">Manage your upload links</a>
+    </p>
+    <p style="margin-top:6px;color:#a1a1aa;font-size:12px">
+      Powered by <a href="https://nocodeupload.com/?ref=email" style="color:#71717a;font-weight:600;text-decoration:none">NoCodeUpload.com</a>
     </p>
   </div>`;
 
