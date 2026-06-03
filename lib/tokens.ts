@@ -16,8 +16,7 @@
  *      the connection row and throw a typed `TokenError` so the caller can
  *      surface a clear "reconnect needed" message to the user.
  *
- * Consumers (so far): picker-token route, verify-folder route,
- *                     M7 resumable upload initiator.
+ * Consumers: picker-token route, the upload-initiate route (resumable upload).
  */
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";

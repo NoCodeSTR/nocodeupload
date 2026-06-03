@@ -8,12 +8,11 @@
  * This is the ONLY path that exposes a Google access token to the browser.
  * The token is:
  *   - already short-lived (Google tokens expire in ~1 hour)
- *   - scoped to the user's existing OAuth grant (drive.file + drive.readonly)
- *   - bound to ONE picker session — even if leaked, an attacker can only
- *     read folder metadata, not modify files outside our app's drive.file scope
+ *   - scoped to the user's existing OAuth grant (drive.file only)
+ *   - bound to ONE picker session — even if leaked, it only grants drive.file
+ *     access (files the app created / the user picks), never read-all
  *
- * The refresh token NEVER leaves the server. Picker is read-only at the
- * browser layer.
+ * The refresh token NEVER leaves the server.
  *
  * Body: { connectionId: string }
  * Auth: requireUser() — and connection must belong to the user.

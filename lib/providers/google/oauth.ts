@@ -7,12 +7,11 @@
  *   3. refreshAccessToken(refresh)  — refresh expired access tokens
  *   4. revoke(refresh)              — best-effort revoke at Google
  *
- * Scope choices:
- *   - drive.file       — upload to any folder by ID; can only see files we
- *                        created. Least-privilege scope for uploads.
- *   - drive.readonly   — required by Google Picker so the user can browse
- *                        their folders and pick one. We only read folder
- *                        metadata at picker time, never file contents.
+ * Scope choices (drive.file only — no RESTRICTED scopes, lighter verification):
+ *   - drive.file       — create/manage files the app makes, PLUS access to
+ *                        items the user explicitly selects via the Google
+ *                        Picker. Picking a folder grants per-folder access, so
+ *                        we can upload into it without read-all permission.
  *   - openid + email + profile — read the user's stable account id (sub)
  *                                and email for the storage_connections row.
  *
@@ -33,9 +32,12 @@ import "server-only";
 import { googleEnv } from "@/lib/env";
 import type { OAuthExchangeResult, OAuthRefreshResult } from "@/lib/providers/types";
 
+// drive.file ONLY (sensitive scope) — we never read the user's existing files.
+// The Google Picker lets the user select a folder and grants the app per-folder
+// access under drive.file, so we avoid the RESTRICTED drive.readonly scope and
+// its costly CASA security assessment at verification time.
 export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/drive.readonly",
   "openid",
   "email",
   "profile",

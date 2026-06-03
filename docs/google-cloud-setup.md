@@ -47,16 +47,15 @@ Run these two links with your new project selected, then click **Enable** on eac
 - Click **Add or Remove Scopes**.
 - Paste this in the manual entry box and click **Add to table**:
   - `https://www.googleapis.com/auth/drive.file`
-  - `https://www.googleapis.com/auth/drive.readonly`
 - Then **Update**, then **Save and Continue**.
 
-> **Why both scopes?** `drive.file` is the least-privilege scope for uploading — it can write to any folder by ID but only see files our app created. `drive.readonly` is needed by the Google Picker so the user can browse their folders to pick one. We never read file contents with `drive.readonly` — only folder metadata at picker time.
+> **Why only `drive.file`?** It's the least-privilege Drive scope: the app can create/manage files it makes, plus access items the user explicitly picks via the Google Picker. Picking a folder grants per-folder access, so we can upload into it **without** the broad `drive.readonly` scope. `drive.readonly` is *restricted* (triggers Google's annual CASA security assessment at verification), so we deliberately avoid it.
 
 **Test users** (next screen):
 - While the app is in "Testing" mode (before Google verification), only listed test users can complete the OAuth flow. Add your own email and any teammates.
 - Click **Save and Continue**.
 
-> **Verification:** `drive.readonly` is a "sensitive" scope. You can ship the MVP in Testing mode (capped at 100 users). For wider launch, submit for verification — that's a separate, slower process (1–6 weeks, depending on review queue and how complete your privacy policy is). Not blocking for MVP.
+> **Verification:** `drive.file` is a "sensitive" (not restricted) scope. You can ship in Testing mode (capped at 100 users) now. For wider launch, submit for verification — standard process (privacy policy, app homepage, logo, demo video, scope justification); no security assessment since we avoid restricted scopes.
 
 ## Step 4 — Create the OAuth 2.0 Client ID
 

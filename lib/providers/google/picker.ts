@@ -39,9 +39,9 @@ export function getPickerBrowserConfig(): PickerBrowserConfig {
  * Picker. Server-side only — uses the user's stored refresh token (which
  * never touches the browser) to refresh the access token if needed.
  *
- * Returned token has whatever scopes the user already granted at
- * connect time (drive.file + drive.readonly + openid/email/profile). For
- * the Picker we only need drive.readonly metadata access.
+ * Returned token carries the user's granted scopes (drive.file +
+ * openid/email/profile). The Picker uses it to let the user select a folder,
+ * which grants the app per-folder access under drive.file.
  */
 export async function mintPickerToken(args: {
   userId: string;

@@ -2,9 +2,12 @@
  * Google Drive API operations (server-only).
  *
  * Implemented:
- *   - getFolderMetadata(accessToken, folderId)        — manual folder-ID validation
  *   - initiateResumableUpload({accessToken, …})        — opens a resumable session
  *   - putChunkToSession(sessionUrl, chunk, range)      — relays one chunk to Google
+ *
+ * Scope: drive.file only. The app never reads the user's existing files; the
+ * Picker grants per-folder access to the selected destination, and we create
+ * files within it.
  *
  * Upload architecture (server-relayed resumable):
  *   The browser sends file chunks to OUR API (same-origin, no CORS), and the
@@ -22,91 +25,11 @@
 import "server-only";
 import type { ResumableUploadSession } from "@/lib/providers/types";
 
-export const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 // 4 MB = 16 × 256 KB. Google requires non-final chunks to be 256 KB multiples,
 // and Vercel caps request bodies at ~4.5 MB, so 4 MB is the sweet spot for the
 // server-relayed path.
 export const DRIVE_CHUNK_SIZE = 4 * 1024 * 1024;
-const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
-
-// ---- Folder metadata -------------------------------------------------------
-
-export type FolderMetadataResult =
-  | {
-      ok: true;
-      id: string;
-      name: string;
-      mimeType: string;
-      isFolder: boolean;
-      driveId: string | null;
-    }
-  | {
-      ok: false;
-      reason: "not_found" | "no_access" | "trashed" | "not_a_folder" | "api_error";
-      message?: string;
-    };
-
-interface DriveFileResponse {
-  id?: string;
-  name?: string;
-  mimeType?: string;
-  trashed?: boolean;
-  driveId?: string;
-  error?: { code: number; message: string };
-}
-
-export async function getFolderMetadata(
-  accessToken: string,
-  folderId: string,
-): Promise<FolderMetadataResult> {
-  const url = new URL(`${DRIVE_API_BASE}/files/${encodeURIComponent(folderId)}`);
-  url.searchParams.set("fields", "id,name,mimeType,trashed,driveId");
-  url.searchParams.set("supportsAllDrives", "true");
-
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "api_error",
-      message: err instanceof Error ? err.message : "Network error",
-    };
-  }
-
-  if (res.status === 404) return { ok: false, reason: "not_found" };
-  if (res.status === 403) return { ok: false, reason: "no_access" };
-  if (!res.ok) {
-    let body: DriveFileResponse | null = null;
-    try {
-      body = (await res.json()) as DriveFileResponse;
-    } catch {
-      /* ignore */
-    }
-    return {
-      ok: false,
-      reason: "api_error",
-      message: body?.error?.message ?? `Drive returned ${res.status}`,
-    };
-  }
-
-  const data = (await res.json()) as DriveFileResponse;
-  if (data.trashed) return { ok: false, reason: "trashed" };
-  if (data.mimeType !== DRIVE_FOLDER_MIME) return { ok: false, reason: "not_a_folder" };
-
-  return {
-    ok: true,
-    id: data.id!,
-    name: data.name ?? "(no name)",
-    mimeType: data.mimeType,
-    isFolder: true,
-    driveId: data.driveId ?? null,
-  };
-}
 
 // ---- Resumable upload ------------------------------------------------------
 

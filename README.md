@@ -183,7 +183,7 @@ Schema is provider-agnostic — `storage_connections.provider` discriminates,
 - OAuth tokens are encrypted at rest with AES-256-GCM (`TOKEN_ENCRYPTION_KEY`).
 - The browser never receives an access token. The resumable session URL handed to the browser is single-use, short-lived, and scoped to one file.
 - Public upload pages read from a restricted view (`upload_links_public`) that excludes folder ID, owner ID, and any token data.
-- Drive scopes used: `drive.file` (least-privilege; can only see files our app created). `drive.readonly` is requested only at Picker session time.
+- Drive scope: `drive.file` only (least-privilege, sensitive — not restricted). The app only accesses files it creates and folders the user picks via the Google Picker; it never reads the user's other files. Avoids the restricted `drive.readonly` scope and its CASA assessment.
 - IP-hashed rate limiting on public upload endpoints (M8).
 - SaaS auth (Supabase) and storage OAuth (Google) are intentionally separate identity layers. You can sign up and never connect a storage provider; you can disconnect storage without losing your account.
 
