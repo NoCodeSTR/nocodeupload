@@ -202,6 +202,10 @@ create table public.upload_links (
   show_message_field boolean not null default true,
   branding_logo_url text,
   branding_color text,
+  -- Optional per-link webhook (Zapier/Make/custom) fired on each completed
+  -- upload, HMAC-signed with webhook_secret.
+  webhook_url text,
+  webhook_secret text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

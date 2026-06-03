@@ -144,8 +144,8 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(humanizeError(body.error));
+        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+        throw new Error(humanizeError(body.error, body.reason));
       }
       router.push("/dashboard");
       router.refresh();
@@ -321,45 +321,6 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         </label>
       </section>
 
-      {/* Automations */}
-      <section className="space-y-4">
-        <div>
-          <h2 className="font-display text-base font-semibold">Automations</h2>
-          <p className="text-sm text-ink-500">Send completed uploads to Zapier, Make, or your own webhook.</p>
-        </div>
-        <div>
-          <label className="label mb-1" htmlFor="webhookUrl">
-            Webhook URL <span className="font-normal text-ink-400">(optional)</span>
-          </label>
-          <input
-            id="webhookUrl"
-            type="url"
-            className="input"
-            value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.target.value)}
-            placeholder="https://hooks.zapier.com/hooks/catch/..."
-            maxLength={2000}
-          />
-          <p className="mt-1 text-xs text-ink-400">
-            NoCodeUpload posts a signed upload.completed payload after each successful file upload.
-          </p>
-        </div>
-        {mode === "edit" && initialLink?.webhook_secret && (
-          <div>
-            <span className="label mb-1 block">Signing secret</span>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="max-w-full truncate rounded bg-ink-100 px-2 py-1 text-xs text-ink-700 dark:bg-ink-900 dark:text-ink-200">
-                {initialLink.webhook_secret}
-              </code>
-              <CopyButton value={initialLink.webhook_secret} label="Copy secret" />
-            </div>
-            <p className="mt-1 text-xs text-ink-400">
-              Verify the X-NoCodeUpload-Signature header with this secret.
-            </p>
-          </div>
-        )}
-      </section>
-
       {/* Branding */}
       <section className="space-y-3">
         <div>
@@ -378,6 +339,43 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
             className="h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
             aria-label="Accent color"
           />
+        )}
+      </section>
+
+      {/* Webhook (advanced) */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-semibold">Webhook</h2>
+          <p className="text-sm text-ink-500">
+            Optional. We&apos;ll POST a signed JSON payload to this URL on every completed
+            upload — point it at Zapier, Make, or your own endpoint.
+          </p>
+        </div>
+        <div>
+          <label className="label mb-1" htmlFor="webhook">Webhook URL</label>
+          <input
+            id="webhook"
+            type="url"
+            className="input"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hooks.zapier.com/hooks/catch/..."
+          />
+        </div>
+        {initialLink?.webhook_secret && (
+          <div>
+            <span className="label mb-1 block">Signing secret</span>
+            <p className="mb-2 text-xs text-ink-400">
+              Verify requests by recomputing an HMAC-SHA256 of the raw body and comparing it
+              to the <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">X-NoCodeUpload-Signature</code> header.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="truncate rounded bg-ink-100 px-2 py-1 font-mono text-xs dark:bg-ink-900">
+                {initialLink.webhook_secret}
+              </code>
+              <CopyButton value={initialLink.webhook_secret} label="Copy secret" />
+            </div>
+          </div>
         )}
       </section>
 
@@ -404,12 +402,14 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   );
 }
 
-function humanizeError(code?: string): string {
+function humanizeError(code?: string, reason?: string): string {
   switch (code) {
     case "connection_not_found":
       return "That Google account connection couldn't be found. Reconnect it in Settings.";
     case "invalid_request":
       return "Some fields are invalid. Double-check the form and try again.";
+    case "invalid_webhook":
+      return reason ?? "That webhook URL isn't allowed. Use a public https:// URL.";
     case "not_found":
       return "This link no longer exists.";
     default:

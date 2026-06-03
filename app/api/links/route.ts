@@ -13,6 +13,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { uploadLinkCreateSchema } from "@/lib/schemas";
 import { createLink } from "@/lib/links";
+import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 
 export async function POST(request: NextRequest) {
   const user = await requireUser();
@@ -30,6 +31,14 @@ export async function POST(request: NextRequest) {
       { error: "invalid_request", issues: parsed.error.flatten() },
       { status: 400 },
     );
+  }
+
+  // SSRF guard on the user-provided webhook URL.
+  if (parsed.data.webhookUrl) {
+    const check = isPubliclySafeHttpUrl(parsed.data.webhookUrl);
+    if (!check.safe) {
+      return NextResponse.json({ error: "invalid_webhook", reason: check.reason }, { status: 400 });
+    }
   }
 
   try {

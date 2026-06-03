@@ -165,6 +165,7 @@ export async function createLink(
       branding_logo_url: input.brandingLogoUrl ?? null,
       branding_color: input.brandingColor ?? null,
       webhook_url: input.webhookUrl ?? null,
+      // Always provision a signing secret so it's ready when a webhook is added.
       webhook_secret: randomBytes(24).toString("hex"),
     };
 
@@ -226,7 +227,13 @@ export async function updateLink(args: {
   if (i.showMessageField !== undefined) patch.show_message_field = i.showMessageField;
   if (i.brandingLogoUrl !== undefined) patch.branding_logo_url = i.brandingLogoUrl;
   if (i.brandingColor !== undefined) patch.branding_color = i.brandingColor;
-  if (i.webhookUrl !== undefined) patch.webhook_url = i.webhookUrl;
+  if (i.webhookUrl !== undefined) {
+    patch.webhook_url = i.webhookUrl;
+    // Backfill a secret for older links that don't have one yet.
+    if (i.webhookUrl && !existing.webhook_secret) {
+      patch.webhook_secret = randomBytes(24).toString("hex");
+    }
+  }
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

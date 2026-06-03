@@ -23,7 +23,7 @@ import { decryptFromToken } from "@/lib/crypto/tokens";
 import { putChunkToSession } from "@/lib/providers/google/drive";
 import { finalizeUpload } from "@/lib/uploads";
 import { sendUploadNotification } from "@/lib/email";
-import { sendUploadWebhook } from "@/lib/webhooks";
+import { sendUploadWebhook } from "@/lib/webhook";
 
 // Each chunk relay receives ≤4 MB and forwards it to Google. Give it headroom.
 export const maxDuration = 60;
@@ -85,20 +85,13 @@ export async function POST(request: NextRequest) {
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
     }
     if (finalized) {
-      // Notify the owner and deliver the webhook. Awaited so they run before the
-      // serverless function exits, but neither can fail the upload response.
-      try {
-        await sendUploadNotification(uploadId);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error("[upload/chunk] notification failed:", err);
-      }
-      try {
-        await sendUploadWebhook(uploadId);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error("[upload/chunk] webhook failed:", err);
-      }
+      // Fire the owner email + any webhook (both no-op when not configured).
+      // Awaited so they run before the serverless function exits; allSettled so
+      // neither can fail the response.
+      await Promise.allSettled([
+        sendUploadNotification(uploadId),
+        sendUploadWebhook(uploadId),
+      ]);
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

@@ -70,6 +70,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Baseline security headers on every response.
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+
   // Framing policy: only /embed/* may be embedded in third-party sites; every
   // other route denies framing to prevent clickjacking (esp. the dashboard).
   if (pathname.startsWith("/embed")) {
