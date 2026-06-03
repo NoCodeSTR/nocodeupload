@@ -13,6 +13,15 @@ export const storageProviderSchema = z.enum([
 ]);
 export type StorageProviderId = z.infer<typeof storageProviderSchema>;
 
+export const customFieldSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().min(1, "Label is required").max(60),
+  value: z.string().max(500).default(""),
+  visible: z.boolean().default(true),
+  required: z.boolean().default(false),
+});
+export type CustomFieldInput = z.infer<typeof customFieldSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
@@ -26,6 +35,11 @@ export const uploadLinkCreateSchema = z.object({
   requireName: z.boolean().default(false),
   requireEmail: z.boolean().default(false),
   showMessageField: z.boolean().default(true),
+  prefillName: z.string().max(120).optional().nullable(),
+  prefillEmail: z.string().max(255).optional().nullable(),
+  hideName: z.boolean().default(false),
+  hideEmail: z.boolean().default(false),
+  customFields: z.array(customFieldSchema).max(3).optional(),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),
@@ -46,6 +60,9 @@ export const uploadInitiateSchema = z.object({
   // require_email, the initiate route enforces a valid format server-side.
   uploaderEmail: z.string().max(255).optional().nullable(),
   uploaderMessage: z.string().max(2000).optional().nullable(),
+  // Visible custom-field values, keyed by field id. Hidden fields are
+  // injected server-side and never accepted from the browser.
+  customValues: z.record(z.string().max(500)).optional(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;

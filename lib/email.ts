@@ -28,7 +28,7 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
   const { data: uploadData } = await admin
     .from("uploads")
     .select(
-      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, status",
+      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status",
     )
     .eq("id", uploadId)
     .maybeSingle();
@@ -42,6 +42,7 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
         uploader_name: string | null;
         uploader_email: string | null;
         uploader_message: string | null;
+        custom_data: Record<string, string> | null;
         status: string;
       }
     | null;
@@ -77,6 +78,10 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
   if (upload.uploader_name) rows.push(row("From", escapeHtml(upload.uploader_name)));
   if (upload.uploader_email) rows.push(row("Email", escapeHtml(upload.uploader_email)));
   if (upload.uploader_message) rows.push(row("Message", escapeHtml(upload.uploader_message)));
+  // Owner-defined custom field tags.
+  for (const [label, value] of Object.entries(upload.custom_data ?? {})) {
+    if (value) rows.push(row(escapeHtml(label), escapeHtml(String(value))));
+  }
   rows.push(row("File", escapeHtml(upload.original_filename)));
 
   const html = `

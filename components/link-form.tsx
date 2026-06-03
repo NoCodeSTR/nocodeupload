@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import type { ConnectionSummary } from "@/lib/connections";
-import type { UploadLinkRow } from "@/lib/db-types";
+import type { UploadLinkRow, CustomFieldDef } from "@/lib/db-types";
 
 interface LinkFormProps {
   mode: "create" | "edit";
@@ -74,6 +74,13 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   const [requireName, setRequireName] = useState(initialLink?.require_name ?? false);
   const [requireEmail, setRequireEmail] = useState(initialLink?.require_email ?? false);
   const [showMessageField, setShowMessageField] = useState(initialLink?.show_message_field ?? true);
+  const [prefillName, setPrefillName] = useState(initialLink?.prefill_name ?? "");
+  const [prefillEmail, setPrefillEmail] = useState(initialLink?.prefill_email ?? "");
+  const [hideName, setHideName] = useState(initialLink?.hide_name ?? false);
+  const [hideEmail, setHideEmail] = useState(initialLink?.hide_email ?? false);
+  const [customFields, setCustomFields] = useState<CustomFieldDef[]>(
+    initialLink?.custom_fields ?? [],
+  );
   const [expiresAt, setExpiresAt] = useState(isoToDateInput(initialLink?.expires_at ?? null));
   const [useCustomColor, setUseCustomColor] = useState(Boolean(initialLink?.branding_color));
   const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
@@ -98,6 +105,20 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       if (typePresets.has(preset.key)) out.push(...preset.patterns);
     }
     return out;
+  }
+
+  function addCustomField() {
+    if (customFields.length >= 3) return;
+    setCustomFields((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), label: "", value: "", visible: true, required: false },
+    ]);
+  }
+  function updateCustomField(id: string, patch: Partial<CustomFieldDef>) {
+    setCustomFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  }
+  function removeCustomField(id: string) {
+    setCustomFields((prev) => prev.filter((f) => f.id !== id));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -129,6 +150,13 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       requireName,
       requireEmail,
       showMessageField,
+      prefillName: prefillName.trim() || null,
+      prefillEmail: prefillEmail.trim() || null,
+      hideName,
+      hideEmail,
+      customFields: customFields
+        .filter((f) => f.label.trim())
+        .map((f) => ({ ...f, label: f.label.trim(), value: f.value.trim() })),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
       webhookUrl: webhookUrl.trim() || null,
@@ -319,6 +347,98 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
           <input type="checkbox" checked={showMessageField} onChange={(e) => setShowMessageField(e.target.checked)} />
           Show a message / notes field
         </label>
+
+        {/* Prefill + hide for name/email */}
+        <div className="grid gap-3 border-t border-ink-200 pt-3 dark:border-ink-700 sm:grid-cols-2">
+          <div>
+            <label className="label mb-1" htmlFor="prefill-name">Prefill name (optional)</label>
+            <input id="prefill-name" className="input" value={prefillName} onChange={(e) => setPrefillName(e.target.value)} placeholder="e.g. Maria" />
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
+              <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} />
+              Hide from uploader (attach silently)
+            </label>
+          </div>
+          <div>
+            <label className="label mb-1" htmlFor="prefill-email">Prefill email (optional)</label>
+            <input id="prefill-email" className="input" value={prefillEmail} onChange={(e) => setPrefillEmail(e.target.value)} placeholder="e.g. maria@example.com" />
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
+              <input type="checkbox" checked={hideEmail} onChange={(e) => setHideEmail(e.target.checked)} />
+              Hide from uploader (attach silently)
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {/* Custom fields */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-semibold">
+            Custom fields <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
+          </h2>
+          <p className="text-sm text-ink-500">
+            Up to 3 of your own fields. Hidden + prefilled values get attached to every
+            upload and flow into your webhook — perfect for tagging a cleaner&apos;s
+            Airtable record ID, phone, etc.
+          </p>
+        </div>
+
+        {customFields.map((f) => (
+          <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input
+                className="input"
+                value={f.label}
+                onChange={(e) => updateCustomField(f.id, { label: e.target.value })}
+                placeholder="Field name (e.g. Cleaner Record ID)"
+                maxLength={60}
+              />
+              <input
+                className="input"
+                value={f.value}
+                onChange={(e) => updateCustomField(f.id, { value: e.target.value })}
+                placeholder="Default / prefilled value"
+                maxLength={500}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={f.visible}
+                  onChange={(e) => updateCustomField(f.id, { visible: e.target.checked })}
+                />
+                Visible to uploader
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={f.required}
+                  disabled={!f.visible}
+                  onChange={(e) => updateCustomField(f.id, { required: e.target.checked })}
+                />
+                Required
+              </label>
+              <button
+                type="button"
+                onClick={() => removeCustomField(f.id)}
+                className="ml-auto text-red-600 hover:underline dark:text-red-300"
+              >
+                Remove
+              </button>
+            </div>
+            {!f.visible && (
+              <p className="mt-1.5 text-xs text-ink-400">
+                Hidden — the prefilled value is attached to every upload without the uploader seeing it.
+              </p>
+            )}
+          </div>
+        ))}
+
+        {customFields.length < 3 && (
+          <button type="button" onClick={addCustomField} className="btn-secondary text-sm">
+            + Add custom field
+          </button>
+        )}
       </section>
 
       {/* Branding */}

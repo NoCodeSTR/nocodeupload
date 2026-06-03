@@ -116,6 +116,19 @@ function UploadRowCard({ upload }: { upload: UploadRow }) {
             </div>
           )}
 
+          {upload.custom_data && Object.keys(upload.custom_data).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {Object.entries(upload.custom_data).map(([label, value]) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                >
+                  <span className="font-medium">{label}:</span> {String(value)}
+                </span>
+              ))}
+            </div>
+          )}
+
           {upload.status === "failed" && upload.error_message && (
             <p className="mt-2 text-xs text-red-600 dark:text-red-300">{upload.error_message}</p>
           )}

@@ -14,6 +14,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide-react";
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
+import type { PublicCustomField } from "@/lib/db-types";
 
 interface PublicUploaderProps {
   slug: string;
@@ -23,6 +24,11 @@ interface PublicUploaderProps {
   maxFileSizeMb: number;
   allowedMimeTypes: string[] | null;
   accent: string;
+  hideName?: boolean;
+  hideEmail?: boolean;
+  prefillName?: string | null;
+  prefillEmail?: string | null;
+  customFields?: PublicCustomField[];
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -135,15 +141,28 @@ export function PublicUploader({
   maxFileSizeMb,
   allowedMimeTypes,
   accent,
+  hideName = false,
+  hideEmail = false,
+  prefillName = null,
+  prefillEmail = null,
+  customFields = [],
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(prefillName ?? "");
+  const [email, setEmail] = useState(prefillEmail ?? "");
   const [message, setMessage] = useState("");
+  const [customValues, setCustomValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(customFields.map((f) => [f.id, f.value ?? ""])),
+  );
   const [files, setFiles] = useState<FileItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Built-in name/email show only when visible (not hidden) and either
+  // required or prefilled. Hidden fields are applied server-side.
+  const showName = !hideName && (requireName || Boolean(prefillName));
+  const showEmail = !hideEmail && (requireEmail || Boolean(prefillEmail));
 
   const maxBytes = maxFileSizeMb * 1024 * 1024;
 
@@ -215,6 +234,7 @@ export function PublicUploader({
           uploaderName: name.trim() || null,
           uploaderEmail: email.trim() || null,
           uploaderMessage: message.trim() || null,
+          customValues,
         }),
       });
       if (!res.ok) {
@@ -251,12 +271,17 @@ export function PublicUploader({
 
   async function handleUpload() {
     setFormError(null);
-    if (requireName && !name.trim()) {
+    if (showName && requireName && !name.trim()) {
       setFormError("Please enter your name.");
       return;
     }
-    if (requireEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (showEmail && requireEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setFormError("Please enter a valid email.");
+      return;
+    }
+    const missingCustom = customFields.find((f) => f.required && !(customValues[f.id] ?? "").trim());
+    if (missingCustom) {
+      setFormError(`Please fill in "${missingCustom.label}".`);
       return;
     }
     const queued = files.filter((f) => f.status === "queued");
@@ -279,18 +304,18 @@ export function PublicUploader({
 
   return (
     <div className="space-y-4">
-      {requireName && (
+      {showName && (
         <div>
           <label className="label mb-1" htmlFor="uploader-name">
-            Your name <span className="text-red-500">*</span>
+            Your name {requireName && <span className="text-red-500">*</span>}
           </label>
           <input id="uploader-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" disabled={uploading} />
         </div>
       )}
-      {requireEmail && (
+      {showEmail && (
         <div>
           <label className="label mb-1" htmlFor="uploader-email">
-            Your email <span className="text-red-500">*</span>
+            Your email {requireEmail && <span className="text-red-500">*</span>}
           </label>
           <input id="uploader-email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" disabled={uploading} />
         </div>
@@ -303,6 +328,22 @@ export function PublicUploader({
           <textarea id="uploader-message" className="input min-h-[72px]" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Anything we should know?" disabled={uploading} />
         </div>
       )}
+
+      {/* Owner-defined visible custom fields */}
+      {customFields.map((f) => (
+        <div key={f.id}>
+          <label className="label mb-1" htmlFor={`cf-${f.id}`}>
+            {f.label} {f.required && <span className="text-red-500">*</span>}
+          </label>
+          <input
+            id={`cf-${f.id}`}
+            className="input"
+            value={customValues[f.id] ?? ""}
+            onChange={(e) => setCustomValues((prev) => ({ ...prev, [f.id]: e.target.value }))}
+            disabled={uploading}
+          />
+        </div>
+      ))}
 
       {/* Drop zone */}
       <div

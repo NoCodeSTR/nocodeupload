@@ -26,7 +26,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
   const { data: uploadData } = await admin
     .from("uploads")
     .select(
-      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, status, completed_at",
+      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status, completed_at",
     )
     .eq("id", uploadId)
     .maybeSingle();
@@ -40,6 +40,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
         uploader_name: string | null;
         uploader_email: string | null;
         uploader_message: string | null;
+        custom_data: Record<string, string> | null;
         status: string;
         completed_at: string | null;
       }
@@ -82,6 +83,9 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
       email: upload.uploader_email,
       message: upload.uploader_message,
     },
+    // Owner-defined tags (prefilled/hidden custom fields) — the Airtable/Make
+    // matching key, e.g. { "Cleaner Record ID": "rec123", "Phone": "555..." }.
+    customData: upload.custom_data ?? {},
     uploadedAt: upload.completed_at ?? new Date().toISOString(),
   };
 

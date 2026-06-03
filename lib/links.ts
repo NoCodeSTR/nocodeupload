@@ -162,6 +162,11 @@ export async function createLink(
       require_name: input.requireName ?? false,
       require_email: input.requireEmail ?? false,
       show_message_field: input.showMessageField ?? true,
+      prefill_name: input.prefillName ?? null,
+      prefill_email: input.prefillEmail ?? null,
+      hide_name: input.hideName ?? false,
+      hide_email: input.hideEmail ?? false,
+      custom_fields: input.customFields ?? [],
       branding_logo_url: input.brandingLogoUrl ?? null,
       branding_color: input.brandingColor ?? null,
       webhook_url: input.webhookUrl ?? null,
@@ -225,6 +230,11 @@ export async function updateLink(args: {
   if (i.requireName !== undefined) patch.require_name = i.requireName;
   if (i.requireEmail !== undefined) patch.require_email = i.requireEmail;
   if (i.showMessageField !== undefined) patch.show_message_field = i.showMessageField;
+  if (i.prefillName !== undefined) patch.prefill_name = i.prefillName;
+  if (i.prefillEmail !== undefined) patch.prefill_email = i.prefillEmail;
+  if (i.hideName !== undefined) patch.hide_name = i.hideName;
+  if (i.hideEmail !== undefined) patch.hide_email = i.hideEmail;
+  if (i.customFields !== undefined) patch.custom_fields = i.customFields;
   if (i.brandingLogoUrl !== undefined) patch.branding_logo_url = i.brandingLogoUrl;
   if (i.brandingColor !== undefined) patch.branding_color = i.brandingColor;
   if (i.webhookUrl !== undefined) {

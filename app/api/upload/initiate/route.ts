@@ -85,12 +85,40 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "type_not_allowed" }, { status: 415 });
   }
 
-  // Required uploader fields.
-  if (link.require_name && !(input.uploaderName && input.uploaderName.trim())) {
+  // Resolve built-in name/email honoring prefill + hide. Hidden fields take
+  // the owner's prefilled value server-side; the browser value is ignored.
+  const resolvedName = link.hide_name
+    ? (link.prefill_name ?? null)
+    : (input.uploaderName?.trim() || null);
+  const resolvedEmail = link.hide_email
+    ? (link.prefill_email ?? null)
+    : (input.uploaderEmail?.trim() || null);
+
+  // Required built-in validation (only enforced for visible fields).
+  if (link.require_name && !link.hide_name && !resolvedName) {
     return NextResponse.json({ error: "missing_name" }, { status: 400 });
   }
-  if (link.require_email && !(input.uploaderEmail && isValidEmail(input.uploaderEmail))) {
+  if (link.require_email && !link.hide_email && !(resolvedEmail && isValidEmail(resolvedEmail))) {
     return NextResponse.json({ error: "missing_email" }, { status: 400 });
+  }
+
+  // Resolve custom fields → custom_data. Visible values come from the browser
+  // (falling back to the prefill); hidden values are injected server-side and
+  // never accepted from the client.
+  const customData: Record<string, string> = {};
+  const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
+  const submitted = input.customValues ?? {};
+  for (const f of fields) {
+    let val: string;
+    if (f.visible) {
+      val = String(submitted[f.id] ?? f.value ?? "").trim();
+      if (f.required && !val) {
+        return NextResponse.json({ error: "missing_custom_field", label: f.label }, { status: 400 });
+      }
+    } else {
+      val = String(f.value ?? "");
+    }
+    if (val) customData[f.label] = val;
   }
 
   // Rate limit BEFORE spending a Drive session (cheaper to reject early).
@@ -148,9 +176,10 @@ export async function POST(request: NextRequest) {
       filename: input.filename,
       mimeType: input.mimeType,
       size: input.size,
-      uploaderName: input.uploaderName ?? null,
-      uploaderEmail: input.uploaderEmail ?? null,
+      uploaderName: resolvedName,
+      uploaderEmail: resolvedEmail,
       uploaderMessage: input.uploaderMessage ?? null,
+      customData,
       ipHash,
     });
   } catch (err) {

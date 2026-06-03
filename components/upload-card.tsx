@@ -51,6 +51,11 @@ export function UploadCard({
             maxFileSizeMb={link.max_file_size_mb}
             allowedMimeTypes={link.allowed_mime_types}
             accent={accent}
+            hideName={link.hide_name}
+            hideEmail={link.hide_email}
+            prefillName={link.prefill_name}
+            prefillEmail={link.prefill_email}
+            customFields={link.visible_custom_fields}
           />
         </div>
       </div>

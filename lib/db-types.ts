@@ -74,12 +74,34 @@ export interface UploadLinkRow {
   require_name: boolean;
   require_email: boolean;
   show_message_field: boolean;
+  prefill_name: string | null;
+  prefill_email: string | null;
+  hide_name: boolean;
+  hide_email: boolean;
+  custom_fields: CustomFieldDef[];
   branding_logo_url: string | null;
   branding_color: string | null;
   webhook_url: string | null;
   webhook_secret: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** An owner-defined field on a link (max 3). */
+export interface CustomFieldDef {
+  id: string;
+  label: string;
+  value: string; // prefill / baked-in value
+  visible: boolean; // shown to the uploader (editable) vs hidden (server-injected)
+  required: boolean; // only meaningful when visible
+}
+
+/** The visible subset exposed by the public view (no hidden fields). */
+export interface PublicCustomField {
+  id: string;
+  label: string;
+  value: string;
+  required: boolean;
 }
 
 export interface UploadRow {
@@ -97,6 +119,7 @@ export interface UploadRow {
   uploader_email: string | null;
   uploader_message: string | null;
   uploader_ip_hash: string | null;
+  custom_data: Record<string, string>;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;
@@ -119,6 +142,11 @@ export interface UploadLinkPublicRow {
   require_name: boolean;
   require_email: boolean;
   show_message_field: boolean;
+  hide_name: boolean;
+  hide_email: boolean;
+  prefill_name: string | null;
+  prefill_email: string | null;
+  visible_custom_fields: PublicCustomField[];
   branding_logo_url: string | null;
   branding_color: string | null;
 }

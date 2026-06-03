@@ -200,6 +200,13 @@ create table public.upload_links (
   require_name boolean not null default false,
   require_email boolean not null default false,
   show_message_field boolean not null default true,
+  -- Prefill + hide for the built-in name/email (e.g. bake in a cleaner's identity).
+  prefill_name text,
+  prefill_email text,
+  hide_name boolean not null default false,
+  hide_email boolean not null default false,
+  -- Up to 3 owner-defined fields: [{ id, label, value, visible, required }].
+  custom_fields jsonb not null default '[]'::jsonb,
   branding_logo_url text,
   branding_color text,
   -- Optional per-link webhook (Zapier/Make/custom) fired on each completed
@@ -254,6 +261,20 @@ select
   l.require_name,
   l.require_email,
   l.show_message_field,
+  l.hide_name,
+  l.hide_email,
+  case when l.hide_name then null else l.prefill_name end as prefill_name,
+  case when l.hide_email then null else l.prefill_email end as prefill_email,
+  coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', e->>'id',
+      'label', e->>'label',
+      'value', e->>'value',
+      'required', coalesce((e->>'required')::boolean, false)
+    ))
+    from jsonb_array_elements(l.custom_fields) e
+    where coalesce((e->>'visible')::boolean, false) = true
+  ), '[]'::jsonb) as visible_custom_fields,
   -- Effective logo: per-link override, else the owner's account logo.
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color

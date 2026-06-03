@@ -23,6 +23,7 @@ export async function createUploadRecord(args: {
   uploaderName?: string | null;
   uploaderEmail?: string | null;
   uploaderMessage?: string | null;
+  customData?: Record<string, string>;
   ipHash?: string | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
@@ -39,6 +40,7 @@ export async function createUploadRecord(args: {
     uploader_email: args.uploaderEmail ?? null,
     uploader_message: args.uploaderMessage ?? null,
     uploader_ip_hash: args.ipHash ?? null,
+    custom_data: args.customData ?? {},
     status: "uploading",
   };
 
