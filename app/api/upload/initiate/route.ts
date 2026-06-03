@@ -26,6 +26,7 @@ import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed } from "@/lib/upload-validation";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
+import { checkUploadAllowed } from "@/lib/rate-limit";
 
 function clientIp(request: NextRequest): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -92,6 +93,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing_email" }, { status: 400 });
   }
 
+  // Rate limit BEFORE spending a Drive session (cheaper to reject early).
+  const ipHash = hashIp(clientIp(request));
+  const limit = await checkUploadAllowed({ ipHash, linkId: link.id });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited", reason: limit.reason },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+    );
+  }
+
   // Fresh access token for the owner's connection (refreshes if needed).
   let accessToken: string;
   let providerId;
@@ -140,7 +151,7 @@ export async function POST(request: NextRequest) {
       uploaderName: input.uploaderName ?? null,
       uploaderEmail: input.uploaderEmail ?? null,
       uploaderMessage: input.uploaderMessage ?? null,
-      ipHash: hashIp(clientIp(request)),
+      ipHash,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

@@ -400,6 +400,7 @@ function humanizeInitiateError(code: string | undefined, maxMb: number): string 
     case "missing_name": return "Please enter your name.";
     case "missing_email": return "Please enter a valid email.";
     case "provider_unavailable": return "The destination isn't reachable right now. The owner may need to reconnect their storage.";
+    case "rate_limited": return "Too many uploads in a short time. Please wait a few minutes and try again.";
     default: return "Couldn't start the upload. Please try again.";
   }
 }
