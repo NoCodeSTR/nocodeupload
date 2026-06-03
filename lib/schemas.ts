@@ -5,6 +5,15 @@
  */
 import { z } from "zod";
 
+const webhookUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .url()
+  .refine((value) => value.startsWith("https://") || value.startsWith("http://"), {
+    message: "Webhook URL must start with http:// or https://",
+  });
+
 export const storageProviderSchema = z.enum([
   "google_drive",
   "dropbox",
@@ -28,6 +37,7 @@ export const uploadLinkCreateSchema = z.object({
   showMessageField: z.boolean().default(true),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
+  webhookUrl: webhookUrlSchema.optional().nullable(),
 });
 
 export type UploadLinkCreateInput = z.infer<typeof uploadLinkCreateSchema>;

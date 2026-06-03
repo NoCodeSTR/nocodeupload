@@ -8,6 +8,7 @@
  * pointing at a connection id that isn't theirs.
  */
 import "server-only";
+import { randomBytes } from "crypto";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { generateSlug } from "@/lib/slug";
@@ -163,6 +164,8 @@ export async function createLink(
       show_message_field: input.showMessageField ?? true,
       branding_logo_url: input.brandingLogoUrl ?? null,
       branding_color: input.brandingColor ?? null,
+      webhook_url: input.webhookUrl ?? null,
+      webhook_secret: randomBytes(24).toString("hex"),
     };
 
     const { data, error } = await supabase
@@ -223,6 +226,7 @@ export async function updateLink(args: {
   if (i.showMessageField !== undefined) patch.show_message_field = i.showMessageField;
   if (i.brandingLogoUrl !== undefined) patch.branding_logo_url = i.brandingLogoUrl;
   if (i.brandingColor !== undefined) patch.branding_color = i.brandingColor;
+  if (i.webhookUrl !== undefined) patch.webhook_url = i.webhookUrl;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

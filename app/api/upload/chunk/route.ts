@@ -23,6 +23,7 @@ import { decryptFromToken } from "@/lib/crypto/tokens";
 import { putChunkToSession } from "@/lib/providers/google/drive";
 import { finalizeUpload } from "@/lib/uploads";
 import { sendUploadNotification } from "@/lib/email";
+import { sendUploadWebhook } from "@/lib/webhooks";
 
 // Each chunk relay receives ≤4 MB and forwards it to Google. Give it headroom.
 export const maxDuration = 60;
@@ -75,19 +76,29 @@ export async function POST(request: NextRequest) {
 
   if (result.status === "complete") {
     // Mark the upload row complete (best-effort; the file is already in Drive).
+    let finalized = false;
     try {
-      await finalizeUpload({ uploadId, providerFileId: result.fileId });
+      const complete = await finalizeUpload({ uploadId, providerFileId: result.fileId });
+      finalized = complete.ok;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
     }
-    // Notify the owner (no-op unless Resend is configured). Awaited so it runs
-    // before the serverless function exits, but never fails the response.
-    try {
-      await sendUploadNotification(uploadId);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[upload/chunk] notification failed:", err);
+    if (finalized) {
+      // Notify the owner and deliver the webhook. Awaited so they run before the
+      // serverless function exits, but neither can fail the upload response.
+      try {
+        await sendUploadNotification(uploadId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[upload/chunk] notification failed:", err);
+      }
+      try {
+        await sendUploadWebhook(uploadId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[upload/chunk] webhook failed:", err);
+      }
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

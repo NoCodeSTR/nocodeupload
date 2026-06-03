@@ -76,6 +76,8 @@ export interface UploadLinkRow {
   show_message_field: boolean;
   branding_logo_url: string | null;
   branding_color: string | null;
+  webhook_url: string | null;
+  webhook_secret: string | null;
   created_at: string;
   updated_at: string;
 }

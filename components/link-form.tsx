@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderPicker } from "@/components/folder-picker";
+import { CopyButton } from "@/components/copy-button";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { UploadLinkRow } from "@/lib/db-types";
 
@@ -76,6 +77,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   const [expiresAt, setExpiresAt] = useState(isoToDateInput(initialLink?.expires_at ?? null));
   const [useCustomColor, setUseCustomColor] = useState(Boolean(initialLink?.branding_color));
   const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
+  const [webhookUrl, setWebhookUrl] = useState(initialLink?.webhook_url ?? "");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +131,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       showMessageField,
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
+      webhookUrl: webhookUrl.trim() || null,
     };
 
     setSubmitting(true);
@@ -316,6 +319,45 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
           <input type="checkbox" checked={showMessageField} onChange={(e) => setShowMessageField(e.target.checked)} />
           Show a message / notes field
         </label>
+      </section>
+
+      {/* Automations */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="font-display text-base font-semibold">Automations</h2>
+          <p className="text-sm text-ink-500">Send completed uploads to Zapier, Make, or your own webhook.</p>
+        </div>
+        <div>
+          <label className="label mb-1" htmlFor="webhookUrl">
+            Webhook URL <span className="font-normal text-ink-400">(optional)</span>
+          </label>
+          <input
+            id="webhookUrl"
+            type="url"
+            className="input"
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="https://hooks.zapier.com/hooks/catch/..."
+            maxLength={2000}
+          />
+          <p className="mt-1 text-xs text-ink-400">
+            NoCodeUpload posts a signed upload.completed payload after each successful file upload.
+          </p>
+        </div>
+        {mode === "edit" && initialLink?.webhook_secret && (
+          <div>
+            <span className="label mb-1 block">Signing secret</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="max-w-full truncate rounded bg-ink-100 px-2 py-1 text-xs text-ink-700 dark:bg-ink-900 dark:text-ink-200">
+                {initialLink.webhook_secret}
+              </code>
+              <CopyButton value={initialLink.webhook_secret} label="Copy secret" />
+            </div>
+            <p className="mt-1 text-xs text-ink-400">
+              Verify the X-NoCodeUpload-Signature header with this secret.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Branding */}

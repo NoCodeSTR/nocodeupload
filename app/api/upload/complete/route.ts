@@ -14,6 +14,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { uploadFinalizeSchema } from "@/lib/schemas";
 import { finalizeUpload } from "@/lib/uploads";
+import { sendUploadNotification } from "@/lib/email";
+import { sendUploadWebhook } from "@/lib/webhooks";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -30,6 +32,20 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await finalizeUpload(parsed.data);
+    if (result.ok && parsed.data.providerFileId) {
+      try {
+        await sendUploadNotification(parsed.data.uploadId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[upload/complete] notification failed:", err);
+      }
+      try {
+        await sendUploadWebhook(parsed.data.uploadId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[upload/complete] webhook failed:", err);
+      }
+    }
     return NextResponse.json({ ok: result.ok });
   } catch (err) {
     // eslint-disable-next-line no-console
