@@ -6,8 +6,9 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Link2, Settings, Upload } from "lucide-react";
+import { Link2, Settings } from "lucide-react";
 import clsx from "clsx";
+import { BrandLogo } from "@/components/brand-logo";
 
 const NAV = [
   { href: "/dashboard", label: "Upload Links", icon: Link2 },
@@ -18,9 +19,8 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <aside className="hidden w-60 flex-shrink-0 flex-col border-r border-ink-200 bg-white px-4 py-6 dark:border-ink-700 dark:bg-ink-950 md:flex">
-      <Link href="/dashboard" className="mb-8 flex items-center gap-2 px-2 font-display text-lg font-bold">
-        <Upload className="h-5 w-5 text-brand" />
-        NoCode Upload
+      <Link href="/dashboard" className="mb-8 px-2">
+        <BrandLogo imgClassName="h-7 w-auto" />
       </Link>
       <nav className="flex flex-col gap-1">
         {NAV.map((item) => {

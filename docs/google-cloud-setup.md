@@ -37,8 +37,8 @@ Run these two links with your new project selected, then click **Enable** on eac
    - **App logo:** optional for MVP (recommended later — a public-looking logo speeds up the verification review)
 4. App domain:
    - **Application home page:** `https://nocodeupload.com`
-   - **Application privacy policy link:** `https://nocodeupload.com/privacy` (we'll add this page later)
-   - **Application terms of service link:** `https://nocodeupload.com/terms` (we'll add this later)
+   - **Application privacy policy link:** `https://www.nocodeupload.com/privacy`
+   - **Application terms of service link:** `https://www.nocodeupload.com/terms`
 5. Authorized domains: add `nocodeupload.com`.
 6. Developer contact: your email.
 7. Click **Save and Continue**.

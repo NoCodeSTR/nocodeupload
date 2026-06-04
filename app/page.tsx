@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Upload, Shield, Zap, Folder, Camera, Video } from "lucide-react";
+import { Shield, Zap, Folder, Camera, Video } from "lucide-react";
+import { BrandLogo } from "@/components/brand-logo";
 
 export default function HomePage() {
   return (
@@ -7,9 +8,8 @@ export default function HomePage() {
       {/* Header */}
       <header className="border-b border-ink-200 dark:border-ink-700">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold">
-            <Upload className="h-6 w-6 text-brand" />
-            NoCode Upload
+          <Link href="/">
+            <BrandLogo />
           </Link>
           <nav className="flex items-center gap-2">
             <Link href="/login" className="btn-ghost">
@@ -108,7 +108,11 @@ export default function HomePage() {
 
       <footer className="border-t border-ink-200 dark:border-ink-700">
         <div className="mx-auto max-w-6xl px-6 py-8 text-center text-sm text-ink-500">
-          NoCode Upload — files, simplified.
+          <div className="flex items-center justify-center gap-4">
+            <Link href="/privacy" className="hover:text-ink-900 dark:hover:text-ink-50">Privacy</Link>
+            <Link href="/terms" className="hover:text-ink-900 dark:hover:text-ink-50">Terms</Link>
+          </div>
+          <p className="mt-3">NoCode Upload — files, simplified.</p>
         </div>
       </footer>
     </main>
