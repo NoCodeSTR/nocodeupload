@@ -17,6 +17,7 @@ import "server-only";
 import { createHmac } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
+import { fileCategory } from "@/lib/upload-validation";
 
 const TIMEOUT_MS = 10_000;
 
@@ -72,6 +73,8 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
     file: {
       name: upload.original_filename,
       mimeType: upload.mime_type,
+      // Coarse category for automation filters (e.g. Zapier "only videos").
+      category: fileCategory(upload.mime_type),
       sizeBytes: upload.file_size_bytes,
       driveFileId: upload.provider_file_id,
       driveUrl: upload.provider_file_id

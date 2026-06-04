@@ -16,6 +16,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
+import { renderFilename } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { UploadLinkRow, CustomFieldDef } from "@/lib/db-types";
 
@@ -85,6 +86,8 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   const [useCustomColor, setUseCustomColor] = useState(Boolean(initialLink?.branding_color));
   const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
   const [webhookUrl, setWebhookUrl] = useState(initialLink?.webhook_url ?? "");
+  const [filenameTemplate, setFilenameTemplate] = useState(initialLink?.filename_template ?? "");
+  const [notifyEmail, setNotifyEmail] = useState(initialLink?.notify_email ?? true);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +163,8 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
       webhookUrl: webhookUrl.trim() || null,
+      filenameTemplate: filenameTemplate.trim() || null,
+      notifyEmail,
     };
 
     setSubmitting(true);
@@ -184,6 +189,19 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   }
 
   const selectedConnection = connections.find((c) => c.id === connectionId);
+
+  // Live preview of the filename template using representative sample values.
+  const filenamePreview = renderFilename(filenameTemplate, {
+    originalFilename: "IMG_2024.jpg",
+    uploaderName: prefillName || "jane",
+    uploaderEmail: prefillEmail || "jane@example.com",
+    customData: Object.fromEntries(
+      customFields
+        .filter((f) => f.label.trim())
+        .map((f) => [f.label.trim(), f.value.trim() || "sample"]),
+    ),
+    date: new Date(),
+  });
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -441,6 +459,59 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         )}
       </section>
 
+      {/* File naming */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-semibold">
+            File naming <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
+          </h2>
+          <p className="text-sm text-ink-500">
+            Auto-rename uploaded files using a template. Leave blank to keep the original
+            filenames. Great for searchable, organized uploads.
+          </p>
+        </div>
+        <input
+          className="input font-mono text-sm"
+          value={filenameTemplate}
+          onChange={(e) => setFilenameTemplate(e.target.value)}
+          placeholder="{name}-{date}-{time}"
+          maxLength={200}
+        />
+        <div className="flex flex-wrap gap-1.5">
+          {["{name}", "{date}", "{time}", "{datetime}", "{original}"].map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setFilenameTemplate((v) => (v ? `${v}-${t}` : t))}
+              className="rounded-md border border-ink-200 px-2 py-1 font-mono text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+            >
+              {t}
+            </button>
+          ))}
+          {customFields
+            .filter((f) => f.label.trim())
+            .map((f) => {
+              const tok = `{field:${f.label.trim()}}`;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFilenameTemplate((v) => (v ? `${v}-${tok}` : tok))}
+                  className="rounded-md border border-brand-200 bg-brand-50 px-2 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
+                >
+                  {tok}
+                </button>
+              );
+            })}
+        </div>
+        {filenameTemplate.trim() && (
+          <p className="text-xs text-ink-500">
+            Preview:{" "}
+            <code className="rounded bg-ink-100 px-1.5 py-0.5 dark:bg-ink-900">{filenamePreview}</code>
+          </p>
+        )}
+      </section>
+
       {/* Branding */}
       <section className="space-y-3">
         <div>
@@ -462,15 +533,29 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         )}
       </section>
 
-      {/* Webhook (advanced) */}
+      {/* Notifications & webhook */}
       <section className="space-y-3">
         <div>
-          <h2 className="font-display text-base font-semibold">Webhook</h2>
+          <h2 className="font-display text-base font-semibold">Notifications &amp; webhook</h2>
           <p className="text-sm text-ink-500">
-            Optional. We&apos;ll POST a signed JSON payload to this URL on every completed
-            upload — point it at Zapier, Make, or your own endpoint.
+            Choose how you hear about new uploads.
           </p>
         </div>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={notifyEmail}
+            onChange={(e) => setNotifyEmail(e.target.checked)}
+          />
+          Email me when someone uploads
+          <span className="text-xs text-ink-400">(uncheck if you only use the webhook)</span>
+        </label>
+
+        <p className="pt-1 text-sm text-ink-500">
+          Webhook (optional) — we POST a signed JSON payload on every completed upload.
+          Point it at Zapier, Make, or your own endpoint.
+        </p>
         <div>
           <label className="label mb-1" htmlFor="webhook">Webhook URL</label>
           <input

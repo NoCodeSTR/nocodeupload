@@ -41,6 +41,32 @@ export function formatBytes(bytes: number): string {
   return `${gb.toFixed(gb < 10 ? 2 : 1)} GB`;
 }
 
+export type FileCategory = "image" | "video" | "pdf" | "audio" | "document" | "other";
+
+/** Coarse file-type category from a MIME type — handy for webhook/Zapier filters. */
+export function fileCategory(mime: string | null | undefined): FileCategory {
+  const m = (mime || "").toLowerCase();
+  if (m === "application/pdf") return "pdf";
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("video/")) return "video";
+  if (m.startsWith("audio/")) return "audio";
+  if (
+    m.startsWith("application/vnd.openxmlformats") || // docx/xlsx/pptx
+    m.startsWith("application/vnd.oasis") || // odt/ods
+    m.startsWith("application/msword") ||
+    m.startsWith("application/vnd.ms-") ||
+    m.includes("document") ||
+    m.includes("spreadsheet") ||
+    m.includes("presentation") ||
+    m === "text/plain" ||
+    m === "text/csv" ||
+    m === "application/rtf"
+  ) {
+    return "document";
+  }
+  return "other";
+}
+
 export function formatSizeMb(mb: number): string {
   if (mb >= 1024) {
     const gb = mb / 1024;

@@ -207,6 +207,10 @@ create table public.upload_links (
   hide_email boolean not null default false,
   -- Up to 3 owner-defined fields: [{ id, label, value, visible, required }].
   custom_fields jsonb not null default '[]'::jsonb,
+  -- Optional Drive filename pattern (tokens: {name}, {date}, {field:Label}, …).
+  filename_template text,
+  -- When false, suppress the owner upload-notification email (webhook-only flow).
+  notify_email boolean not null default true,
   branding_logo_url text,
   branding_color text,
   -- Optional per-link webhook (Zapier/Make/custom) fired on each completed

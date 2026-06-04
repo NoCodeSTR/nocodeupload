@@ -79,6 +79,8 @@ export interface UploadLinkRow {
   hide_name: boolean;
   hide_email: boolean;
   custom_fields: CustomFieldDef[];
+  filename_template: string | null;
+  notify_email: boolean;
   branding_logo_url: string | null;
   branding_color: string | null;
   webhook_url: string | null;

@@ -24,6 +24,7 @@ import { createUploadRecord } from "@/lib/uploads";
 import { getValidAccessToken, TokenError } from "@/lib/tokens";
 import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed } from "@/lib/upload-validation";
+import { renderFilename } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -121,6 +122,15 @@ export async function POST(request: NextRequest) {
     if (val) customData[f.label] = val;
   }
 
+  // Apply the link's filename template (no-op if unset → original name kept).
+  const finalFilename = renderFilename(link.filename_template, {
+    originalFilename: input.filename,
+    uploaderName: resolvedName,
+    uploaderEmail: resolvedEmail,
+    customData,
+    date: new Date(),
+  });
+
   // Rate limit BEFORE spending a Drive session (cheaper to reject early).
   const ipHash = hashIp(clientIp(request));
   const limit = await checkUploadAllowed({ ipHash, linkId: link.id });
@@ -158,7 +168,7 @@ export async function POST(request: NextRequest) {
     session = await adapter.storage.initiateResumableUpload({
       accessToken,
       folderId: link.folder_id,
-      filename: input.filename,
+      filename: finalFilename,
       mimeType: input.mimeType,
       size: input.size,
     });
@@ -173,7 +183,7 @@ export async function POST(request: NextRequest) {
   try {
     uploadId = await createUploadRecord({
       link,
-      filename: input.filename,
+      filename: finalFilename,
       mimeType: input.mimeType,
       size: input.size,
       uploaderName: resolvedName,

@@ -40,6 +40,8 @@ export const uploadLinkCreateSchema = z.object({
   hideName: z.boolean().default(false),
   hideEmail: z.boolean().default(false),
   customFields: z.array(customFieldSchema).max(3).optional(),
+  filenameTemplate: z.string().max(200).optional().nullable(),
+  notifyEmail: z.boolean().default(true),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),

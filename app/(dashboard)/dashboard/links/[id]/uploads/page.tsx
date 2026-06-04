@@ -10,7 +10,7 @@ import { Topbar } from "@/components/topbar";
 import { requireUser } from "@/lib/auth";
 import { getLinkForUser } from "@/lib/links";
 import { listUploadsForLink } from "@/lib/uploads";
-import { formatBytes } from "@/lib/upload-validation";
+import { formatBytes, fileCategory } from "@/lib/upload-validation";
 import type { UploadRow } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
@@ -94,10 +94,12 @@ function UploadRowCard({ upload }: { upload: UploadRow }) {
             <StatusIcon status={upload.status} />
             <h3 className="truncate font-medium">{upload.original_filename}</h3>
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-400">
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-400">
+            <span className="rounded bg-ink-100 px-1.5 py-0.5 capitalize text-ink-600 dark:bg-ink-800 dark:text-ink-300">
+              {fileCategory(upload.mime_type)}
+            </span>
             {upload.file_size_bytes != null && <span>{formatBytes(upload.file_size_bytes)}</span>}
             <span>{formatDateTime(upload.created_at)}</span>
-            {upload.mime_type && <span>{upload.mime_type}</span>}
           </div>
 
           {(upload.uploader_name || upload.uploader_email || upload.uploader_message) && (

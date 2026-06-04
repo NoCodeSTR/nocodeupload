@@ -10,6 +10,7 @@ import "server-only";
 import { Resend } from "resend";
 import { coreEnv, features } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { fileCategory } from "@/lib/upload-validation";
 
 function escapeHtml(s: string): string {
   return s
@@ -50,13 +51,21 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
 
   const { data: linkData } = await admin
     .from("upload_links")
-    .select("name, user_id, branding_color, branding_logo_url")
+    .select("name, user_id, branding_color, branding_logo_url, notify_email")
     .eq("id", upload.upload_link_id)
     .maybeSingle();
   const link = linkData as
-    | { name: string; user_id: string; branding_color: string | null; branding_logo_url: string | null }
+    | {
+        name: string;
+        user_id: string;
+        branding_color: string | null;
+        branding_logo_url: string | null;
+        notify_email: boolean;
+      }
     | null;
   if (!link) return;
+  // Owner disabled email for this link (webhook-only flow).
+  if (link.notify_email === false) return;
 
   const { data: profileData } = await admin
     .from("profiles")
@@ -83,6 +92,7 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
     if (value) rows.push(row(escapeHtml(label), escapeHtml(String(value))));
   }
   rows.push(row("File", escapeHtml(upload.original_filename)));
+  rows.push(row("Type", fileCategory(upload.mime_type)));
 
   const html = `
   <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#18181b">
