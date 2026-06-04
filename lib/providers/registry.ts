@@ -47,6 +47,14 @@ export const PROVIDER_INFO: Record<StorageProvider, ProviderInfo> = {
     iconName: "Cloud",
     status: "coming_soon",
   },
+  youtube: {
+    id: "youtube",
+    displayName: "YouTube",
+    description:
+      "Upload videos straight to your channel as unlisted, with an auto-generated description.",
+    iconName: "Youtube",
+    status: "available",
+  },
 };
 
 /**
@@ -62,6 +70,10 @@ export async function getAdapter(provider: StorageProvider): Promise<ProviderAda
     case "google_drive": {
       const { googleDriveAdapter } = await import("./google");
       return googleDriveAdapter;
+    }
+    case "youtube": {
+      const { youtubeAdapter } = await import("./youtube");
+      return youtubeAdapter;
     }
     case "dropbox":
     case "box":
@@ -81,6 +93,7 @@ export async function getAdapter(provider: StorageProvider): Promise<ProviderAda
 /** Convenience: list providers in a fixed display order for the UI. */
 export const PROVIDER_DISPLAY_ORDER: StorageProvider[] = [
   "google_drive",
+  "youtube",
   "dropbox",
   "box",
   "onedrive",

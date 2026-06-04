@@ -23,8 +23,8 @@ import { getLinkBySlugAdmin } from "@/lib/links";
 import { createUploadRecord } from "@/lib/uploads";
 import { getValidAccessToken, TokenError } from "@/lib/tokens";
 import { getAdapter } from "@/lib/providers/registry";
-import { mimeAllowed } from "@/lib/upload-validation";
-import { renderFilename } from "@/lib/filename";
+import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
+import { renderFilename, renderText, splitExt } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
     originalFilename: input.filename,
     uploaderName: resolvedName,
     uploaderEmail: resolvedEmail,
+    uploaderMessage: input.uploaderMessage?.trim() || null,
     customData,
     date: new Date(),
   });
@@ -161,6 +162,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
 
+  // Provider-specific prep. For YouTube: enforce video-only and build a
+  // readable title + templated description.
+  const { base: originalBase } = splitExt(input.filename);
+  let videoTitle: string | undefined;
+  let videoDescription: string | undefined;
+  if (providerId === "youtube") {
+    if (fileCategory(input.mimeType) !== "video") {
+      return NextResponse.json({ error: "type_not_allowed" }, { status: 415 });
+    }
+    const ctx = {
+      originalFilename: input.filename,
+      uploaderName: resolvedName,
+      uploaderEmail: resolvedEmail,
+      uploaderMessage: input.uploaderMessage?.trim() || null,
+      customData,
+      date: new Date(),
+    };
+    videoTitle = renderText(link.filename_template, ctx) || originalBase;
+    videoDescription = renderText(link.description_template, ctx);
+  }
+
+  // The name stored/shown for this upload: video title for YouTube, else the
+  // (templated) Drive filename.
+  const displayName = providerId === "youtube" ? (videoTitle ?? originalBase) : finalFilename;
+
   // Create the resumable session via the provider adapter.
   let session;
   try {
@@ -171,6 +197,8 @@ export async function POST(request: NextRequest) {
       filename: finalFilename,
       mimeType: input.mimeType,
       size: input.size,
+      title: videoTitle,
+      description: videoDescription,
     });
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -183,13 +211,14 @@ export async function POST(request: NextRequest) {
   try {
     uploadId = await createUploadRecord({
       link,
-      filename: finalFilename,
+      filename: displayName,
       mimeType: input.mimeType,
       size: input.size,
       uploaderName: resolvedName,
       uploaderEmail: resolvedEmail,
       uploaderMessage: input.uploaderMessage ?? null,
       customData,
+      provider: providerId,
       ipHash,
     });
   } catch (err) {

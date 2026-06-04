@@ -36,7 +36,7 @@ Run these two links with your new project selected, then click **Enable** on eac
    - **User support email:** your email
    - **App logo:** optional for MVP (recommended later — a public-looking logo speeds up the verification review)
 4. App domain:
-   - **Application home page:** `https://nocodeupload.com`
+   - **Application home page:** `https://www.nocodeupload.com`
    - **Application privacy policy link:** `https://www.nocodeupload.com/privacy`
    - **Application terms of service link:** `https://www.nocodeupload.com/terms`
 5. Authorized domains: add `nocodeupload.com`.
@@ -65,10 +65,10 @@ Run these two links with your new project selected, then click **Enable** on eac
 4. **Name:** `NoCode Upload Web Client`.
 5. **Authorized JavaScript origins** — add both:
    - `http://localhost:3000`
-   - `https://nocodeupload.com`
+   - `https://www.nocodeupload.com`
 6. **Authorized redirect URIs** — add both:
    - `http://localhost:3000/api/google/callback`
-   - `https://nocodeupload.com/api/google/callback`
+   - `https://www.nocodeupload.com/api/google/callback`
 7. Click **Create**.
 8. Copy the **Client ID** → that's `GOOGLE_CLIENT_ID` AND `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (same value, server and client both need it).
 9. Copy the **Client secret** → that's `GOOGLE_CLIENT_SECRET`.
@@ -84,7 +84,7 @@ Run these two links with your new project selected, then click **Enable** on eac
    - **Application restrictions:** HTTP referrers
    - Add:
      - `http://localhost:3000/*`
-     - `https://nocodeupload.com/*`
+     - `https://www.nocodeupload.com/*`
    - **API restrictions:** Restrict key → select **Google Picker API** only.
    - **Save**.
 
@@ -107,8 +107,8 @@ NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER=<the project number from step 1>
 In Vercel project settings → Environment Variables, set:
 
 ```bash
-GOOGLE_REDIRECT_URI=https://nocodeupload.com/api/google/callback
-NEXT_PUBLIC_APP_URL=https://nocodeupload.com
+GOOGLE_REDIRECT_URI=https://www.nocodeupload.com/api/google/callback
+NEXT_PUBLIC_APP_URL=https://www.nocodeupload.com
 ```
 
 All other Google vars stay the same.

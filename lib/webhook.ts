@@ -18,6 +18,8 @@ import { createHmac } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 import { fileCategory } from "@/lib/upload-validation";
+import { resultUrlFor } from "@/lib/result-url";
+import type { StorageProvider } from "@/lib/db-types";
 
 const TIMEOUT_MS = 10_000;
 
@@ -27,7 +29,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
   const { data: uploadData } = await admin
     .from("uploads")
     .select(
-      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status, completed_at",
+      "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status, completed_at",
     )
     .eq("id", uploadId)
     .maybeSingle();
@@ -35,6 +37,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
     | {
         upload_link_id: string;
         provider_file_id: string | null;
+        provider: StorageProvider | null;
         original_filename: string;
         mime_type: string | null;
         file_size_bytes: number | null;
@@ -76,10 +79,17 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
       // Coarse category for automation filters (e.g. Zapier "only videos").
       category: fileCategory(upload.mime_type),
       sizeBytes: upload.file_size_bytes,
-      driveFileId: upload.provider_file_id,
-      driveUrl: upload.provider_file_id
-        ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
-        : null,
+      provider: upload.provider ?? "google_drive",
+      providerFileId: upload.provider_file_id,
+      // The canonical link to open the result — Drive file or YouTube watch URL.
+      // Point Slack/Quo automations at this.
+      url: resultUrlFor(upload.provider, upload.provider_file_id),
+      // Back-compat: Drive-only fields (null for YouTube).
+      driveFileId: upload.provider === "youtube" ? null : upload.provider_file_id,
+      driveUrl:
+        upload.provider !== "youtube" && upload.provider_file_id
+          ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
+          : null,
     },
     uploader: {
       name: upload.uploader_name,

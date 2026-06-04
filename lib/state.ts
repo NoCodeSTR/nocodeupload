@@ -17,7 +17,14 @@ import { cookies } from "next/headers";
 import { randomBytes } from "crypto";
 
 const STATE_COOKIE = "nu_oauth_state";
+const TARGET_COOKIE = "nu_oauth_target";
 const STATE_TTL_SECONDS = 60 * 10; // 10 minutes — plenty for a normal consent flow
+
+// Which kind of Google connection the user is establishing. Google Drive and
+// YouTube share the same OAuth app/endpoints but request different scopes and
+// land on different storage_connections.provider values, so we stash the
+// intended target alongside the CSRF state and read it back in the callback.
+export type OAuthTarget = "google_drive" | "youtube";
 
 /** Generate a fresh state token (URL-safe base64, ~43 chars, 256 bits). */
 export function generateState(): string {
@@ -49,4 +56,31 @@ export function readAndClearStateCookie(): string | null {
     store.delete(STATE_COOKIE);
   }
   return value;
+}
+
+/** Stash which provider the user is connecting (Drive vs YouTube). */
+export function setOAuthTargetCookie(target: OAuthTarget): void {
+  cookies().set({
+    name: TARGET_COOKIE,
+    value: target,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: STATE_TTL_SECONDS,
+  });
+}
+
+/**
+ * Read and clear the OAuth target cookie. Defaults to "google_drive" when
+ * absent so legacy/in-flight flows (and direct hits to /connect with no
+ * target) keep behaving as a Drive connection.
+ */
+export function readAndClearOAuthTargetCookie(): OAuthTarget {
+  const store = cookies();
+  const value = store.get(TARGET_COOKIE)?.value ?? null;
+  if (value !== null) {
+    store.delete(TARGET_COOKIE);
+  }
+  return value === "youtube" ? "youtube" : "google_drive";
 }

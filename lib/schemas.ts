@@ -7,6 +7,7 @@ import { z } from "zod";
 
 export const storageProviderSchema = z.enum([
   "google_drive",
+  "youtube",
   "dropbox",
   "box",
   "onedrive",
@@ -41,6 +42,7 @@ export const uploadLinkCreateSchema = z.object({
   hideEmail: z.boolean().default(false),
   customFields: z.array(customFieldSchema).max(3).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
+  descriptionTemplate: z.string().max(2000).optional().nullable(),
   notifyEmail: z.boolean().default(true),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),

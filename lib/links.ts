@@ -168,6 +168,7 @@ export async function createLink(
       hide_email: input.hideEmail ?? false,
       custom_fields: input.customFields ?? [],
       filename_template: input.filenameTemplate ?? null,
+      description_template: input.descriptionTemplate ?? null,
       notify_email: input.notifyEmail ?? true,
       branding_logo_url: input.brandingLogoUrl ?? null,
       branding_color: input.brandingColor ?? null,
@@ -238,6 +239,7 @@ export async function updateLink(args: {
   if (i.hideEmail !== undefined) patch.hide_email = i.hideEmail;
   if (i.customFields !== undefined) patch.custom_fields = i.customFields;
   if (i.filenameTemplate !== undefined) patch.filename_template = i.filenameTemplate;
+  if (i.descriptionTemplate !== undefined) patch.description_template = i.descriptionTemplate;
   if (i.notifyEmail !== undefined) patch.notify_email = i.notifyEmail;
   if (i.brandingLogoUrl !== undefined) patch.branding_logo_url = i.brandingLogoUrl;
   if (i.brandingColor !== undefined) patch.branding_color = i.brandingColor;

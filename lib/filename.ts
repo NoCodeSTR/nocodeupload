@@ -8,6 +8,7 @@
  *   {datetime}  → 2026-04-25-1643
  *   {name}      → uploader name (slugified)
  *   {email}     → uploader email (slugified)
+ *   {message}   → uploader's message / notes
  *   {original}  → original filename without extension
  *   {field:Label} → a custom field's value, matched by label (case-insensitive)
  *
@@ -39,6 +40,7 @@ export interface FilenameContext {
   originalFilename: string;
   uploaderName?: string | null;
   uploaderEmail?: string | null;
+  uploaderMessage?: string | null;
   customData?: Record<string, string>;
   date?: Date;
 }
@@ -58,6 +60,7 @@ export function renderFilename(template: string | null | undefined, ctx: Filenam
     datetime: `${date}-${time}`,
     name: slug(ctx.uploaderName ?? ""),
     email: slug(ctx.uploaderEmail ?? ""),
+    message: slug(ctx.uploaderMessage ?? ""),
     original: slug(base),
   };
 
@@ -82,4 +85,42 @@ export function renderFilename(template: string | null | undefined, ctx: Filenam
 
   if (!out) out = slug(base) || "upload";
   return ext ? `${out}.${ext}` : out;
+}
+
+/**
+ * Readable token renderer for YouTube video titles/descriptions — same tokens
+ * as renderFilename, but values are inserted as-is (not slugified) so the text
+ * stays human-friendly. Returns "" for an empty template.
+ */
+export function renderText(template: string | null | undefined, ctx: FilenameContext): string {
+  if (!template || !template.trim()) return "";
+
+  const { base } = splitExt(ctx.originalFilename);
+  const d = ctx.date ?? new Date();
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const tokens: Record<string, string> = {
+    date,
+    time,
+    datetime: `${date} ${time}`,
+    name: (ctx.uploaderName ?? "").trim(),
+    email: (ctx.uploaderEmail ?? "").trim(),
+    message: (ctx.uploaderMessage ?? "").trim(),
+    original: base,
+  };
+
+  let out = template;
+  out = out.replace(/\{field:([^}]+)\}/gi, (_m, label: string) => {
+    const cd = ctx.customData ?? {};
+    const key = Object.keys(cd).find((k) => k.toLowerCase() === label.trim().toLowerCase());
+    return (key ? cd[key] : "").trim();
+  });
+  out = out.replace(/\{(\w+)\}/g, (_m, t: string) => tokens[t.toLowerCase()] ?? "");
+
+  // Tidy: collapse 3+ newlines, trim trailing spaces per line, trim ends.
+  return out
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 4900);
 }

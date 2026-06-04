@@ -16,7 +16,7 @@ import * as drive from "./drive";
 export const googleDriveAdapter: ProviderAdapter = {
   info: PROVIDER_INFO.google_drive,
   oauth: {
-    buildAuthorizationUrl: oauth.buildAuthorizationUrl,
+    buildAuthorizationUrl: (state) => oauth.buildAuthorizationUrl(state, oauth.GOOGLE_DRIVE_SCOPES),
     exchangeCode: oauth.exchangeCode,
     refreshAccessToken: oauth.refreshAccessToken,
     revoke: oauth.revoke,
@@ -26,7 +26,7 @@ export const googleDriveAdapter: ProviderAdapter = {
   },
 };
 
-// Re-export submodules so callers can import { GOOGLE_SCOPES } etc.
+// Re-export submodules so callers can import scopes etc.
 export * as oauth from "./oauth";
 export * as drive from "./drive";
 export * as picker from "./picker";

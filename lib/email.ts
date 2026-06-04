@@ -11,6 +11,8 @@ import { Resend } from "resend";
 import { coreEnv, features } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
+import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
+import type { StorageProvider } from "@/lib/db-types";
 
 function escapeHtml(s: string): string {
   return s
@@ -29,7 +31,7 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
   const { data: uploadData } = await admin
     .from("uploads")
     .select(
-      "upload_link_id, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status",
+      "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status",
     )
     .eq("id", uploadId)
     .maybeSingle();
@@ -37,6 +39,7 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
     | {
         upload_link_id: string;
         provider_file_id: string | null;
+        provider: StorageProvider | null;
         original_filename: string;
         mime_type: string | null;
         file_size_bytes: number | null;
@@ -78,9 +81,8 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
 
   const accent = link.branding_color || "#2563eb";
   const logo = link.branding_logo_url || profile?.logo_url || null;
-  const driveUrl = upload.provider_file_id
-    ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
-    : null;
+  const resultUrl = resultUrlFor(upload.provider, upload.provider_file_id);
+  const resultLabel = resultUrlLabel(upload.provider);
   const appUrl = env.NEXT_PUBLIC_APP_URL;
 
   const rows: string[] = [];
@@ -101,8 +103,8 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
     <p style="color:#71717a;margin:0 0 20px">Someone just uploaded to <strong>${escapeHtml(link.name)}</strong>.</p>
     <table style="width:100%;border-collapse:collapse;font-size:14px">${rows.join("")}</table>
     ${
-      driveUrl
-        ? `<div style="margin-top:24px"><a href="${driveUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">Open in Google Drive</a></div>`
+      resultUrl
+        ? `<div style="margin-top:24px"><a href="${resultUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">${resultLabel}</a></div>`
         : ""
     }
     <p style="margin-top:28px;color:#a1a1aa;font-size:12px">

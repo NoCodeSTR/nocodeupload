@@ -36,8 +36,18 @@ import type { OAuthExchangeResult, OAuthRefreshResult } from "@/lib/providers/ty
 // The Google Picker lets the user select a folder and grants the app per-folder
 // access under drive.file, so we avoid the RESTRICTED drive.readonly scope and
 // its costly CASA security assessment at verification time.
-export const GOOGLE_SCOPES = [
+// Drive connection: least-privilege file scope (sensitive, not restricted).
+export const GOOGLE_DRIVE_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
+  "openid",
+  "email",
+  "profile",
+];
+
+// YouTube connection: upload scope only. Isolated to YouTube connections so the
+// Drive connection stays on the lighter drive.file scope.
+export const YOUTUBE_SCOPES = [
+  "https://www.googleapis.com/auth/youtube.upload",
   "openid",
   "email",
   "profile",
@@ -55,16 +65,18 @@ const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo";
  * that must round-trip through Google and match the value we stashed in an
  * HttpOnly cookie (see lib/state.ts).
  */
-export function buildAuthorizationUrl(state: string): string {
+export function buildAuthorizationUrl(state: string, scopes: string[] = GOOGLE_DRIVE_SCOPES): string {
   const env = googleEnv();
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
     redirect_uri: env.GOOGLE_REDIRECT_URI,
     response_type: "code",
-    scope: GOOGLE_SCOPES.join(" "),
+    scope: scopes.join(" "),
     access_type: "offline",
     prompt: "consent",
-    include_granted_scopes: "true",
+    // Keep Drive and YouTube connections isolated: each connect flow should
+    // request only the provider-specific scope selected in Settings.
+    include_granted_scopes: "false",
     state,
   });
   return `${AUTH_ENDPOINT}?${params.toString()}`;

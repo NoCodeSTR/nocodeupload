@@ -11,6 +11,7 @@ import { requireUser } from "@/lib/auth";
 import { getLinkForUser } from "@/lib/links";
 import { listUploadsForLink } from "@/lib/uploads";
 import { formatBytes, fileCategory } from "@/lib/upload-validation";
+import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
 import type { UploadRow } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
@@ -82,9 +83,9 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
 }
 
 function UploadRowCard({ upload }: { upload: UploadRow }) {
-  const driveUrl = upload.provider_file_id
-    ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
-    : null;
+  // Provider-aware "open" URL — Drive file view or YouTube watch page.
+  const openUrl = resultUrlFor(upload.provider, upload.provider_file_id);
+  const openLabel = resultUrlLabel(upload.provider);
 
   return (
     <li className="card">
@@ -136,15 +137,15 @@ function UploadRowCard({ upload }: { upload: UploadRow }) {
           )}
         </div>
 
-        {driveUrl && (
+        {openUrl && (
           <a
-            href={driveUrl}
+            href={openUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="btn-secondary h-8 text-xs"
           >
             <ExternalLink className="h-4 w-4" />
-            Open in Drive
+            {openLabel}
           </a>
         )}
       </div>

@@ -53,6 +53,21 @@ export interface OAuthRefreshResult {
   newRefreshToken?: string;
 }
 
+/** Arguments for opening a resumable upload session. */
+export interface InitiateUploadArgs {
+  accessToken: string;
+  /** Provider-native destination (Drive folder ID; unused for YouTube). */
+  folderId: string;
+  /** Drive filename (slugified). */
+  filename: string;
+  mimeType: string;
+  size: number;
+  /** YouTube video title (readable). */
+  title?: string;
+  /** YouTube video description (readable, templated). */
+  description?: string;
+}
+
 /** Result of initiating a resumable upload. */
 export interface ResumableUploadSession {
   /**
@@ -86,18 +101,14 @@ export interface ProviderAdapter {
   /** Storage operations — server only. */
   storage: {
     /**
-     * Start a resumable upload to `folderId`. Returns a URL the browser can
-     * PUT chunks to directly. Token freshness is the caller's concern
-     * (route uses getValidAccessToken, which is provider-agnostic), so this
-     * receives a ready-to-use access token rather than the connection row.
+     * Start a resumable upload. Returns a session URL the server relays chunks
+     * to. Token freshness is the caller's concern (the route uses
+     * getValidAccessToken), so this receives a ready-to-use access token.
+     *
+     * Drive uses `filename` (+ folderId); YouTube uses `title` + `description`
+     * (folderId unused). Each adapter reads what it needs.
      */
-    initiateResumableUpload(args: {
-      accessToken: string;
-      folderId: string;
-      filename: string;
-      mimeType: string;
-      size: number;
-    }): Promise<ResumableUploadSession>;
+    initiateResumableUpload(args: InitiateUploadArgs): Promise<ResumableUploadSession>;
   };
 }
 

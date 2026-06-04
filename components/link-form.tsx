@@ -16,9 +16,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
-import { renderFilename } from "@/lib/filename";
+import { renderFilename, renderText } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { UploadLinkRow, CustomFieldDef } from "@/lib/db-types";
+
+// Sentinel folder id for YouTube links. YouTube has no folders — videos land on
+// the connected channel — but upload_links.folder_id is NOT NULL and the upload
+// pipeline passes it through to the (folder-ignoring) YouTube adapter, so we
+// store a harmless placeholder.
+const YOUTUBE_FOLDER_SENTINEL = "youtube";
 
 interface LinkFormProps {
   mode: "create" | "edit";
@@ -87,10 +93,18 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
   const [webhookUrl, setWebhookUrl] = useState(initialLink?.webhook_url ?? "");
   const [filenameTemplate, setFilenameTemplate] = useState(initialLink?.filename_template ?? "");
+  const [descriptionTemplate, setDescriptionTemplate] = useState(
+    initialLink?.description_template ?? "",
+  );
   const [notifyEmail, setNotifyEmail] = useState(initialLink?.notify_email ?? true);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedConnection = connections.find((c) => c.id === connectionId);
+  // YouTube links behave differently: no folder, video-only, and the
+  // filename/description templates drive the video's title + description.
+  const isYouTube = selectedConnection?.provider === "youtube";
 
   function toggleType(key: string) {
     setTypePresets((prev) => {
@@ -129,14 +143,19 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     setError(null);
 
     if (!connectionId) {
-      setError("Pick a connected Google account.");
+      setError("Pick a connected account.");
       return;
     }
     if (!name.trim()) {
       setError("Give your link a name.");
       return;
     }
-    if (!folder) {
+    // YouTube has no folder — videos go to the channel — so we substitute a
+    // sentinel. Drive/other providers still require an explicitly picked folder.
+    const effectiveFolder = isYouTube
+      ? { folderId: YOUTUBE_FOLDER_SENTINEL, folderName: "YouTube channel (unlisted)" }
+      : folder;
+    if (!effectiveFolder) {
       setError("Choose a destination folder.");
       return;
     }
@@ -145,11 +164,12 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       name: name.trim(),
       description: description.trim() || null,
       storageConnectionId: connectionId,
-      folderId: folder.folderId,
-      folderName: folder.folderName,
+      folderId: effectiveFolder.folderId,
+      folderName: effectiveFolder.folderName,
       isActive: initialLink?.is_active ?? true,
       maxFileSizeMb,
-      allowedMimeTypes: buildAllowedMimeTypes(),
+      // YouTube only accepts video, regardless of the type toggles.
+      allowedMimeTypes: isYouTube ? ["video/*"] : buildAllowedMimeTypes(),
       requireName,
       requireEmail,
       showMessageField,
@@ -164,6 +184,8 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       brandingColor: useCustomColor ? brandingColor : null,
       webhookUrl: webhookUrl.trim() || null,
       filenameTemplate: filenameTemplate.trim() || null,
+      // Only meaningful for YouTube (video description). Null elsewhere.
+      descriptionTemplate: isYouTube ? descriptionTemplate.trim() || null : null,
       notifyEmail,
     };
 
@@ -188,20 +210,25 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     }
   }
 
-  const selectedConnection = connections.find((c) => c.id === connectionId);
-
-  // Live preview of the filename template using representative sample values.
-  const filenamePreview = renderFilename(filenameTemplate, {
-    originalFilename: "IMG_2024.jpg",
+  // Representative sample values for live template previews.
+  const previewCtx = {
+    originalFilename: isYouTube ? "VID_2024.mp4" : "IMG_2024.jpg",
     uploaderName: prefillName || "jane",
     uploaderEmail: prefillEmail || "jane@example.com",
+    uploaderMessage: "Water damage under the kitchen sink",
     customData: Object.fromEntries(
       customFields
         .filter((f) => f.label.trim())
         .map((f) => [f.label.trim(), f.value.trim() || "sample"]),
     ),
     date: new Date(),
-  });
+  };
+  // Drive renames files (slugified, ext preserved); YouTube uses the template
+  // as a human-readable video title (raw values, no slug). Both share the same
+  // token vocabulary.
+  const filenamePreview = renderFilename(filenameTemplate, previewCtx);
+  const titlePreview = renderText(filenameTemplate, previewCtx) || previewCtx.originalFilename;
+  const descriptionPreview = renderText(descriptionTemplate, previewCtx);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -214,7 +241,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
 
         {connections.length > 1 && (
           <div>
-            <label className="label mb-1" htmlFor="connection">Google account</label>
+            <label className="label mb-1" htmlFor="connection">Connected account</label>
             <select
               id="connection"
               className="input"
@@ -226,31 +253,44 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
             >
               {connections.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.provider_email ?? c.id}
+                  {providerLabel(c.provider)} — {c.provider_email ?? c.id}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        <div>
-          <span className="label mb-1 block">Folder</span>
-          {connectionId ? (
-            <FolderPicker
-              connectionId={connectionId}
-              config={pickerConfig}
-              onPick={setFolder}
-              initialFolder={folder}
-            />
-          ) : (
-            <p className="text-sm text-ink-500">Select a Google account first.</p>
-          )}
-          {selectedConnection && (
-            <p className="mt-2 text-xs text-ink-400">
-              Files upload to this folder in {selectedConnection.provider_email}&apos;s Drive.
+        {isYouTube ? (
+          <div className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm dark:border-ink-700 dark:bg-ink-900/40">
+            <p className="font-medium text-ink-800 dark:text-ink-100">
+              Videos upload to your YouTube channel
             </p>
-          )}
-        </div>
+            <p className="mt-1 text-ink-500">
+              Each upload is published as <strong>unlisted</strong> — viewable only by people
+              with the link. There&apos;s no folder to pick; YouTube organizes videos on the
+              channel itself.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <span className="label mb-1 block">Folder</span>
+            {connectionId ? (
+              <FolderPicker
+                connectionId={connectionId}
+                config={pickerConfig}
+                onPick={setFolder}
+                initialFolder={folder}
+              />
+            ) : (
+              <p className="text-sm text-ink-500">Select a connected account first.</p>
+            )}
+            {selectedConnection && (
+              <p className="mt-2 text-xs text-ink-400">
+                Files upload to this folder in {selectedConnection.provider_email}&apos;s Drive.
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Details */}
@@ -307,30 +347,42 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
           </select>
         </div>
 
-        <div>
-          <span className="label mb-1 block">Allowed file types</span>
-          <div className="flex flex-wrap gap-2">
-            {TYPE_PRESETS.map((p) => (
-              <button
-                type="button"
-                key={p.key}
-                onClick={() => toggleType(p.key)}
-                className={
-                  typePresets.has(p.key)
-                    ? "rounded-lg border border-brand bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
-                    : "rounded-lg border border-ink-200 px-3 py-1.5 text-sm text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
-                }
-              >
-                {p.label}
-              </button>
-            ))}
+        {isYouTube ? (
+          <div>
+            <span className="label mb-1 block">Allowed file types</span>
+            <span className="inline-flex items-center rounded-lg border border-brand bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">
+              Videos only
+            </span>
+            <p className="mt-1.5 text-xs text-ink-400">
+              YouTube only accepts video files. Non-video uploads are rejected automatically.
+            </p>
           </div>
-          <p className="mt-1.5 text-xs text-ink-400">
-            {typePresets.size === 0
-              ? "Any file type allowed."
-              : "Only the selected types will be accepted."}
-          </p>
-        </div>
+        ) : (
+          <div>
+            <span className="label mb-1 block">Allowed file types</span>
+            <div className="flex flex-wrap gap-2">
+              {TYPE_PRESETS.map((p) => (
+                <button
+                  type="button"
+                  key={p.key}
+                  onClick={() => toggleType(p.key)}
+                  className={
+                    typePresets.has(p.key)
+                      ? "rounded-lg border border-brand bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                      : "rounded-lg border border-ink-200 px-3 py-1.5 text-sm text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
+                  }
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-ink-400">
+              {typePresets.size === 0
+                ? "Any file type allowed."
+                : "Only the selected types will be accepted."}
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="label mb-1" htmlFor="expires">
@@ -459,22 +511,24 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         )}
       </section>
 
-      {/* File naming */}
+      {/* File naming / Video title */}
       <section className="space-y-3">
         <div>
           <h2 className="font-display text-base font-semibold">
-            File naming <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
+            {isYouTube ? "Video title" : "File naming"}{" "}
+            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
           </h2>
           <p className="text-sm text-ink-500">
-            Auto-rename uploaded files using a template. Leave blank to keep the original
-            filenames. Great for searchable, organized uploads.
+            {isYouTube
+              ? "Build each video's title from a template. Leave blank to use the uploaded file's name."
+              : "Auto-rename uploaded files using a template. Leave blank to keep the original filenames. Great for searchable, organized uploads."}
           </p>
         </div>
         <input
           className="input font-mono text-sm"
           value={filenameTemplate}
           onChange={(e) => setFilenameTemplate(e.target.value)}
-          placeholder="{name}-{date}-{time}"
+          placeholder={isYouTube ? "{name} — {field:Property}" : "{name}-{date}-{time}"}
           maxLength={200}
         />
         <div className="flex flex-wrap gap-1.5">
@@ -504,13 +558,77 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
               );
             })}
         </div>
-        {filenameTemplate.trim() && (
+        {isYouTube ? (
           <p className="text-xs text-ink-500">
-            Preview:{" "}
-            <code className="rounded bg-ink-100 px-1.5 py-0.5 dark:bg-ink-900">{filenamePreview}</code>
+            Title preview:{" "}
+            <code className="rounded bg-ink-100 px-1.5 py-0.5 dark:bg-ink-900">{titlePreview}</code>
           </p>
+        ) : (
+          filenameTemplate.trim() && (
+            <p className="text-xs text-ink-500">
+              Preview:{" "}
+              <code className="rounded bg-ink-100 px-1.5 py-0.5 dark:bg-ink-900">{filenamePreview}</code>
+            </p>
+          )
         )}
       </section>
+
+      {/* Video description (YouTube only) */}
+      {isYouTube && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="font-display text-base font-semibold">
+              Video description{" "}
+              <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
+            </h2>
+            <p className="text-sm text-ink-500">
+              Auto-fill the YouTube description from the upload&apos;s details. Use the same
+              tokens as the title — including hidden custom fields, the uploader&apos;s message,
+              and the date. Leave blank for no description.
+            </p>
+          </div>
+          <textarea
+            className="input min-h-[96px] font-mono text-sm"
+            value={descriptionTemplate}
+            onChange={(e) => setDescriptionTemplate(e.target.value)}
+            placeholder={"Uploaded by {name} on {date}\nProperty: {field:Property}\n{message}"}
+            maxLength={2000}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {["{name}", "{email}", "{message}", "{date}", "{time}", "{original}"].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setDescriptionTemplate((v) => (v ? `${v} ${t}` : t))}
+                className="rounded-md border border-ink-200 px-2 py-1 font-mono text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+              >
+                {t}
+              </button>
+            ))}
+            {customFields
+              .filter((f) => f.label.trim())
+              .map((f) => {
+                const tok = `{field:${f.label.trim()}}`;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setDescriptionTemplate((v) => (v ? `${v} ${tok}` : tok))}
+                    className="rounded-md border border-brand-200 bg-brand-50 px-2 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
+                  >
+                    {tok}
+                  </button>
+                );
+              })}
+          </div>
+          {descriptionTemplate.trim() && (
+            <div className="text-xs text-ink-500">
+              <span className="block">Description preview:</span>
+              <pre className="mt-1 whitespace-pre-wrap rounded bg-ink-100 px-2 py-1.5 font-sans dark:bg-ink-900">{descriptionPreview}</pre>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Branding */}
       <section className="space-y-3">
@@ -605,6 +723,23 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       </div>
     </form>
   );
+}
+
+function providerLabel(provider: ConnectionSummary["provider"]): string {
+  switch (provider) {
+    case "google_drive":
+      return "Google Drive";
+    case "youtube":
+      return "YouTube";
+    case "dropbox":
+      return "Dropbox";
+    case "box":
+      return "Box";
+    case "onedrive":
+      return "OneDrive";
+    default:
+      return provider;
+  }
 }
 
 function humanizeError(code?: string, reason?: string): string {

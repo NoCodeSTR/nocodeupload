@@ -111,7 +111,7 @@ create table public.storage_connections (
   -- intentionally permissive — adding 'dropbox' shouldn't require a migration,
   -- just a new adapter in lib/providers/.
   provider text not null check (provider in (
-    'google_drive', 'dropbox', 'box', 'onedrive'
+    'google_drive', 'dropbox', 'box', 'onedrive', 'youtube'
   )),
 
   -- The provider's stable account identifier (e.g. Google `sub`, Dropbox
@@ -209,6 +209,8 @@ create table public.upload_links (
   custom_fields jsonb not null default '[]'::jsonb,
   -- Optional Drive filename pattern (tokens: {name}, {date}, {field:Label}, …).
   filename_template text,
+  -- Optional YouTube video description pattern (same tokens, rendered readable).
+  description_template text,
   -- When false, suppress the owner upload-notification email (webhook-only flow).
   notify_email boolean not null default true,
   branding_logo_url text,
@@ -312,6 +314,8 @@ create table public.uploads (
   uploader_email text,
   uploader_message text,
   uploader_ip_hash text,
+  -- Denormalized provider ('google_drive' | 'youtube' | …) for result-URL building.
+  provider text,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),

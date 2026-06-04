@@ -20,7 +20,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { decryptFromToken } from "@/lib/crypto/tokens";
-import { putChunkToSession } from "@/lib/providers/google/drive";
+import { putChunkToSession } from "@/lib/providers/resumable";
 import { finalizeUpload } from "@/lib/uploads";
 import { sendUploadNotification } from "@/lib/email";
 import { sendUploadWebhook } from "@/lib/webhook";

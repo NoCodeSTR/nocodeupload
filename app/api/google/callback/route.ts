@@ -15,7 +15,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
-import { readAndClearStateCookie } from "@/lib/state";
+import { readAndClearStateCookie, readAndClearOAuthTargetCookie } from "@/lib/state";
 import { exchangeCode } from "@/lib/providers/google/oauth";
 import { upsertConnection } from "@/lib/connections";
 import { publicEnv } from "@/lib/env";
@@ -34,8 +34,9 @@ export async function GET(request: NextRequest) {
   const oauthError = searchParams.get("error");
   const oauthErrorDescription = searchParams.get("error_description");
 
-  // Always clear the state cookie, even on error, to prevent replay.
+  // Always clear the state + target cookies, even on error, to prevent replay.
   const cookieState = readAndClearStateCookie();
+  const target = readAndClearOAuthTargetCookie();
 
   if (oauthError) {
     return settingsRedirect(
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
   try {
     await upsertConnection({
       userId: user.id,
-      provider: "google_drive",
+      provider: target,
       result,
     });
   } catch (err) {
@@ -78,5 +79,5 @@ export async function GET(request: NextRequest) {
     return settingsRedirect(`error=${encodeURIComponent(message)}`);
   }
 
-  return settingsRedirect(`connected=google_drive`);
+  return settingsRedirect(`connected=${target}`);
 }

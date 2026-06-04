@@ -8,7 +8,7 @@
  * Discriminator for `storage_connections.provider`. New providers add a
  * value here and a matching adapter under `lib/providers/<provider>/`.
  */
-export type StorageProvider = "google_drive" | "dropbox" | "box" | "onedrive";
+export type StorageProvider = "google_drive" | "dropbox" | "box" | "onedrive" | "youtube";
 
 export interface ProfileRow {
   id: string;
@@ -80,6 +80,7 @@ export interface UploadLinkRow {
   hide_email: boolean;
   custom_fields: CustomFieldDef[];
   filename_template: string | null;
+  description_template: string | null;
   notify_email: boolean;
   branding_logo_url: string | null;
   branding_color: string | null;
@@ -122,6 +123,7 @@ export interface UploadRow {
   uploader_message: string | null;
   uploader_ip_hash: string | null;
   custom_data: Record<string, string>;
+  provider: StorageProvider | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;

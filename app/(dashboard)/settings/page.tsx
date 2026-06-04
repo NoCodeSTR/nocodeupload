@@ -20,6 +20,7 @@ import {
   Cloud,
   Package,
   Box as BoxIcon,
+  Youtube,
   CloudOff,
   type LucideIcon,
 } from "lucide-react";
@@ -38,6 +39,7 @@ const ICONS: Record<string, LucideIcon> = {
   Cloud,
   Package,
   Box: BoxIcon,
+  Youtube,
 };
 
 /** Provider-specific OAuth connect URL. */
@@ -45,6 +47,10 @@ function getConnectUrl(provider: StorageProvider): string | null {
   switch (provider) {
     case "google_drive":
       return "/api/google/connect";
+    case "youtube":
+      // Same Google OAuth app, different scopes — the target param tells the
+      // callback to store a 'youtube' connection with youtube.upload scope.
+      return "/api/google/connect?target=youtube";
     default:
       return null;
   }
@@ -53,6 +59,8 @@ function getConnectUrl(provider: StorageProvider): string | null {
 function isProviderEnvConfigured(provider: StorageProvider): boolean {
   switch (provider) {
     case "google_drive":
+    case "youtube":
+      // Both ride the same Google OAuth client credentials.
       return isGoogleConfigured();
     default:
       return false;
@@ -91,6 +99,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   const byProvider: Record<StorageProvider, ConnectionSummary[]> = {
     google_drive: [],
+    youtube: [],
     dropbox: [],
     box: [],
     onedrive: [],
@@ -102,9 +111,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const successLabel =
     searchParams.connected === "google_drive"
       ? "Google Drive connected."
-      : searchParams.connected
-        ? `${searchParams.connected} connected.`
-        : null;
+      : searchParams.connected === "youtube"
+        ? "YouTube connected."
+        : searchParams.connected
+          ? `${searchParams.connected} connected.`
+          : null;
 
   return (
     <>
