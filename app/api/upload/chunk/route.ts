@@ -22,8 +22,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { decryptFromToken } from "@/lib/crypto/tokens";
 import { putChunkToSession } from "@/lib/providers/resumable";
 import { finalizeUpload } from "@/lib/uploads";
-import { sendUploadNotification } from "@/lib/email";
-import { sendUploadWebhook } from "@/lib/webhook";
+import { notifyAfterUpload } from "@/lib/batch";
 
 // Each chunk relay receives ≤4 MB and forwards it to Google. Give it headroom.
 export const maxDuration = 60;
@@ -85,13 +84,16 @@ export async function POST(request: NextRequest) {
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
     }
     if (finalized) {
-      // Fire the owner email + any webhook (both no-op when not configured).
-      // Awaited so they run before the serverless function exits; allSettled so
-      // neither can fail the response.
-      await Promise.allSettled([
-        sendUploadNotification(uploadId),
-        sendUploadWebhook(uploadId),
-      ]);
+      // Fire notifications. For a single upload this emails + webhooks now; for a
+      // bundled batch it sends once, when the batch's last file lands (the claim
+      // dedupes against the client's batch-complete call). Awaited so it runs
+      // before the serverless function exits; never throws.
+      try {
+        await notifyAfterUpload(uploadId);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[upload/chunk] notify failed (file is safe):", err);
+      }
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

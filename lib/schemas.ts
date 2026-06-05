@@ -44,6 +44,7 @@ export const uploadLinkCreateSchema = z.object({
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),
   notifyEmail: z.boolean().default(true),
+  bundleNotifications: z.boolean().default(true),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),
@@ -69,6 +70,10 @@ export const uploadInitiateSchema = z.object({
   // Visible custom-field values, keyed by field id. Hidden fields are
   // injected server-side and never accepted from the browser.
   customValues: z.record(z.string().max(500)).optional(),
+  // Batch grouping: the browser sets a shared id (and the count) when more than
+  // one file is uploaded in a single submission.
+  batchId: z.string().uuid().optional().nullable(),
+  batchSize: z.number().int().positive().max(1000).optional().nullable(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;

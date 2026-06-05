@@ -1,14 +1,19 @@
 /**
  * Per-link webhook delivery (Zapier / Make / custom endpoints).
  *
- * On a completed upload, if the link has a webhook_url, POST a JSON payload
- * signed with the link's webhook_secret (HMAC-SHA256). Recipients verify by
- * recomputing the signature over the raw body.
+ * On a completed upload (or a completed batch), if the link has a webhook_url,
+ * POST a JSON payload signed with the link's webhook_secret (HMAC-SHA256).
+ * Recipients verify by recomputing the signature over the raw body.
  *
  *   Headers:
  *     Content-Type: application/json
- *     X-NoCodeUpload-Event: upload.completed
+ *     X-NoCodeUpload-Event: upload.completed | batch.completed
  *     X-NoCodeUpload-Signature: sha256=<hex>
+ *
+ * Every payload carries `uploadType` ("single" | "batch") and a `files` array
+ * (length 1 for singles) so automations can branch cleanly. `file` (the first
+ * file) is retained for back-compat. Point Slack/Quo automations at
+ * `files[].url` (Drive file or YouTube watch URL).
  *
  * Best-effort and bounded by a timeout — a slow/broken webhook never blocks or
  * fails the upload.
@@ -23,44 +28,68 @@ import type { StorageProvider } from "@/lib/db-types";
 
 const TIMEOUT_MS = 10_000;
 
-export async function sendUploadWebhook(uploadId: string): Promise<void> {
+const UPLOAD_COLUMNS =
+  "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
+
+interface UploadShape {
+  upload_link_id: string;
+  provider_file_id: string | null;
+  provider: StorageProvider | null;
+  original_filename: string;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+  uploader_name: string | null;
+  uploader_email: string | null;
+  uploader_message: string | null;
+  custom_data: Record<string, string> | null;
+  batch_id: string | null;
+  batch_size: number | null;
+  status: string;
+  completed_at: string | null;
+}
+
+interface LinkShape {
+  id: string;
+  name: string;
+  slug: string;
+  webhook_url: string | null;
+  webhook_secret: string | null;
+}
+
+/** Per-file payload shape — shared by single and batch deliveries. */
+function filePayload(u: UploadShape) {
+  return {
+    name: u.original_filename,
+    mimeType: u.mime_type,
+    // Coarse category for automation filters (e.g. Zapier "only videos").
+    category: fileCategory(u.mime_type),
+    sizeBytes: u.file_size_bytes,
+    provider: u.provider ?? "google_drive",
+    providerFileId: u.provider_file_id,
+    // The canonical link to open the result — Drive file or YouTube watch URL.
+    url: resultUrlFor(u.provider, u.provider_file_id),
+    // Back-compat: Drive-only fields (null for YouTube).
+    driveFileId: u.provider === "youtube" ? null : u.provider_file_id,
+    driveUrl:
+      u.provider !== "youtube" && u.provider_file_id
+        ? `https://drive.google.com/file/d/${u.provider_file_id}/view`
+        : null,
+  };
+}
+
+async function loadLink(uploadLinkId: string): Promise<LinkShape | null> {
   const admin = getSupabaseAdmin();
-
-  const { data: uploadData } = await admin
-    .from("uploads")
-    .select(
-      "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status, completed_at",
-    )
-    .eq("id", uploadId)
-    .maybeSingle();
-  const upload = uploadData as
-    | {
-        upload_link_id: string;
-        provider_file_id: string | null;
-        provider: StorageProvider | null;
-        original_filename: string;
-        mime_type: string | null;
-        file_size_bytes: number | null;
-        uploader_name: string | null;
-        uploader_email: string | null;
-        uploader_message: string | null;
-        custom_data: Record<string, string> | null;
-        status: string;
-        completed_at: string | null;
-      }
-    | null;
-  if (!upload || upload.status !== "complete") return;
-
-  const { data: linkData } = await admin
+  const { data } = await admin
     .from("upload_links")
     .select("id, name, slug, webhook_url, webhook_secret")
-    .eq("id", upload.upload_link_id)
+    .eq("id", uploadLinkId)
     .maybeSingle();
-  const link = linkData as
-    | { id: string; name: string; slug: string; webhook_url: string | null; webhook_secret: string | null }
-    | null;
-  if (!link || !link.webhook_url) return;
+  return (data ?? null) as LinkShape | null;
+}
 
+/** Sign + POST the payload to the link's webhook. Never throws. */
+async function deliver(link: LinkShape, eventName: string, payload: unknown): Promise<void> {
+  if (!link.webhook_url) return;
   // Defense in depth: never POST to an unsafe target even if one slipped past
   // the save-time check (e.g. a row predating this guard).
   if (!isPubliclySafeHttpUrl(link.webhook_url).safe) {
@@ -69,43 +98,10 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
     return;
   }
 
-  const payload = {
-    event: "upload.completed",
-    uploadId,
-    link: { id: link.id, name: link.name, slug: link.slug },
-    file: {
-      name: upload.original_filename,
-      mimeType: upload.mime_type,
-      // Coarse category for automation filters (e.g. Zapier "only videos").
-      category: fileCategory(upload.mime_type),
-      sizeBytes: upload.file_size_bytes,
-      provider: upload.provider ?? "google_drive",
-      providerFileId: upload.provider_file_id,
-      // The canonical link to open the result — Drive file or YouTube watch URL.
-      // Point Slack/Quo automations at this.
-      url: resultUrlFor(upload.provider, upload.provider_file_id),
-      // Back-compat: Drive-only fields (null for YouTube).
-      driveFileId: upload.provider === "youtube" ? null : upload.provider_file_id,
-      driveUrl:
-        upload.provider !== "youtube" && upload.provider_file_id
-          ? `https://drive.google.com/file/d/${upload.provider_file_id}/view`
-          : null,
-    },
-    uploader: {
-      name: upload.uploader_name,
-      email: upload.uploader_email,
-      message: upload.uploader_message,
-    },
-    // Owner-defined tags (prefilled/hidden custom fields) — the Airtable/Make
-    // matching key, e.g. { "Cleaner Record ID": "rec123", "Phone": "555..." }.
-    customData: upload.custom_data ?? {},
-    uploadedAt: upload.completed_at ?? new Date().toISOString(),
-  };
-
   const body = JSON.stringify(payload);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-NoCodeUpload-Event": "upload.completed",
+    "X-NoCodeUpload-Event": eventName,
   };
   if (link.webhook_secret) {
     const sig = createHmac("sha256", link.webhook_secret).update(body).digest("hex");
@@ -132,4 +128,86 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Single-file webhook — one completed upload. */
+export async function sendUploadWebhook(uploadId: string): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("uploads")
+    .select(UPLOAD_COLUMNS)
+    .eq("id", uploadId)
+    .maybeSingle();
+  const upload = (data ?? null) as UploadShape | null;
+  if (!upload || upload.status !== "complete") return;
+
+  const link = await loadLink(upload.upload_link_id);
+  if (!link || !link.webhook_url) return;
+
+  const file = filePayload(upload);
+  await deliver(link, "upload.completed", {
+    event: "upload.completed",
+    uploadType: "single",
+    uploadId,
+    link: { id: link.id, name: link.name, slug: link.slug },
+    // Present even on per-file sends (bundling off) so automations can still
+    // group files uploaded together by batch id.
+    batch: upload.batch_id ? { id: upload.batch_id, fileCount: upload.batch_size } : null,
+    file,
+    files: [file],
+    uploader: {
+      name: upload.uploader_name,
+      email: upload.uploader_email,
+      message: upload.uploader_message,
+    },
+    // Owner-defined tags (prefilled/hidden custom fields) — the Airtable/Make
+    // matching key, e.g. { "Cleaner Record ID": "rec123", "Phone": "555..." }.
+    customData: upload.custom_data ?? {},
+    uploadedAt: upload.completed_at ?? new Date().toISOString(),
+  });
+}
+
+/**
+ * Batch webhook — one POST summarizing every file uploaded together in a single
+ * submission. uploadType "batch", with a `batch` object and the full `files`
+ * array. No-ops if the link has no webhook or no files in the batch completed.
+ */
+export async function sendBatchUploadWebhook(batchId: string): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("uploads")
+    .select(UPLOAD_COLUMNS)
+    .eq("batch_id", batchId)
+    .eq("status", "complete")
+    .order("completed_at", { ascending: true });
+  const uploads = (data ?? []) as UploadShape[];
+  if (uploads.length === 0) return;
+
+  const rep = uploads[0];
+  const link = await loadLink(rep.upload_link_id);
+  if (!link || !link.webhook_url) return;
+
+  const files = uploads.map(filePayload);
+  const uploadedAt =
+    uploads.reduce<string | null>((latest, u) => {
+      if (u.completed_at && (!latest || u.completed_at > latest)) return u.completed_at;
+      return latest;
+    }, null) ?? new Date().toISOString();
+
+  await deliver(link, "batch.completed", {
+    event: "batch.completed",
+    uploadType: "batch",
+    batch: { id: batchId, fileCount: files.length },
+    link: { id: link.id, name: link.name, slug: link.slug },
+    // Back-compat: `file` is the first file in the batch.
+    file: files[0],
+    files,
+    uploader: {
+      name: rep.uploader_name,
+      email: rep.uploader_email,
+      message: rep.uploader_message,
+    },
+    customData: rep.custom_data ?? {},
+    uploadedAt,
+  });
 }

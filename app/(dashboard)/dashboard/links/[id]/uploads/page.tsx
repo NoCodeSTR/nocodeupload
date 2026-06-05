@@ -32,6 +32,12 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
 
   const completed = uploads.filter((u) => u.status === "complete");
 
+  // Count files per batch so we can badge grouped uploads ("Batch of 7").
+  const batchCounts = new Map<string, number>();
+  for (const u of uploads) {
+    if (u.batch_id) batchCounts.set(u.batch_id, (batchCounts.get(u.batch_id) ?? 0) + 1);
+  }
+
   return (
     <>
       <Topbar email={user.email} title="Submissions" />
@@ -72,7 +78,11 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
           ) : (
             <ul className="space-y-3">
               {uploads.map((u) => (
-                <UploadRowCard key={u.id} upload={u} />
+                <UploadRowCard
+                  key={u.id}
+                  upload={u}
+                  batchCount={u.batch_id ? batchCounts.get(u.batch_id) : undefined}
+                />
               ))}
             </ul>
           )}
@@ -82,7 +92,7 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
   );
 }
 
-function UploadRowCard({ upload }: { upload: UploadRow }) {
+function UploadRowCard({ upload, batchCount }: { upload: UploadRow; batchCount?: number }) {
   // Provider-aware "open" URL — Drive file view or YouTube watch page.
   const openUrl = resultUrlFor(upload.provider, upload.provider_file_id);
   const openLabel = resultUrlLabel(upload.provider);
@@ -99,6 +109,14 @@ function UploadRowCard({ upload }: { upload: UploadRow }) {
             <span className="rounded bg-ink-100 px-1.5 py-0.5 capitalize text-ink-600 dark:bg-ink-800 dark:text-ink-300">
               {fileCategory(upload.mime_type)}
             </span>
+            {batchCount && batchCount > 1 && (
+              <span
+                title={upload.batch_id ?? undefined}
+                className="rounded bg-brand-50 px-1.5 py-0.5 font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+              >
+                Batch of {batchCount}
+              </span>
+            )}
             {upload.file_size_bytes != null && <span>{formatBytes(upload.file_size_bytes)}</span>}
             <span>{formatDateTime(upload.created_at)}</span>
           </div>

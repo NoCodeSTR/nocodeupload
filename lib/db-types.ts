@@ -82,6 +82,7 @@ export interface UploadLinkRow {
   filename_template: string | null;
   description_template: string | null;
   notify_email: boolean;
+  bundle_notifications: boolean;
   branding_logo_url: string | null;
   branding_color: string | null;
   webhook_url: string | null;
@@ -126,6 +127,12 @@ export interface UploadRow {
   uploader_ip_hash: string | null;
   custom_data: Record<string, string>;
   provider: StorageProvider | null;
+  /** Files uploaded together in one submission share this id (null = single). */
+  batch_id: string | null;
+  /** Number of files the browser declared for this batch. */
+  batch_size: number | null;
+  /** Set once, on every row of a batch, when the bundled notification fires. */
+  batch_notified_at: string | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;

@@ -220,6 +220,8 @@ export async function POST(request: NextRequest) {
       customData,
       provider: providerId,
       ipHash,
+      batchId: input.batchId ?? null,
+      batchSize: input.batchSize ?? null,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

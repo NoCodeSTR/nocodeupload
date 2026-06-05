@@ -213,6 +213,9 @@ create table public.upload_links (
   description_template text,
   -- When false, suppress the owner upload-notification email (webhook-only flow).
   notify_email boolean not null default true,
+  -- When true, multiple files sent in ONE submission produce a single bundled
+  -- notification + webhook (one "batch") instead of one per file.
+  bundle_notifications boolean not null default true,
   branding_logo_url text,
   branding_color text,
   -- Optional per-link webhook (Zapier/Make/custom) fired on each completed
@@ -323,6 +326,13 @@ create table public.uploads (
   uploader_ip_hash text,
   -- Denormalized provider ('google_drive' | 'youtube' | …) for result-URL building.
   provider text,
+  -- Batch grouping: files uploaded together in one submission share a batch_id.
+  -- batch_size is the number the browser declared (for the "all files arrived"
+  -- check); batch_notified_at is the single-send claim marker (set once, on the
+  -- whole batch, by whichever finalizer wins the race — see lib/batch.ts).
+  batch_id uuid,
+  batch_size integer,
+  batch_notified_at timestamptz,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),
@@ -332,6 +342,8 @@ create table public.uploads (
 create index uploads_upload_link_id_idx on public.uploads (upload_link_id);
 create index uploads_user_id_idx on public.uploads (user_id);
 create index uploads_created_at_idx on public.uploads (created_at desc);
+-- Partial index: batch lookups only ever target rows that have a batch_id.
+create index uploads_batch_id_idx on public.uploads (batch_id) where batch_id is not null;
 
 alter table public.uploads enable row level security;
 

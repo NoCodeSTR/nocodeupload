@@ -229,7 +229,10 @@ export function PublicUploader({
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   }
 
-  async function uploadOne(item: FileItem): Promise<boolean> {
+  async function uploadOne(
+    item: FileItem,
+    batch: { id: string; size: number } | null,
+  ): Promise<boolean> {
     setItem(item.id, { status: "uploading", progress: 0, error: undefined });
 
     // 1. initiate — get an opaque session token + chunk size
@@ -247,6 +250,10 @@ export function PublicUploader({
           uploaderEmail: email.trim() || null,
           uploaderMessage: message.trim() || null,
           customValues,
+          // Files uploaded in one click share a batch id (+ declared count) so
+          // the owner can get a single bundled notification.
+          batchId: batch?.id ?? null,
+          batchSize: batch?.size ?? null,
         }),
       });
       if (!res.ok) {
@@ -304,13 +311,28 @@ export function PublicUploader({
     }
 
     setUploading(true);
+    // Multiple files in one click form a "batch" — one shared id so the owner
+    // can receive a single bundled notification instead of one per file.
+    const batch =
+      queued.length > 1 ? { id: crypto.randomUUID(), size: queued.length } : null;
+
     // Sequential — re-read latest items by id as we go.
     let anySuccess = false;
     for (const q of queued) {
-      const ok = await uploadOne(q);
+      const ok = await uploadOne(q, batch);
       if (ok) anySuccess = true;
     }
     setUploading(false);
+
+    // Tell the server the batch is done so it can send the bundled notification
+    // (covers files whose initiate failed; deduped server-side). Fire-and-forget.
+    if (batch && anySuccess) {
+      void fetch("/api/upload/batch-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ batchId: batch.id }),
+      }).catch(() => {});
+    }
 
     if (anySuccess) {
       setSessionDone(true);

@@ -26,6 +26,8 @@ export async function createUploadRecord(args: {
   customData?: Record<string, string>;
   provider?: string | null;
   ipHash?: string | null;
+  batchId?: string | null;
+  batchSize?: number | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
   const row = {
@@ -43,6 +45,8 @@ export async function createUploadRecord(args: {
     uploader_ip_hash: args.ipHash ?? null,
     custom_data: args.customData ?? {},
     provider: args.provider ?? null,
+    batch_id: args.batchId ?? null,
+    batch_size: args.batchSize ?? null,
     status: "uploading",
   };
 
@@ -116,4 +120,54 @@ export async function finalizeUpload(args: {
     throw new Error(formatPgError("Failed to finalize upload", error));
   }
   return { ok: Boolean(data) };
+}
+
+/**
+ * Progress snapshot for a batch — how many of the declared files have reached a
+ * terminal state. Used to decide when a bundled notification can fire.
+ */
+export async function getBatchProgress(batchId: string): Promise<{
+  declaredSize: number | null;
+  total: number;
+  terminal: number;
+  uploading: number;
+}> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("uploads")
+    .select("status, batch_size")
+    .eq("batch_id", batchId);
+  if (error) {
+    throw new Error(formatPgError("Failed to read batch progress", error));
+  }
+  const rows = (data ?? []) as Array<{ status: string; batch_size: number | null }>;
+  let terminal = 0;
+  let uploading = 0;
+  let declaredSize: number | null = null;
+  for (const r of rows) {
+    if (r.batch_size != null) declaredSize = r.batch_size;
+    if (r.status === "uploading") uploading += 1;
+    else terminal += 1;
+  }
+  return { declaredSize, total: rows.length, terminal, uploading };
+}
+
+/**
+ * Atomically claim the right to send a batch's bundled notification. Sets
+ * batch_notified_at on every row of the batch, but only where it's still null —
+ * so the first caller wins (gets rows back) and any concurrent caller gets none.
+ * Returns true only for the winner.
+ */
+export async function claimBatchNotification(batchId: string): Promise<boolean> {
+  const admin = getSupabaseAdmin();
+  const { data, error } = await admin
+    .from("uploads")
+    .update({ batch_notified_at: new Date().toISOString() } as never)
+    .eq("batch_id", batchId)
+    .is("batch_notified_at", null)
+    .select("id");
+  if (error) {
+    throw new Error(formatPgError("Failed to claim batch notification", error));
+  }
+  return (data?.length ?? 0) > 0;
 }

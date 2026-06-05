@@ -1,36 +1,36 @@
 "use client";
 
 /**
- * Brand mark used in app headers. Renders /logo.png if present, otherwise
- * gracefully falls back to the icon + "NoCode Upload" wordmark — so dropping a
- * logo file into public/logo.png lights it up app-wide with zero code changes,
- * and nothing breaks before that file exists.
+ * Brand mark used in app headers: the cloud mark (public/logo-mark.png) paired
+ * with a live-text "NoCode Upload" wordmark. Live text keeps the lockup crisp
+ * at any size and theme-aware (the wordmark recolors for light/dark), while the
+ * mark carries the distinctive cloud. If the mark file is missing we fall back
+ * to a lucide cloud-upload icon so nothing breaks.
  *
- * (We can't bundle the AI-generated logo from chat directly; add the file to
- * public/logo.png — or replace it anytime — and this picks it up.)
+ * Swap public/logo-mark.png anytime to update the mark app-wide.
  */
 import { useState } from "react";
-import { Upload } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 
 export function BrandLogo({ imgClassName = "h-8 w-auto" }: { imgClassName?: string }) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
-    return (
-      <span className="flex items-center gap-2 font-display text-lg font-bold">
-        <Upload className="h-6 w-6 text-brand" />
-        NoCode Upload
-      </span>
-    );
-  }
-
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/logo.png"
-      alt="NoCode Upload"
-      className={imgClassName}
-      onError={() => setFailed(true)}
-    />
+    <span className="flex items-center gap-2">
+      {failed ? (
+        <UploadCloud className="h-7 w-7 text-brand" />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src="/logo-mark.png"
+          alt=""
+          className={imgClassName}
+          onError={() => setFailed(true)}
+        />
+      )}
+      <span className="font-display text-lg font-bold tracking-tight text-ink-900 dark:text-ink-50">
+        NoCode <span className="text-brand">Upload</span>
+      </span>
+    </span>
   );
 }

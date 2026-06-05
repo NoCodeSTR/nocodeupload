@@ -97,6 +97,9 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     initialLink?.description_template ?? "",
   );
   const [notifyEmail, setNotifyEmail] = useState(initialLink?.notify_email ?? true);
+  const [bundleNotifications, setBundleNotifications] = useState(
+    initialLink?.bundle_notifications ?? true,
+  );
   const [successMessage, setSuccessMessage] = useState(initialLink?.success_message ?? "");
   const [successRedirectUrl, setSuccessRedirectUrl] = useState(
     initialLink?.success_redirect_url ?? "",
@@ -191,6 +194,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       // Only meaningful for YouTube (video description). Null elsewhere.
       descriptionTemplate: isYouTube ? descriptionTemplate.trim() || null : null,
       notifyEmail,
+      bundleNotifications,
       successMessage: successMessage.trim() || null,
       successRedirectUrl: successRedirectUrl.trim() || null,
     };
@@ -674,6 +678,23 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
           />
           Email me when someone uploads
           <span className="text-xs text-ink-400">(uncheck if you only use the webhook)</span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={bundleNotifications}
+            onChange={(e) => setBundleNotifications(e.target.checked)}
+          />
+          <span>
+            Bundle multi-file uploads
+            <span className="block text-xs text-ink-400">
+              When someone uploads several files at once, send one combined notification &amp;
+              webhook instead of one per file. Uncheck to get a separate notification for every
+              file.
+            </span>
+          </span>
         </label>
 
         <p className="pt-1 text-sm text-ink-500">

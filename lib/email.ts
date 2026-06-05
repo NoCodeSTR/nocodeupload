@@ -131,3 +131,119 @@ function row(label: string, value: string): string {
     <td style="padding:6px 0;color:#18181b">${value}</td>
   </tr>`;
 }
+
+/**
+ * Bundled notification for a whole batch — one email listing every file
+ * uploaded together in a single submission. Mirrors sendUploadNotification but
+ * aggregates the files. No-ops if email is disabled, the link opted out, or no
+ * files in the batch completed.
+ */
+export async function sendBatchUploadNotification(batchId: string): Promise<void> {
+  if (!features().emailNotifications) return;
+
+  const env = coreEnv();
+  const admin = getSupabaseAdmin();
+
+  const { data: uploadsData } = await admin
+    .from("uploads")
+    .select(
+      "upload_link_id, provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data",
+    )
+    .eq("batch_id", batchId)
+    .eq("status", "complete")
+    .order("completed_at", { ascending: true });
+  const uploads = (uploadsData ?? []) as Array<{
+    upload_link_id: string;
+    provider: StorageProvider | null;
+    provider_file_id: string | null;
+    original_filename: string;
+    mime_type: string | null;
+    uploader_name: string | null;
+    uploader_email: string | null;
+    uploader_message: string | null;
+    custom_data: Record<string, string> | null;
+  }>;
+  if (uploads.length === 0) return;
+
+  const rep = uploads[0];
+
+  const { data: linkData } = await admin
+    .from("upload_links")
+    .select("name, user_id, branding_color, branding_logo_url, notify_email")
+    .eq("id", rep.upload_link_id)
+    .maybeSingle();
+  const link = linkData as
+    | {
+        name: string;
+        user_id: string;
+        branding_color: string | null;
+        branding_logo_url: string | null;
+        notify_email: boolean;
+      }
+    | null;
+  if (!link) return;
+  if (link.notify_email === false) return;
+
+  const { data: profileData } = await admin
+    .from("profiles")
+    .select("email, logo_url")
+    .eq("id", link.user_id)
+    .maybeSingle();
+  const profile = profileData as { email: string | null; logo_url: string | null } | null;
+  const to = profile?.email;
+  if (!to) return;
+
+  const accent = link.branding_color || "#2563eb";
+  const logo = link.branding_logo_url || profile?.logo_url || null;
+  const appUrl = env.NEXT_PUBLIC_APP_URL;
+  const count = uploads.length;
+
+  // Shared metadata (uploader + custom fields are the same across the batch).
+  const metaRows: string[] = [];
+  if (rep.uploader_name) metaRows.push(row("From", escapeHtml(rep.uploader_name)));
+  if (rep.uploader_email) metaRows.push(row("Email", escapeHtml(rep.uploader_email)));
+  if (rep.uploader_message) metaRows.push(row("Message", escapeHtml(rep.uploader_message)));
+  for (const [label, value] of Object.entries(rep.custom_data ?? {})) {
+    if (value) metaRows.push(row(escapeHtml(label), escapeHtml(String(value))));
+  }
+
+  // One row per file: name + type + an open link.
+  const fileRows = uploads
+    .map((u) => {
+      const url = resultUrlFor(u.provider, u.provider_file_id);
+      const label = resultUrlLabel(u.provider);
+      const anchor = url
+        ? `<a href="${url}" style="color:${accent};text-decoration:none;font-weight:600">${label}</a>`
+        : "";
+      return `<tr>
+        <td style="padding:8px 12px 8px 0;color:#18181b;border-top:1px solid #f4f4f5">${escapeHtml(u.original_filename)}</td>
+        <td style="padding:8px 12px 8px 0;color:#71717a;border-top:1px solid #f4f4f5;white-space:nowrap">${fileCategory(u.mime_type)}</td>
+        <td style="padding:8px 0;border-top:1px solid #f4f4f5;text-align:right;white-space:nowrap">${anchor}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const html = `
+  <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#18181b">
+    ${logo ? `<div style="text-align:center;margin-bottom:16px"><img src="${logo}" alt="" style="max-height:48px;max-width:200px;object-fit:contain"/></div>` : ""}
+    <h1 style="font-size:18px;margin:0 0 4px">${count} files received</h1>
+    <p style="color:#71717a;margin:0 0 20px">Someone uploaded ${count} files to <strong>${escapeHtml(link.name)}</strong> in one go.</p>
+    ${metaRows.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">${metaRows.join("")}</table>` : ""}
+    <table style="width:100%;border-collapse:collapse;font-size:14px">${fileRows}</table>
+    <p style="margin-top:28px;color:#a1a1aa;font-size:12px">
+      <a href="${appUrl}/dashboard" style="color:#a1a1aa">Manage your upload links</a>
+    </p>
+    <p style="margin-top:6px;color:#a1a1aa;font-size:12px">
+      Powered by <a href="https://nocodeupload.com/?ref=email" style="color:#71717a;font-weight:600;text-decoration:none">NoCodeUpload.com</a>
+    </p>
+  </div>`;
+
+  const resend = new Resend(env.RESEND_API_KEY!);
+  await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL!,
+    to,
+    subject: `New upload: ${link.name} (${count} files)`,
+    html,
+    ...(rep.uploader_email ? { replyTo: rep.uploader_email } : {}),
+  });
+}
