@@ -175,6 +175,8 @@ export async function createLink(
       webhook_url: input.webhookUrl ?? null,
       // Always provision a signing secret so it's ready when a webhook is added.
       webhook_secret: randomBytes(24).toString("hex"),
+      success_message: input.successMessage ?? null,
+      success_redirect_url: input.successRedirectUrl ?? null,
     };
 
     const { data, error } = await supabase
@@ -191,6 +193,73 @@ export async function createLink(
   }
 
   throw new Error("Failed to create link after slug retry");
+}
+
+/**
+ * Duplicate an existing link into a new one the user can tweak. Copies every
+ * configuration field but gives the copy a fresh slug, a fresh webhook signing
+ * secret, and a "Copy of …" name. The original is never modified. Returns the
+ * new link so the caller can redirect straight to its edit page.
+ */
+export async function duplicateLink(args: {
+  userId: string;
+  linkId: string;
+}): Promise<UploadLinkRow> {
+  const src = await getLinkForUser({ userId: args.userId, linkId: args.linkId });
+  if (!src) {
+    throw new Error("LINK_NOT_FOUND");
+  }
+
+  const supabase = createSupabaseServerClient();
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const slug = generateSlug();
+    const row = {
+      user_id: args.userId,
+      storage_connection_id: src.storage_connection_id,
+      slug,
+      name: `Copy of ${src.name}`.slice(0, 120),
+      description: src.description,
+      folder_id: src.folder_id,
+      folder_name: src.folder_name,
+      is_active: true,
+      expires_at: src.expires_at,
+      max_file_size_mb: src.max_file_size_mb,
+      allowed_mime_types: src.allowed_mime_types,
+      require_name: src.require_name,
+      require_email: src.require_email,
+      show_message_field: src.show_message_field,
+      prefill_name: src.prefill_name,
+      prefill_email: src.prefill_email,
+      hide_name: src.hide_name,
+      hide_email: src.hide_email,
+      custom_fields: src.custom_fields,
+      filename_template: src.filename_template,
+      description_template: src.description_template,
+      notify_email: src.notify_email,
+      branding_logo_url: src.branding_logo_url,
+      branding_color: src.branding_color,
+      webhook_url: src.webhook_url,
+      // Fresh secret — never reuse the original's signing key for a new link.
+      webhook_secret: randomBytes(24).toString("hex"),
+      success_message: src.success_message,
+      success_redirect_url: src.success_redirect_url,
+    };
+
+    const { data, error } = await supabase
+      .from("upload_links")
+      .insert(row as never)
+      .select("*")
+      .single();
+
+    if (!error) return data as unknown as UploadLinkRow;
+
+    // 23505 = unique_violation (slug). Retry once with a fresh slug.
+    if (error.code === "23505" && attempt === 0) continue;
+    throw new Error(formatPgError("Failed to duplicate link", error));
+  }
+
+  throw new Error("Failed to duplicate link after slug retry");
 }
 
 /**
@@ -250,6 +319,8 @@ export async function updateLink(args: {
       patch.webhook_secret = randomBytes(24).toString("hex");
     }
   }
+  if (i.successMessage !== undefined) patch.success_message = i.successMessage;
+  if (i.successRedirectUrl !== undefined) patch.success_redirect_url = i.successRedirectUrl;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

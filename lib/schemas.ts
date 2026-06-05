@@ -47,6 +47,8 @@ export const uploadLinkCreateSchema = z.object({
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),
+  successMessage: z.string().max(500).optional().nullable(),
+  successRedirectUrl: z.string().url().optional().nullable(),
 });
 
 export type UploadLinkCreateInput = z.infer<typeof uploadLinkCreateSchema>;

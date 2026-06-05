@@ -14,6 +14,15 @@ import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } },
@@ -44,6 +53,9 @@ export async function PATCH(
     if (!check.safe) {
       return NextResponse.json({ error: "invalid_webhook", reason: check.reason }, { status: 400 });
     }
+  }
+  if (parsed.data.successRedirectUrl && !isHttpUrl(parsed.data.successRedirectUrl)) {
+    return NextResponse.json({ error: "invalid_redirect" }, { status: 400 });
   }
 
   try {

@@ -29,6 +29,8 @@ interface PublicUploaderProps {
   prefillName?: string | null;
   prefillEmail?: string | null;
   customFields?: PublicCustomField[];
+  successMessage?: string | null;
+  successRedirectUrl?: string | null;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -146,6 +148,8 @@ export function PublicUploader({
   prefillName = null,
   prefillEmail = null,
   customFields = [],
+  successMessage = null,
+  successRedirectUrl = null,
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(prefillName ?? "");
@@ -158,6 +162,9 @@ export function PublicUploader({
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // True once an upload session finishes with at least one success — flips the
+  // card over to the success screen (or triggers the owner's redirect).
+  const [sessionDone, setSessionDone] = useState(false);
 
   // Built-in name/email show only when visible (not hidden) and either
   // required or prefilled. Hidden fields are applied server-side.
@@ -165,6 +172,11 @@ export function PublicUploader({
   const showEmail = !hideEmail && (requireEmail || Boolean(prefillEmail));
 
   const maxBytes = maxFileSizeMb * 1024 * 1024;
+
+  // Only honor http(s) redirects — the value is owner-set, so guard against a
+  // javascript:/data: URL ever reaching window.location.
+  const redirectUrl =
+    successRedirectUrl && /^https?:\/\//i.test(successRedirectUrl) ? successRedirectUrl : null;
 
   // Warn before leaving while an upload is in progress — the in-flight file
   // would be interrupted (completed files are already safely in Drive).
@@ -217,7 +229,7 @@ export function PublicUploader({
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   }
 
-  async function uploadOne(item: FileItem): Promise<void> {
+  async function uploadOne(item: FileItem): Promise<boolean> {
     setItem(item.id, { status: "uploading", progress: 0, error: undefined });
 
     // 1. initiate — get an opaque session token + chunk size
@@ -244,7 +256,7 @@ export function PublicUploader({
       initiate = await res.json();
     } catch (err) {
       setItem(item.id, { status: "failed", error: err instanceof Error ? err.message : "Couldn't start upload." });
-      return;
+      return false;
     }
 
     // 2. relay chunks through our API (same-origin). The chunk route finalizes
@@ -263,10 +275,11 @@ export function PublicUploader({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uploadId: initiate.uploadId, errorMessage: "browser upload failed" }),
       }).catch(() => {});
-      return;
+      return false;
     }
 
     setItem(item.id, { status: "done", progress: 100 });
+    return true;
   }
 
   async function handleUpload() {
@@ -292,15 +305,93 @@ export function PublicUploader({
 
     setUploading(true);
     // Sequential — re-read latest items by id as we go.
+    let anySuccess = false;
     for (const q of queued) {
-      await uploadOne(q);
+      const ok = await uploadOne(q);
+      if (ok) anySuccess = true;
     }
     setUploading(false);
+
+    if (anySuccess) {
+      setSessionDone(true);
+      // If the owner set a redirect, hand off after a short beat so the
+      // success registers visually first.
+      if (redirectUrl) {
+        window.setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 900);
+      }
+    }
+  }
+
+  // "Upload more" — clear the file list but keep the uploader's identity so a
+  // second batch doesn't require re-typing name/email/custom fields.
+  function resetForMore() {
+    setFiles([]);
+    setSessionDone(false);
+    setFormError(null);
   }
 
   const queuedCount = files.filter((f) => f.status === "queued").length;
   const doneCount = files.filter((f) => f.status === "done").length;
-  const anyActive = files.some((f) => f.status === "queued" || f.status === "uploading");
+  const failedCount = files.filter((f) => f.status === "failed").length;
+
+  // Success state — replaces the form once a session finishes successfully.
+  if (sessionDone) {
+    // Owner opted to send uploaders to their own page: show a brief hand-off.
+    if (redirectUrl) {
+      return (
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin" style={{ color: accent }} />
+          <p className="font-medium text-ink-700 dark:text-ink-200">
+            Upload complete — taking you onward…
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col items-center gap-4 py-8 text-center">
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-full"
+          style={{ backgroundColor: `${accent}1a` }}
+        >
+          <CheckCircle2 className="h-8 w-8" style={{ color: accent }} />
+        </div>
+        <div>
+          <h2 className="font-display text-xl font-bold">
+            {doneCount} {doneCount === 1 ? "file" : "files"} uploaded
+          </h2>
+          <p className="mt-1 text-ink-500">
+            {successMessage?.trim() || "Thank you! Your upload was received."}
+          </p>
+        </div>
+        {failedCount > 0 && (
+          <p className="text-sm text-amber-600 dark:text-amber-300">
+            {failedCount} {failedCount === 1 ? "file" : "files"} didn&apos;t go through.
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={resetForMore}
+          className="btn w-full text-white"
+          style={{ backgroundColor: accent }}
+        >
+          Upload more files
+        </button>
+        <p className="text-xs text-ink-400">
+          Powered by{" "}
+          <a
+            href="https://nocodeupload.com/?ref=success"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-ink-500 hover:text-brand hover:underline dark:text-ink-300"
+          >
+            NoCodeUpload.com
+          </a>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -402,12 +493,6 @@ export function PublicUploader({
       {formError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
           {formError}
-        </div>
-      )}
-
-      {doneCount > 0 && !anyActive && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-900/30 dark:text-green-100">
-          {doneCount} {doneCount === 1 ? "file" : "files"} uploaded successfully. Thank you!
         </div>
       )}
 

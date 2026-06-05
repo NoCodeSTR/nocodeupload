@@ -15,6 +15,15 @@ import { uploadLinkCreateSchema } from "@/lib/schemas";
 import { createLink } from "@/lib/links";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const user = await requireUser();
 
@@ -39,6 +48,9 @@ export async function POST(request: NextRequest) {
     if (!check.safe) {
       return NextResponse.json({ error: "invalid_webhook", reason: check.reason }, { status: 400 });
     }
+  }
+  if (parsed.data.successRedirectUrl && !isHttpUrl(parsed.data.successRedirectUrl)) {
+    return NextResponse.json({ error: "invalid_redirect" }, { status: 400 });
   }
 
   try {

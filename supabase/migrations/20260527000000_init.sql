@@ -219,6 +219,11 @@ create table public.upload_links (
   -- upload, HMAC-signed with webhook_secret.
   webhook_url text,
   webhook_secret text,
+  -- Post-upload behavior shown on the public page. success_message overrides
+  -- the default "uploaded successfully" copy; success_redirect_url (if set)
+  -- sends the uploader to the owner's own page instead of our success screen.
+  success_message text,
+  success_redirect_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -283,7 +288,9 @@ select
   ), '[]'::jsonb) as visible_custom_fields,
   -- Effective logo: per-link override, else the owner's account logo.
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
-  l.branding_color
+  l.branding_color,
+  l.success_message,
+  l.success_redirect_url
 from public.upload_links l
 join public.profiles p on p.id = l.user_id
 where l.is_active = true

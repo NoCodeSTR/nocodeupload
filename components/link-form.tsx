@@ -97,6 +97,10 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     initialLink?.description_template ?? "",
   );
   const [notifyEmail, setNotifyEmail] = useState(initialLink?.notify_email ?? true);
+  const [successMessage, setSuccessMessage] = useState(initialLink?.success_message ?? "");
+  const [successRedirectUrl, setSuccessRedirectUrl] = useState(
+    initialLink?.success_redirect_url ?? "",
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,6 +191,8 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       // Only meaningful for YouTube (video description). Null elsewhere.
       descriptionTemplate: isYouTube ? descriptionTemplate.trim() || null : null,
       notifyEmail,
+      successMessage: successMessage.trim() || null,
+      successRedirectUrl: successRedirectUrl.trim() || null,
     };
 
     setSubmitting(true);
@@ -702,6 +708,49 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
         )}
       </section>
 
+      {/* After upload */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-semibold">After upload</h2>
+          <p className="text-sm text-ink-500">
+            What the uploader sees once their files finish.
+          </p>
+        </div>
+        <div>
+          <label className="label mb-1" htmlFor="success-message">
+            Success message <span className="font-normal text-ink-400">(optional)</span>
+          </label>
+          <input
+            id="success-message"
+            className="input"
+            value={successMessage}
+            onChange={(e) => setSuccessMessage(e.target.value)}
+            placeholder="Thanks! Your photos were received."
+            maxLength={500}
+          />
+          <p className="mt-1 text-xs text-ink-400">
+            Replaces the default confirmation text on the success screen.
+          </p>
+        </div>
+        <div>
+          <label className="label mb-1" htmlFor="success-redirect">
+            Redirect URL <span className="font-normal text-ink-400">(optional)</span>
+          </label>
+          <input
+            id="success-redirect"
+            type="url"
+            className="input"
+            value={successRedirectUrl}
+            onChange={(e) => setSuccessRedirectUrl(e.target.value)}
+            placeholder="https://your-site.com/thank-you"
+          />
+          <p className="mt-1 text-xs text-ink-400">
+            Send uploaders to your own page after they finish. Leave blank to show our
+            built-in success screen (with an &ldquo;Upload more&rdquo; button).
+          </p>
+        </div>
+      </section>
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
           {error}
@@ -750,6 +799,8 @@ function humanizeError(code?: string, reason?: string): string {
       return "Some fields are invalid. Double-check the form and try again.";
     case "invalid_webhook":
       return reason ?? "That webhook URL isn't allowed. Use a public https:// URL.";
+    case "invalid_redirect":
+      return "Use a full http:// or https:// URL for the after-upload redirect.";
     case "not_found":
       return "This link no longer exists.";
     default:

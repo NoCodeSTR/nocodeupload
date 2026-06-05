@@ -11,7 +11,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Link2, Pencil, Trash2, FolderOpen, Code2 } from "lucide-react";
+import { Link2, Pencil, Trash2, FolderOpen, Code2, Copy, QrCode } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import type { UploadLinkWithStats } from "@/lib/links";
 
@@ -80,6 +80,21 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
     });
   }
 
+  function duplicate() {
+    setError(null);
+    startTransition(async () => {
+      const res = await fetch(`/api/links/${link.id}/duplicate`, { method: "POST" });
+      if (!res.ok) {
+        setError("Couldn't duplicate the link.");
+        return;
+      }
+      const body = (await res.json().catch(() => ({}))) as { id?: string };
+      // Land on the copy's edit page so the user can tweak it right away.
+      if (body.id) router.push(`/dashboard/links/${body.id}/edit`);
+      else router.refresh();
+    });
+  }
+
   return (
     <li className="card">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -116,7 +131,15 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
           {error && <p className="mt-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
         </div>
 
-        <div className="flex flex-shrink-0 items-center gap-1">
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
+          <Link
+            href={`/dashboard/links/${link.id}/qr`}
+            className="btn-ghost h-8 px-2 text-xs"
+            aria-label="QR code"
+          >
+            <QrCode className="h-4 w-4" />
+            QR
+          </Link>
           <Link
             href={`/dashboard/links/${link.id}/embed`}
             className="btn-ghost h-8 px-2 text-xs"
@@ -133,6 +156,16 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
             <Pencil className="h-4 w-4" />
             Edit
           </Link>
+          <button
+            type="button"
+            onClick={duplicate}
+            disabled={isPending}
+            className="btn-ghost h-8 px-2 text-xs"
+            aria-label="Duplicate"
+          >
+            <Copy className="h-4 w-4" />
+            Duplicate
+          </button>
           <button
             type="button"
             onClick={toggleActive}

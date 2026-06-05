@@ -86,6 +86,8 @@ export interface UploadLinkRow {
   branding_color: string | null;
   webhook_url: string | null;
   webhook_secret: string | null;
+  success_message: string | null;
+  success_redirect_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -153,4 +155,6 @@ export interface UploadLinkPublicRow {
   visible_custom_fields: PublicCustomField[];
   branding_logo_url: string | null;
   branding_color: string | null;
+  success_message: string | null;
+  success_redirect_url: string | null;
 }

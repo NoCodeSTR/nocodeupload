@@ -56,6 +56,8 @@ export function UploadCard({
             prefillName={link.prefill_name}
             prefillEmail={link.prefill_email}
             customFields={link.visible_custom_fields}
+            successMessage={link.success_message}
+            successRedirectUrl={link.success_redirect_url}
           />
         </div>
       </div>
