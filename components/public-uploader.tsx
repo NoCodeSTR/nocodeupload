@@ -443,20 +443,79 @@ export function PublicUploader({
       )}
 
       {/* Owner-defined visible custom fields */}
-      {customFields.map((f) => (
-        <div key={f.id}>
-          <label className="label mb-1" htmlFor={`cf-${f.id}`}>
-            {f.label} {f.required && <span className="text-red-500">*</span>}
-          </label>
-          <input
-            id={`cf-${f.id}`}
-            className="input"
-            value={customValues[f.id] ?? ""}
-            onChange={(e) => setCustomValues((prev) => ({ ...prev, [f.id]: e.target.value }))}
-            disabled={uploading}
-          />
-        </div>
-      ))}
+      {customFields.map((f) => {
+        const type = f.type ?? "text";
+        const cur = customValues[f.id] ?? "";
+        const setVal = (v: string) =>
+          setCustomValues((prev) => ({ ...prev, [f.id]: v }));
+        return (
+          <div key={f.id}>
+            <label className="label mb-1" htmlFor={`cf-${f.id}`}>
+              {f.label} {f.required && <span className="text-red-500">*</span>}
+            </label>
+
+            {type === "select" ? (
+              <select
+                id={`cf-${f.id}`}
+                className="input"
+                value={cur}
+                disabled={uploading}
+                onChange={(e) => setVal(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {(f.options ?? []).map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            ) : type === "multiselect" ? (
+              <div className="flex flex-wrap gap-2">
+                {(f.options ?? []).map((o) => {
+                  const selected = cur
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  const checked = selected.includes(o);
+                  return (
+                    <label
+                      key={o}
+                      className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                        checked
+                          ? "border-current bg-ink-50 dark:bg-ink-900"
+                          : "border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
+                      }`}
+                      style={checked ? { color: accent } : undefined}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={checked}
+                        disabled={uploading}
+                        onChange={(e) => {
+                          const set = new Set(selected);
+                          if (e.target.checked) set.add(o);
+                          else set.delete(o);
+                          setVal(Array.from(set).join(", "));
+                        }}
+                      />
+                      {o}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <input
+                id={`cf-${f.id}`}
+                className="input"
+                value={cur}
+                onChange={(e) => setVal(e.target.value)}
+                disabled={uploading}
+              />
+            )}
+          </div>
+        );
+      })}
 
       {/* Drop zone */}
       <div

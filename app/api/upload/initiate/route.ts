@@ -110,13 +110,29 @@ export async function POST(request: NextRequest) {
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
   for (const f of fields) {
+    const type = f.type ?? "text";
     let val: string;
     if (f.visible) {
-      val = String(submitted[f.id] ?? f.value ?? "").trim();
+      const raw = String(submitted[f.id] ?? f.value ?? "").trim();
+      if (type === "select") {
+        // Accept only a value that's one of the owner's defined options.
+        val = raw && (f.options ?? []).includes(raw) ? raw : "";
+      } else if (type === "multiselect") {
+        // Keep only submitted choices that are valid options; re-join cleanly.
+        const opts = f.options ?? [];
+        val = raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s && opts.includes(s))
+          .join(", ");
+      } else {
+        val = raw;
+      }
       if (f.required && !val) {
         return NextResponse.json({ error: "missing_custom_field", label: f.label }, { status: 400 });
       }
     } else {
+      // Hidden field — inject the owner's value verbatim (never from the client).
       val = String(f.value ?? "");
     }
     if (val) customData[f.label] = val;

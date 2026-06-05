@@ -93,13 +93,18 @@ export interface UploadLinkRow {
   updated_at: string;
 }
 
+/** Input control type for a custom field. */
+export type CustomFieldType = "text" | "select" | "multiselect";
+
 /** An owner-defined field on a link (max 3). */
 export interface CustomFieldDef {
   id: string;
   label: string;
-  value: string; // prefill / baked-in value
+  value: string; // prefill / baked-in value (multiselect: comma-joined)
   visible: boolean; // shown to the uploader (editable) vs hidden (server-injected)
   required: boolean; // only meaningful when visible
+  type?: CustomFieldType; // defaults to "text" when absent (back-compat)
+  options?: string[]; // choices for select / multiselect
 }
 
 /** The visible subset exposed by the public view (no hidden fields). */
@@ -108,6 +113,8 @@ export interface PublicCustomField {
   label: string;
   value: string;
   required: boolean;
+  type?: CustomFieldType;
+  options?: string[];
 }
 
 export interface UploadRow {

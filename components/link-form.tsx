@@ -135,7 +135,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     if (customFields.length >= 3) return;
     setCustomFields((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), label: "", value: "", visible: true, required: false },
+      { id: crypto.randomUUID(), label: "", value: "", visible: true, required: false, type: "text" },
     ]);
   }
   function updateCustomField(id: string, patch: Partial<CustomFieldDef>) {
@@ -143,6 +143,37 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   }
   function removeCustomField(id: string) {
     setCustomFields((prev) => prev.filter((f) => f.id !== id));
+  }
+  // Switch a field's type, seeding a couple of empty options when becoming a
+  // choice field so the options editor isn't blank.
+  function setCustomFieldType(id: string, type: CustomFieldDef["type"]) {
+    setCustomFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        const needsOptions = type === "select" || type === "multiselect";
+        const options = needsOptions && (!f.options || f.options.length === 0) ? ["", ""] : f.options;
+        return { ...f, type, options };
+      }),
+    );
+  }
+  function updateOption(id: string, idx: number, val: string) {
+    setCustomFields((prev) =>
+      prev.map((f) =>
+        f.id === id ? { ...f, options: (f.options ?? []).map((o, i) => (i === idx ? val : o)) } : f,
+      ),
+    );
+  }
+  function addOption(id: string) {
+    setCustomFields((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, options: [...(f.options ?? []), ""] } : f)),
+    );
+  }
+  function removeOption(id: string, idx: number) {
+    setCustomFields((prev) =>
+      prev.map((f) =>
+        f.id === id ? { ...f, options: (f.options ?? []).filter((_, i) => i !== idx) } : f,
+      ),
+    );
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -186,7 +217,14 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       hideEmail,
       customFields: customFields
         .filter((f) => f.label.trim())
-        .map((f) => ({ ...f, label: f.label.trim(), value: f.value.trim() })),
+        .map((f) => {
+          const type = f.type ?? "text";
+          const options =
+            type === "text"
+              ? undefined
+              : (f.options ?? []).map((o) => o.trim()).filter(Boolean);
+          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options };
+        }),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
       webhookUrl: webhookUrl.trim() || null,
@@ -472,14 +510,69 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
                 placeholder="Field name (e.g. Cleaner Record ID)"
                 maxLength={60}
               />
-              <input
+              <select
                 className="input"
+                value={f.type ?? "text"}
+                onChange={(e) => setCustomFieldType(f.id, e.target.value as CustomFieldDef["type"])}
+                aria-label="Field type"
+              >
+                <option value="text">Text field</option>
+                <option value="select">Single-select</option>
+                <option value="multiselect">Multi-select</option>
+              </select>
+            </div>
+
+            {(f.type ?? "text") === "text" ? (
+              <input
+                className="input mt-2"
                 value={f.value}
                 onChange={(e) => updateCustomField(f.id, { value: e.target.value })}
                 placeholder="Default / prefilled value"
                 maxLength={500}
               />
-            </div>
+            ) : (
+              <div className="mt-2 space-y-2 rounded-md bg-ink-50 p-2 dark:bg-ink-900/40">
+                <span className="label">Options</span>
+                {(f.options ?? []).map((opt, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      className="input"
+                      value={opt}
+                      onChange={(e) => updateOption(f.id, idx, e.target.value)}
+                      placeholder={`Option ${idx + 1} (e.g. Maintenance needed)`}
+                      maxLength={80}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeOption(f.id, idx)}
+                      className="px-2 text-lg leading-none text-ink-400 hover:text-red-600"
+                      aria-label="Remove option"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => addOption(f.id)}
+                  className="text-xs font-medium text-brand hover:underline"
+                >
+                  + Add option
+                </button>
+                <input
+                  className="input"
+                  value={f.value}
+                  onChange={(e) => updateCustomField(f.id, { value: e.target.value })}
+                  placeholder={
+                    f.type === "multiselect"
+                      ? "Default selected — comma-separated (optional)"
+                      : "Default selected (optional)"
+                  }
+                  maxLength={500}
+                />
+              </div>
+            )}
+
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
               <label className="flex items-center gap-1.5">
                 <input

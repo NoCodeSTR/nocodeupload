@@ -284,7 +284,9 @@ select
       'id', e->>'id',
       'label', e->>'label',
       'value', e->>'value',
-      'required', coalesce((e->>'required')::boolean, false)
+      'required', coalesce((e->>'required')::boolean, false),
+      'type', coalesce(e->>'type', 'text'),
+      'options', coalesce(e->'options', '[]'::jsonb)
     ))
     from jsonb_array_elements(l.custom_fields) e
     where coalesce((e->>'visible')::boolean, false) = true
