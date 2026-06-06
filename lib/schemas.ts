@@ -95,7 +95,7 @@ export const uploadLinkCreateSchema = z.object({
   prefillEmail: z.string().max(255).optional().nullable(),
   hideName: z.boolean().default(false),
   hideEmail: z.boolean().default(false),
-  customFields: z.array(customFieldSchema).max(5).optional(),
+  customFields: z.array(customFieldSchema).max(10).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),
   notifyEmail: z.boolean().default(true),
