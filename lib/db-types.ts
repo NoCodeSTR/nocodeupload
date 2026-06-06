@@ -114,6 +114,18 @@ export interface CustomFieldDef {
 
 export type NotificationDestinationType = "email" | "slack" | "quo";
 
+/** A connected Slack workspace (bot token, encrypted). One per workspace. */
+export interface SlackConnectionRow {
+  id: string;
+  user_id: string;
+  team_id: string;
+  team_name: string | null;
+  bot_token_ciphertext: string;
+  bot_token_iv: string;
+  bot_token_auth_tag: string;
+  created_at: string;
+}
+
 /** A reusable, account-level notification channel. */
 export interface NotificationDestinationRow {
   id: string;

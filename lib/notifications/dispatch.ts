@@ -22,12 +22,12 @@ import {
   sendBatchEmailTo,
 } from "@/lib/email";
 import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
-import { sendSlackForUpload, sendSlackForBatch } from "@/lib/notifications/slack";
+import { sendSlackForUpload, sendSlackForBatch, type SlackTarget } from "@/lib/notifications/slack";
 import { sendQuoForUpload, sendQuoForBatch, type QuoCreds } from "@/lib/notifications/quo";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import {
   getDestinationsByIds,
-  decryptSlackWebhook,
+  getSlackBotToken,
   decryptQuoCreds,
 } from "@/lib/notifications/destinations";
 import type { NotifyResult } from "@/lib/notifications/types";
@@ -35,7 +35,7 @@ import type { NotificationRule, RuleCondition } from "@/lib/db-types";
 
 interface Senders {
   email: (addr: string) => Promise<NotifyResult>;
-  slack: (webhookUrl: string, message?: string) => Promise<NotifyResult>;
+  slack: (target: SlackTarget, message?: string) => Promise<NotifyResult>;
   quo: (creds: QuoCreds, message?: string) => Promise<NotifyResult>;
 }
 
@@ -154,16 +154,35 @@ async function dispatchRules(
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "email", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
 
-    // Slack — custom message rendered as the lead block when present.
+    // Slack — post via the workspace bot token to the chosen channel, with an
+    // optional @mention; custom message becomes the lead text when present.
     for (const id of rule.destinationIds ?? []) {
       const dest = destById.get(id);
       if (!dest || dest.type !== "slack" || sentSlack.has(id)) continue;
       sentSlack.add(id);
-      const channel = (dest.config as { channel?: string }).channel ?? "slack";
-      const webhookUrl = decryptSlackWebhook(dest.config);
-      const result: NotifyResult = webhookUrl
-        ? { ...(await senders.slack(webhookUrl, message)), target: channel }
-        : { status: "skipped", target: channel, detail: "Slack webhook unavailable — reconnect in Settings" };
+      const cfg = dest.config as {
+        slack_connection_id?: string;
+        channel_id?: string;
+        channel_name?: string;
+        mention_user_id?: string | null;
+      };
+      const channelLabel = cfg.channel_name ? `#${cfg.channel_name}` : "slack";
+      let result: NotifyResult;
+      const token =
+        cfg.slack_connection_id && cfg.channel_id
+          ? await getSlackBotToken({ userId: data.userId, connectionId: cfg.slack_connection_id })
+          : null;
+      if (!token || !cfg.channel_id) {
+        result = { status: "skipped", target: channelLabel, detail: "Slack not connected — reconnect in Settings" };
+      } else {
+        result = {
+          ...(await senders.slack(
+            { token, channelId: cfg.channel_id, mentionUserId: cfg.mention_user_id ?? null },
+            message,
+          )),
+          target: channelLabel,
+        };
+      }
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "slack", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
 
@@ -225,7 +244,7 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
     emailed,
     {
       email: (addr) => sendUploadEmailTo(addr, uploadId),
-      slack: (url, message) => sendSlackForUpload(url, uploadId, message),
+      slack: (target, message) => sendSlackForUpload(target, uploadId, message),
       quo: (creds, message) => sendQuoForUpload(creds, uploadId, message),
     },
     { uploadId },
@@ -275,7 +294,7 @@ export async function deliverForBatch(batchId: string): Promise<void> {
     emailed,
     {
       email: (addr) => sendBatchEmailTo(addr, batchId),
-      slack: (url, message) => sendSlackForBatch(url, batchId, message),
+      slack: (target, message) => sendSlackForBatch(target, batchId, message),
       quo: (creds, message) => sendQuoForBatch(creds, batchId, message),
     },
     { batchId },

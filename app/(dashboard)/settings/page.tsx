@@ -34,7 +34,7 @@ import { isGoogleConfigured, features } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PROVIDER_INFO, PROVIDER_DISPLAY_ORDER } from "@/lib/providers/registry";
 import { listUserConnections, type ConnectionSummary } from "@/lib/connections";
-import { listDestinations } from "@/lib/notifications/destinations";
+import { listDestinations, listSlackConnections, type SlackConnectionSummary } from "@/lib/notifications/destinations";
 import type { StorageProvider } from "@/lib/db-types";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -103,6 +103,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     const f = features();
     emailConfigured = f.emailNotifications;
     slackConfigured = f.slack;
+  } catch {
+    /* non-fatal */
+  }
+  let slackConnections: SlackConnectionSummary[] = [];
+  try {
+    slackConnections = await listSlackConnections(user.id);
   } catch {
     /* non-fatal */
   }
@@ -274,7 +280,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </>
               )}
             </div>
-            <DestinationsManager destinations={destinations} slackConfigured={slackConfigured} />
+            <DestinationsManager
+              destinations={destinations}
+              slackConfigured={slackConfigured}
+              slackConnections={slackConnections}
+            />
           </CollapsibleSection>
 
           <CollapsibleSection title="Account" description={`Signed in as ${user.email}`}>

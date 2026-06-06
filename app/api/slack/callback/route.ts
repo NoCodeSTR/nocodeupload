@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { readAndClearStateCookie } from "@/lib/state";
 import { exchangeSlackCode } from "@/lib/slack";
-import { createSlackDestination } from "@/lib/notifications/destinations";
+import { createSlackConnection } from "@/lib/notifications/destinations";
 import { publicEnv } from "@/lib/env";
 
 function settingsRedirect(qs: string): NextResponse {
@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await createSlackDestination({ userId: user.id, install });
+    await createSlackConnection({ userId: user.id, install });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Couldn't save the Slack channel.";
+    const message = err instanceof Error ? err.message : "Couldn't save the Slack connection.";
     // eslint-disable-next-line no-console
     console.error("[slack/callback] save failed:", err);
     return settingsRedirect(`error=${encodeURIComponent(message)}`);

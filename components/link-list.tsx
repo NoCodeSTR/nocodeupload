@@ -11,7 +11,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Link2, Pencil, Trash2, FolderOpen, Code2, Copy, QrCode } from "lucide-react";
+import { Link2, Pencil, Trash2, FolderOpen, Code2, Copy, QrCode, ExternalLink } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import type { UploadLinkWithStats } from "@/lib/links";
 
@@ -115,6 +115,15 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
               {publicUrl}
             </code>
             <CopyButton value={publicUrl} label="Copy link" />
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary h-8 text-xs"
+            >
+              <ExternalLink className="h-4 w-4" />
+              View
+            </a>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-ink-400">

@@ -27,8 +27,9 @@ export interface DestinationSummary {
 function safeDetail(d: NotificationDestinationRow): string | null {
   if (d.type === "email") return (d.config as { address?: string }).address ?? null;
   if (d.type === "slack") {
-    const c = d.config as { channel?: string; team?: string };
-    return c.channel ? `${c.team ? `${c.team} · ` : ""}${c.channel}` : null;
+    const c = d.config as { channel_name?: string; mention_user_name?: string };
+    if (!c.channel_name) return null;
+    return `#${c.channel_name}${c.mention_user_name ? ` → @${c.mention_user_name}` : ""}`;
   }
   if (d.type === "quo") {
     const c = d.config as { to?: string };
@@ -74,25 +75,99 @@ export async function createEmailDestination(args: {
   return { id: (data as { id: string }).id };
 }
 
-/** Persist a connected Slack channel (incoming webhook URL stored encrypted). */
-export async function createSlackDestination(args: {
+// --- Slack workspace connections (bot token) ---------------------------------
+
+export interface SlackConnectionSummary {
+  id: string;
+  teamId: string;
+  teamName: string | null;
+}
+
+/** Upsert the connected workspace's bot token (encrypted). One per workspace. */
+export async function createSlackConnection(args: {
   userId: string;
   install: SlackInstall;
+}): Promise<void> {
+  const supabase = createSupabaseServerClient();
+  const blob = encryptString(args.install.botToken);
+  const row = {
+    user_id: args.userId,
+    team_id: args.install.teamId,
+    team_name: args.install.teamName,
+    bot_token_ciphertext: blob.ciphertext,
+    bot_token_iv: blob.iv,
+    bot_token_auth_tag: blob.authTag,
+  };
+  const { error } = await supabase
+    .from("slack_connections")
+    .upsert(row as never, { onConflict: "user_id,team_id" });
+  if (error) throw new Error(formatPgError("Failed to save Slack connection", error));
+}
+
+/** Safe list of connected Slack workspaces (no tokens). */
+export async function listSlackConnections(userId: string): Promise<SlackConnectionSummary[]> {
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("slack_connections")
+    .select("id, team_id, team_name")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(formatPgError("Failed to list Slack connections", error));
+  return ((data ?? []) as Array<{ id: string; team_id: string; team_name: string | null }>).map((r) => ({
+    id: r.id,
+    teamId: r.team_id,
+    teamName: r.team_name,
+  }));
+}
+
+/** Decrypt a workspace's bot token (service role; null if missing/invalid). */
+export async function getSlackBotToken(args: {
+  userId: string;
+  connectionId: string;
+}): Promise<string | null> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("slack_connections")
+    .select("bot_token_ciphertext, bot_token_iv, bot_token_auth_tag")
+    .eq("id", args.connectionId)
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  const row = data as
+    | { bot_token_ciphertext: string; bot_token_iv: string; bot_token_auth_tag: string }
+    | null;
+  if (!row) return null;
+  try {
+    return decryptString({
+      ciphertext: row.bot_token_ciphertext,
+      iv: row.bot_token_iv,
+      authTag: row.bot_token_auth_tag,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Create a Slack channel destination referencing a workspace connection. */
+export async function createSlackChannelDestination(args: {
+  userId: string;
+  label: string;
+  slackConnectionId: string;
+  channelId: string;
+  channelName: string;
+  mentionUserId?: string | null;
+  mentionUserName?: string | null;
 }): Promise<{ id: string }> {
   const supabase = createSupabaseServerClient();
-  const blob = encryptString(args.install.webhookUrl);
-  const channel = args.install.channel || "channel";
-  const label = [args.install.teamName, channel].filter(Boolean).join(" · ") || "Slack";
   const row = {
     user_id: args.userId,
     type: "slack",
-    label,
+    label: args.label,
     config: {
-      webhook_ciphertext: blob.ciphertext,
-      webhook_iv: blob.iv,
-      webhook_auth_tag: blob.authTag,
-      channel,
-      team: args.install.teamName,
+      slack_connection_id: args.slackConnectionId,
+      channel_id: args.channelId,
+      channel_name: args.channelName,
+      mention_user_id: args.mentionUserId ?? null,
+      mention_user_name: args.mentionUserName ?? null,
     },
   };
   const { data, error } = await supabase
@@ -102,19 +177,6 @@ export async function createSlackDestination(args: {
     .single();
   if (error) throw new Error(formatPgError("Failed to create Slack destination", error));
   return { id: (data as { id: string }).id };
-}
-
-/** Decrypt a Slack destination's incoming webhook URL (null if not present). */
-export function decryptSlackWebhook(config: Record<string, unknown>): string | null {
-  const ciphertext = config.webhook_ciphertext as string | undefined;
-  const iv = config.webhook_iv as string | undefined;
-  const authTag = config.webhook_auth_tag as string | undefined;
-  if (!ciphertext || !iv || !authTag) return null;
-  try {
-    return decryptString({ ciphertext, iv, authTag });
-  } catch {
-    return null;
-  }
 }
 
 /** Persist a Quo (OpenPhone) SMS destination — API key stored encrypted. */

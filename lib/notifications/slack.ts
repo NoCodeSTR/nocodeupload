@@ -1,16 +1,17 @@
 /**
  * Slack message rendering + sending for upload/batch notifications.
  *
- * Builds a compact Block Kit message (header + uploader/field context + file
- * links) and POSTs it to the destination's incoming webhook. Returns a
- * NotifyResult so the dispatch layer can log it.
+ * Posts via chat.postMessage to a chosen channel using the workspace bot token,
+ * optionally @mentioning a specific person (their message gets a real ping).
+ * A rule's custom messageTemplate becomes the lead text; otherwise we build a
+ * tidy default. Returns a NotifyResult for the dispatch layer to log.
  */
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
 import { renderText } from "@/lib/filename";
-import { postSlackWebhook } from "@/lib/slack";
+import { postChatMessage } from "@/lib/slack";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { StorageProvider } from "@/lib/db-types";
 
@@ -27,6 +28,12 @@ interface Row {
   uploader_message: string | null;
   custom_data: Record<string, string> | null;
   upload_link_id: string;
+}
+
+export interface SlackTarget {
+  token: string;
+  channelId: string;
+  mentionUserId?: string | null;
 }
 
 /** Slack mrkdwn requires escaping these three characters in text content. */
@@ -50,11 +57,6 @@ function contextFields(rep: Row): { type: "mrkdwn"; text: string }[] {
   return fields;
 }
 
-async function send(webhookUrl: string, text: string, blocks: unknown[]): Promise<NotifyResult> {
-  const res = await postSlackWebhook(webhookUrl, { text, blocks });
-  return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };
-}
-
 function renderMessage(template: string, u: Row, resultUrl: string | null, count: number): string {
   return renderText(template, {
     originalFilename: u.original_filename,
@@ -69,7 +71,7 @@ function renderMessage(template: string, u: Row, resultUrl: string | null, count
 }
 
 export async function sendSlackForUpload(
-  webhookUrl: string,
+  target: SlackTarget,
   uploadId: string,
   message?: string,
 ): Promise<NotifyResult> {
@@ -81,27 +83,29 @@ export async function sendSlackForUpload(
   const name = await linkName(u.upload_link_id);
   const url = resultUrlFor(u.provider, u.provider_file_id);
   const label = resultUrlLabel(u.provider);
+  const mention = target.mentionUserId ? `<@${target.mentionUserId}> ` : "";
 
-  // Custom message (rule template) → render as the lead section; otherwise the
-  // standard file/context layout. The Open button is kept either way.
   const blocks: unknown[] = [];
   if (message && message.trim()) {
     const rendered = renderMessage(message, u, url, 1).trim();
-    if (rendered) blocks.push({ type: "section", text: { type: "mrkdwn", text: esc(rendered) } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}${esc(rendered)}` } });
   } else {
-    blocks.push({ type: "header", text: { type: "plain_text", text: `New upload: ${name}`.slice(0, 150) } });
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${esc(u.original_filename)}*  _(${fileCategory(u.mime_type)})_` } });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `${mention}*New upload:* ${esc(name)}\n${esc(u.original_filename)}  _(${fileCategory(u.mime_type)})_` },
+    });
     const fields = contextFields(u);
     if (fields.length) blocks.push({ type: "section", fields });
     if (u.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(u.uploader_message)}` } });
   }
   if (url) blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: label }, url }] });
 
-  return send(webhookUrl, `New upload: ${name}`, blocks);
+  const res = await postChatMessage(target.token, target.channelId, `${mention}New upload: ${name}`, blocks);
+  return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };
 }
 
 export async function sendSlackForBatch(
-  webhookUrl: string,
+  target: SlackTarget,
   batchId: string,
   message?: string,
 ): Promise<NotifyResult> {
@@ -117,8 +121,8 @@ export async function sendSlackForBatch(
 
   const rep = uploads[0];
   const name = await linkName(rep.upload_link_id);
+  const mention = target.mentionUserId ? `<@${target.mentionUserId}> ` : "";
 
-  // Up to 20 files as bulleted mrkdwn links to keep the message tidy.
   const fileLines = uploads.slice(0, 20).map((u) => {
     const url = resultUrlFor(u.provider, u.provider_file_id);
     const fn = esc(u.original_filename);
@@ -130,14 +134,15 @@ export async function sendSlackForBatch(
   if (message && message.trim()) {
     const firstUrl = resultUrlFor(rep.provider, rep.provider_file_id);
     const rendered = renderMessage(message, rep, firstUrl, uploads.length).trim();
-    if (rendered) blocks.push({ type: "section", text: { type: "mrkdwn", text: esc(rendered) } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}${esc(rendered)}` } });
   } else {
-    blocks.push({ type: "header", text: { type: "plain_text", text: `${uploads.length} files: ${name}`.slice(0, 150) } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}*${uploads.length} files uploaded to ${esc(name)}*` } });
     const fields = contextFields(rep);
     if (fields.length) blocks.push({ type: "section", fields });
     if (rep.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(rep.uploader_message)}` } });
   }
   blocks.push({ type: "section", text: { type: "mrkdwn", text: fileLines.join("\n") } });
 
-  return send(webhookUrl, `${uploads.length} files uploaded to ${name}`, blocks);
+  const res = await postChatMessage(target.token, target.channelId, `${mention}${uploads.length} files uploaded to ${name}`, blocks);
+  return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };
 }

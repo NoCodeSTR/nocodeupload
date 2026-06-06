@@ -7,7 +7,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { destinationCreateSchema } from "@/lib/schemas";
-import { createEmailDestination, createQuoDestination } from "@/lib/notifications/destinations";
+import {
+  createEmailDestination,
+  createQuoDestination,
+  createSlackChannelDestination,
+} from "@/lib/notifications/destinations";
 
 export async function POST(request: NextRequest) {
   const user = await requireUser();
@@ -26,12 +30,19 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  // Slack is created via the OAuth callback, not this endpoint.
-  if (parsed.data.type === "slack") {
-    return NextResponse.json({ error: "unsupported_type" }, { status: 400 });
-  }
-
   try {
+    if (parsed.data.type === "slack") {
+      const { id } = await createSlackChannelDestination({
+        userId: user.id,
+        label: parsed.data.label,
+        slackConnectionId: parsed.data.slackConnectionId!,
+        channelId: parsed.data.channelId!,
+        channelName: parsed.data.channelName!,
+        mentionUserId: parsed.data.mentionUserId ?? null,
+        mentionUserName: parsed.data.mentionUserName ?? null,
+      });
+      return NextResponse.json({ id }, { status: 201 });
+    }
     if (parsed.data.type === "quo") {
       const { id } = await createQuoDestination({
         userId: user.id,

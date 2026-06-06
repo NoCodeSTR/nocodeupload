@@ -1,19 +1,22 @@
 /**
- * Slack OAuth (incoming-webhook flow) + message posting.
+ * Slack OAuth (bot-token flow) + Web API helpers.
  *
- * We use the `incoming-webhook` scope: during install Slack shows the user a
- * channel picker and returns a webhook URL bound to that channel. We store the
- * URL (encrypted) and POST Block Kit JSON to it — no bot token management, and
- * the channel is chosen in Slack's own UI.
+ * We request a bot token so owners connect their workspace ONCE and then pick
+ * any channel (and an optional person to @mention) from dropdowns — rather than
+ * one webhook per channel. Posting uses chat.postMessage; we auto-join public
+ * channels the bot isn't in yet.
  *
- * The redirect URI is derived from NEXT_PUBLIC_APP_URL, so the Slack app must
- * list exactly `${NEXT_PUBLIC_APP_URL}/api/slack/callback` as a Redirect URL.
+ * Scopes: chat:write, channels:read, groups:read, users:read, channels:join.
+ * Redirect URI is derived from NEXT_PUBLIC_APP_URL, so the Slack app must list
+ * exactly `${NEXT_PUBLIC_APP_URL}/api/slack/callback` as a Redirect URL.
  */
 import "server-only";
 import { coreEnv } from "@/lib/env";
 
 const AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 const ACCESS_URL = "https://slack.com/api/oauth.v2.access";
+const API = "https://slack.com/api";
+const SCOPES = "chat:write,channels:read,groups:read,users:read,channels:join";
 
 export function slackRedirectUri(): string {
   return `${coreEnv().NEXT_PUBLIC_APP_URL}/api/slack/callback`;
@@ -23,8 +26,7 @@ export function buildSlackAuthUrl(state: string): string {
   const env = coreEnv();
   const params = new URLSearchParams({
     client_id: env.SLACK_CLIENT_ID ?? "",
-    // incoming-webhook is a bot scope in OAuth v2.
-    scope: "incoming-webhook",
+    scope: SCOPES,
     redirect_uri: slackRedirectUri(),
     state,
   });
@@ -32,12 +34,12 @@ export function buildSlackAuthUrl(state: string): string {
 }
 
 export interface SlackInstall {
-  webhookUrl: string;
-  channel: string;
+  botToken: string;
+  teamId: string;
   teamName: string;
 }
 
-/** Exchange the OAuth code for an incoming-webhook URL + channel/team. */
+/** Exchange the OAuth code for a bot token + workspace identity. */
 export async function exchangeSlackCode(code: string): Promise<SlackInstall> {
   const env = coreEnv();
   const body = new URLSearchParams({
@@ -55,33 +57,108 @@ export async function exchangeSlackCode(code: string): Promise<SlackInstall> {
   const data = (await res.json()) as {
     ok?: boolean;
     error?: string;
-    team?: { name?: string };
-    incoming_webhook?: { url?: string; channel?: string };
+    access_token?: string; // the bot token (xoxb-…) for v2 bot installs
+    team?: { id?: string; name?: string };
   };
-  if (!data.ok || !data.incoming_webhook?.url) {
+  if (!data.ok || !data.access_token) {
     throw new Error(`Slack authorization failed: ${data.error ?? "unknown error"}`);
   }
   return {
-    webhookUrl: data.incoming_webhook.url,
-    channel: data.incoming_webhook.channel ?? "",
+    botToken: data.access_token,
+    teamId: data.team?.id ?? "",
     teamName: data.team?.name ?? "",
   };
 }
 
-/** POST a Block Kit payload to an incoming webhook. Never throws. */
-export async function postSlackWebhook(
-  webhookUrl: string,
-  payload: unknown,
+async function slackGet<T>(token: string, method: string, params: Record<string, string>): Promise<T> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${API}/${method}?${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  return (await res.json()) as T;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+export interface SlackMember {
+  id: string;
+  name: string;
+}
+
+/** List channels the bot can see (public + private it's in). */
+export async function listChannels(token: string): Promise<SlackChannel[]> {
+  const data = await slackGet<{
+    ok?: boolean;
+    channels?: Array<{ id: string; name: string; is_archived?: boolean }>;
+  }>(token, "conversations.list", {
+    types: "public_channel,private_channel",
+    exclude_archived: "true",
+    limit: "200",
+  });
+  return (data.channels ?? [])
+    .filter((c) => !c.is_archived)
+    .map((c) => ({ id: c.id, name: c.name }));
+}
+
+/** List real people in the workspace (no bots, no deleted, no Slackbot). */
+export async function listMembers(token: string): Promise<SlackMember[]> {
+  const data = await slackGet<{
+    ok?: boolean;
+    members?: Array<{
+      id: string;
+      name: string;
+      real_name?: string;
+      deleted?: boolean;
+      is_bot?: boolean;
+      profile?: { display_name?: string; real_name?: string };
+    }>;
+  }>(token, "users.list", { limit: "200" });
+  return (data.members ?? [])
+    .filter((m) => !m.deleted && !m.is_bot && m.id !== "USLACKBOT")
+    .map((m) => ({
+      id: m.id,
+      name: m.profile?.display_name || m.profile?.real_name || m.real_name || m.name,
+    }));
+}
+
+async function joinChannel(token: string, channel: string): Promise<void> {
+  await fetch(`${API}/conversations.join`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ channel }),
+    cache: "no-store",
+  }).catch(() => {});
+}
+
+/**
+ * Post a message to a channel. Retries once after joining if the bot isn't in
+ * the (public) channel yet. Returns { ok, detail }.
+ */
+export async function postChatMessage(
+  token: string,
+  channel: string,
+  text: string,
+  blocks?: unknown[],
 ): Promise<{ ok: boolean; detail?: string }> {
-  try {
-    const res = await fetch(webhookUrl, {
+  async function post(): Promise<{ ok?: boolean; error?: string }> {
+    const res = await fetch(`${API}/chat.postMessage`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ channel, text, ...(blocks ? { blocks } : {}) }),
       cache: "no-store",
     });
-    if (!res.ok) return { ok: false, detail: `responded ${res.status}` };
-    return { ok: true };
+    return (await res.json()) as { ok?: boolean; error?: string };
+  }
+  try {
+    let data = await post();
+    if (!data.ok && data.error === "not_in_channel") {
+      await joinChannel(token, channel);
+      data = await post();
+    }
+    return data.ok ? { ok: true } : { ok: false, detail: data.error ?? "post failed" };
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : "post failed" };
   }

@@ -427,6 +427,30 @@ create policy "notification_deliveries: owner read"
   using (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------------------
+-- slack_connections — one workspace bot token per connected Slack workspace
+-- -----------------------------------------------------------------------------
+create table public.slack_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  team_id text not null,
+  team_name text,
+  -- AES-256-GCM encrypted bot token (xoxb-…).
+  bot_token_ciphertext text not null,
+  bot_token_iv text not null,
+  bot_token_auth_tag text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, team_id)
+);
+create index slack_connections_user_id_idx on public.slack_connections (user_id);
+
+alter table public.slack_connections enable row level security;
+
+create policy "slack_connections: owner all"
+  on public.slack_connections for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
 -- Role grants
 -- -----------------------------------------------------------------------------
 -- Supabase normally auto-grants anon/authenticated/service_role on new public
@@ -449,6 +473,7 @@ grant select, insert, update on public.profiles to authenticated;
 grant select on public.uploads to authenticated;
 grant select, insert, update, delete on public.notification_destinations to authenticated;
 grant select on public.notification_deliveries to authenticated;
+grant select, insert, update, delete on public.slack_connections to authenticated;
 
 -- Ensure any future tables/sequences inherit the same grants.
 alter default privileges in schema public grant all on tables to service_role;

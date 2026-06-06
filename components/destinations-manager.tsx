@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Settings → Notification destinations. Reusable channels an owner can route
- * uploads to via per-link rules:
- *   - email  : an address (added here)
- *   - slack  : a channel (connected via OAuth)
- *   - quo    : SMS via Quo/OpenPhone (API key + from/to numbers, added here)
+ * Settings → Notification destinations. Reusable channels routed to via per-link
+ * rules:
+ *   - email : an address (added here)
+ *   - slack : a channel in a connected workspace, with an optional @mention
+ *             (connect once via OAuth, then pick channel + person from dropdowns)
+ *   - quo   : SMS via Quo/OpenPhone (API key + from/to numbers)
  */
-import { useState, useTransition } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Slack, MessageSquare, Trash2 } from "lucide-react";
 
@@ -18,17 +19,29 @@ export interface DestinationSummary {
   detail: string | null;
 }
 
-type AddMode = null | "email" | "quo";
+export interface SlackConnectionSummary {
+  id: string;
+  teamName: string | null;
+}
+
+type AddMode = null | "email" | "quo" | "slack";
+
+interface SlackOption {
+  id: string;
+  name: string;
+}
 
 export function DestinationsManager({
   destinations,
   slackConfigured = false,
+  slackConnections = [],
 }: {
   destinations: DestinationSummary[];
   slackConfigured?: boolean;
+  slackConnections?: SlackConnectionSummary[];
 }) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const [mode, setMode] = useState<AddMode>(null);
   const [label, setLabel] = useState("");
   const [address, setAddress] = useState("");
@@ -37,6 +50,37 @@ export function DestinationsManager({
   const [toNumber, setToNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Slack picker state
+  const [slackConnectionId, setSlackConnectionId] = useState(slackConnections[0]?.id ?? "");
+  const [channels, setChannels] = useState<SlackOption[]>([]);
+  const [users, setUsers] = useState<SlackOption[]>([]);
+  const [channelId, setChannelId] = useState("");
+  const [mentionUserId, setMentionUserId] = useState("");
+  const [loadingOptions, setLoadingOptions] = useState(false);
+
+  const loadSlackOptions = useCallback(async (connectionId: string) => {
+    if (!connectionId) return;
+    setLoadingOptions(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/slack/options?connectionId=${connectionId}`);
+      if (!res.ok) throw new Error("load failed");
+      const data = (await res.json()) as { channels: SlackOption[]; users: SlackOption[] };
+      setChannels(data.channels ?? []);
+      setUsers(data.users ?? []);
+    } catch {
+      setError("Couldn't load Slack channels — try reconnecting Slack.");
+      setChannels([]);
+      setUsers([]);
+    } finally {
+      setLoadingOptions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mode === "slack" && slackConnectionId) void loadSlackOptions(slackConnectionId);
+  }, [mode, slackConnectionId, loadSlackOptions]);
+
   function reset() {
     setMode(null);
     setLabel("");
@@ -44,49 +88,73 @@ export function DestinationsManager({
     setApiKey("");
     setFromNumber("");
     setToNumber("");
+    setChannelId("");
+    setMentionUserId("");
     setError(null);
   }
 
-  function submit() {
-    setError(null);
-    const body =
-      mode === "quo"
-        ? { type: "quo", label: label.trim(), apiKey: apiKey.trim(), fromNumber: fromNumber.trim(), toNumber: toNumber.trim() }
-        : { type: "email", label: label.trim(), address: address.trim() };
-
-    if (mode === "email" && (!label.trim() || !address.trim())) {
-      setError("Add a label and an email address.");
-      return;
-    }
-    if (mode === "quo" && (!label.trim() || !apiKey.trim() || !fromNumber.trim() || !toNumber.trim())) {
-      setError("Add a label, API key, from-number, and to-number.");
-      return;
-    }
-
-    startTransition(async () => {
+  async function post(body: Record<string, unknown>, failMsg: string) {
+    setPending(true);
+    try {
       const res = await fetch("/api/notifications/destinations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        setError(
-          mode === "quo"
-            ? "Couldn't add that — check the API key and that numbers are in +15555550123 format."
-            : "Couldn't add that destination — check the email address.",
-        );
+        setError(failMsg);
         return;
       }
       reset();
       router.refresh();
-    });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function submitEmail() {
+    setError(null);
+    if (!label.trim() || !address.trim()) return setError("Add a label and an email address.");
+    void post({ type: "email", label: label.trim(), address: address.trim() }, "Couldn't add that — check the email address.");
+  }
+
+  function submitQuo() {
+    setError(null);
+    if (!label.trim() || !apiKey.trim() || !fromNumber.trim() || !toNumber.trim())
+      return setError("Add a label, API key, from-number, and to-number.");
+    void post(
+      { type: "quo", label: label.trim(), apiKey: apiKey.trim(), fromNumber: fromNumber.trim(), toNumber: toNumber.trim() },
+      "Couldn't add that — check the API key and that numbers are in +15555550123 format.",
+    );
+  }
+
+  function submitSlack() {
+    setError(null);
+    const channel = channels.find((c) => c.id === channelId);
+    if (!channel) return setError("Pick a channel.");
+    const user = users.find((u) => u.id === mentionUserId);
+    void post(
+      {
+        type: "slack",
+        label: label.trim() || `#${channel.name}`,
+        slackConnectionId,
+        channelId: channel.id,
+        channelName: channel.name,
+        mentionUserId: user?.id ?? null,
+        mentionUserName: user?.name ?? null,
+      },
+      "Couldn't add that Slack channel.",
+    );
   }
 
   function remove(id: string) {
-    startTransition(async () => {
-      await fetch(`/api/notifications/destinations/${id}`, { method: "DELETE" }).catch(() => {});
-      router.refresh();
-    });
+    setPending(true);
+    fetch(`/api/notifications/destinations/${id}`, { method: "DELETE" })
+      .catch(() => {})
+      .finally(() => {
+        setPending(false);
+        router.refresh();
+      });
   }
 
   function iconFor(type: DestinationSummary["type"]) {
@@ -94,6 +162,8 @@ export function DestinationsManager({
     if (type === "quo") return <MessageSquare className="h-4 w-4" />;
     return <Mail className="h-4 w-4" />;
   }
+
+  const hasSlackConnection = slackConnections.length > 0;
 
   return (
     <div className="space-y-3">
@@ -111,7 +181,7 @@ export function DestinationsManager({
               <button
                 type="button"
                 onClick={() => remove(d.id)}
-                disabled={isPending}
+                disabled={pending}
                 className="btn-ghost h-8 px-2 text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/30"
                 aria-label="Remove destination"
               >
@@ -127,7 +197,7 @@ export function DestinationsManager({
           <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (e.g. Maintenance team)" maxLength={80} />
           <input className="input" type="email" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="name@example.com" />
           {error && <p className="text-xs text-red-600 dark:text-red-300">{error}</p>}
-          <FormButtons onSave={submit} onCancel={reset} pending={isPending} />
+          <FormButtons onSave={submitEmail} onCancel={reset} pending={pending} />
         </div>
       )}
 
@@ -140,11 +210,59 @@ export function DestinationsManager({
             <input className="input" value={toNumber} onChange={(e) => setToNumber(e.target.value)} placeholder="To (recipient) +15555550123" />
           </div>
           <p className="text-xs text-ink-400">
-            Texts send from your own Quo number. US numbers require A2P carrier registration on
-            your Quo account.
+            Texts send from your own Quo number. US numbers require A2P carrier registration on your Quo account.
           </p>
           {error && <p className="text-xs text-red-600 dark:text-red-300">{error}</p>}
-          <FormButtons onSave={submit} onCancel={reset} pending={isPending} />
+          <FormButtons onSave={submitQuo} onCancel={reset} pending={pending} />
+        </div>
+      )}
+
+      {mode === "slack" && (
+        <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+          {slackConnections.length > 1 && (
+            <select
+              className="input"
+              value={slackConnectionId}
+              onChange={(e) => {
+                setSlackConnectionId(e.target.value);
+                setChannelId("");
+                setMentionUserId("");
+              }}
+            >
+              {slackConnections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.teamName ?? "Slack workspace"}
+                </option>
+              ))}
+            </select>
+          )}
+          {loadingOptions ? (
+            <p className="text-sm text-ink-500">Loading channels &amp; people…</p>
+          ) : (
+            <>
+              <label className="label">Channel</label>
+              <select className="input" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+                <option value="">Choose a channel…</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    #{c.name}
+                  </option>
+                ))}
+              </select>
+              <label className="label">Mention a person <span className="font-normal text-ink-400">(optional)</span></label>
+              <select className="input" value={mentionUserId} onChange={(e) => setMentionUserId(e.target.value)}>
+                <option value="">No @mention</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    @{u.name}
+                  </option>
+                ))}
+              </select>
+              <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional — defaults to the channel)" maxLength={80} />
+            </>
+          )}
+          {error && <p className="text-xs text-red-600 dark:text-red-300">{error}</p>}
+          <FormButtons onSave={submitSlack} onCancel={reset} pending={pending || loadingOptions} />
         </div>
       )}
 
@@ -158,12 +276,7 @@ export function DestinationsManager({
             <MessageSquare className="h-4 w-4" />
             Add SMS (Quo)
           </button>
-          {slackConfigured ? (
-            <a href="/api/slack/connect" className="btn-secondary text-sm">
-              <Slack className="h-4 w-4" />
-              Connect Slack
-            </a>
-          ) : (
+          {!slackConfigured ? (
             <button
               type="button"
               disabled
@@ -171,8 +284,23 @@ export function DestinationsManager({
               className="btn-secondary cursor-not-allowed text-sm opacity-50"
             >
               <Slack className="h-4 w-4" />
-              Connect Slack (not configured)
+              Slack (not configured)
             </button>
+          ) : hasSlackConnection ? (
+            <>
+              <button type="button" onClick={() => setMode("slack")} className="btn-secondary text-sm">
+                <Slack className="h-4 w-4" />
+                Add Slack channel
+              </button>
+              <a href="/api/slack/connect" className="btn-ghost text-sm text-ink-500">
+                Connect another workspace
+              </a>
+            </>
+          ) : (
+            <a href="/api/slack/connect" className="btn-secondary text-sm">
+              <Slack className="h-4 w-4" />
+              Connect Slack
+            </a>
           )}
         </div>
       )}

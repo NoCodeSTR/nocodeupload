@@ -57,6 +57,12 @@ export const destinationCreateSchema = z
     apiKey: z.string().min(10).max(200).optional().nullable(),
     fromNumber: e164.optional().nullable(),
     toNumber: e164.optional().nullable(),
+    // Slack channel destination (references a connected workspace).
+    slackConnectionId: z.string().uuid().optional().nullable(),
+    channelId: z.string().min(1).max(40).optional().nullable(),
+    channelName: z.string().min(1).max(120).optional().nullable(),
+    mentionUserId: z.string().min(1).max(40).optional().nullable(),
+    mentionUserName: z.string().max(120).optional().nullable(),
   })
   .refine((d) => d.type !== "email" || Boolean(d.address), {
     message: "An email address is required for email destinations",
@@ -65,6 +71,10 @@ export const destinationCreateSchema = z
   .refine((d) => d.type !== "quo" || Boolean(d.apiKey && d.fromNumber && d.toNumber), {
     message: "Quo needs an API key, a from-number, and a to-number",
     path: ["apiKey"],
+  })
+  .refine((d) => d.type !== "slack" || Boolean(d.slackConnectionId && d.channelId && d.channelName), {
+    message: "Slack needs a connected workspace and a channel",
+    path: ["channelId"],
   });
 export type DestinationCreateInput = z.infer<typeof destinationCreateSchema>;
 
