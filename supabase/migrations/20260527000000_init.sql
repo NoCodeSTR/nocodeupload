@@ -57,6 +57,8 @@ create table public.profiles (
   -- Account-level company logo (public URL in the "branding" Storage bucket).
   -- Shown on upload pages and in notification emails.
   logo_url text,
+  -- Set true once the admin new-signup email has fired for this user.
+  signup_notified boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

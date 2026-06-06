@@ -9,6 +9,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
+import { renderText } from "@/lib/filename";
 import { postSlackWebhook } from "@/lib/slack";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { StorageProvider } from "@/lib/db-types";
@@ -54,7 +55,24 @@ async function send(webhookUrl: string, text: string, blocks: unknown[]): Promis
   return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };
 }
 
-export async function sendSlackForUpload(webhookUrl: string, uploadId: string): Promise<NotifyResult> {
+function renderMessage(template: string, u: Row, resultUrl: string | null, count: number): string {
+  return renderText(template, {
+    originalFilename: u.original_filename,
+    uploaderName: u.uploader_name,
+    uploaderEmail: u.uploader_email,
+    uploaderMessage: u.uploader_message,
+    customData: u.custom_data ?? {},
+    resultUrl,
+    count,
+    date: new Date(),
+  });
+}
+
+export async function sendSlackForUpload(
+  webhookUrl: string,
+  uploadId: string,
+  message?: string,
+): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin.from("uploads").select(SELECT).eq("id", uploadId).maybeSingle();
   const u = data as Row | null;
@@ -63,20 +81,30 @@ export async function sendSlackForUpload(webhookUrl: string, uploadId: string): 
   const name = await linkName(u.upload_link_id);
   const url = resultUrlFor(u.provider, u.provider_file_id);
   const label = resultUrlLabel(u.provider);
-  const fields = contextFields(u);
 
-  const blocks: unknown[] = [
-    { type: "header", text: { type: "plain_text", text: `New upload: ${name}`.slice(0, 150) } },
-    { type: "section", text: { type: "mrkdwn", text: `*${esc(u.original_filename)}*  _(${fileCategory(u.mime_type)})_` } },
-  ];
-  if (fields.length) blocks.push({ type: "section", fields });
-  if (u.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(u.uploader_message)}` } });
+  // Custom message (rule template) → render as the lead section; otherwise the
+  // standard file/context layout. The Open button is kept either way.
+  const blocks: unknown[] = [];
+  if (message && message.trim()) {
+    const rendered = renderMessage(message, u, url, 1).trim();
+    if (rendered) blocks.push({ type: "section", text: { type: "mrkdwn", text: esc(rendered) } });
+  } else {
+    blocks.push({ type: "header", text: { type: "plain_text", text: `New upload: ${name}`.slice(0, 150) } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*${esc(u.original_filename)}*  _(${fileCategory(u.mime_type)})_` } });
+    const fields = contextFields(u);
+    if (fields.length) blocks.push({ type: "section", fields });
+    if (u.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(u.uploader_message)}` } });
+  }
   if (url) blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: label }, url }] });
 
   return send(webhookUrl, `New upload: ${name}`, blocks);
 }
 
-export async function sendSlackForBatch(webhookUrl: string, batchId: string): Promise<NotifyResult> {
+export async function sendSlackForBatch(
+  webhookUrl: string,
+  batchId: string,
+  message?: string,
+): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
@@ -89,7 +117,6 @@ export async function sendSlackForBatch(webhookUrl: string, batchId: string): Pr
 
   const rep = uploads[0];
   const name = await linkName(rep.upload_link_id);
-  const fields = contextFields(rep);
 
   // Up to 20 files as bulleted mrkdwn links to keep the message tidy.
   const fileLines = uploads.slice(0, 20).map((u) => {
@@ -99,11 +126,17 @@ export async function sendSlackForBatch(webhookUrl: string, batchId: string): Pr
   });
   if (uploads.length > 20) fileLines.push(`…and ${uploads.length - 20} more`);
 
-  const blocks: unknown[] = [
-    { type: "header", text: { type: "plain_text", text: `${uploads.length} files: ${name}`.slice(0, 150) } },
-  ];
-  if (fields.length) blocks.push({ type: "section", fields });
-  if (rep.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(rep.uploader_message)}` } });
+  const blocks: unknown[] = [];
+  if (message && message.trim()) {
+    const firstUrl = resultUrlFor(rep.provider, rep.provider_file_id);
+    const rendered = renderMessage(message, rep, firstUrl, uploads.length).trim();
+    if (rendered) blocks.push({ type: "section", text: { type: "mrkdwn", text: esc(rendered) } });
+  } else {
+    blocks.push({ type: "header", text: { type: "plain_text", text: `${uploads.length} files: ${name}`.slice(0, 150) } });
+    const fields = contextFields(rep);
+    if (fields.length) blocks.push({ type: "section", fields });
+    if (rep.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(rep.uploader_message)}` } });
+  }
   blocks.push({ type: "section", text: { type: "mrkdwn", text: fileLines.join("\n") } });
 
   return send(webhookUrl, `${uploads.length} files uploaded to ${name}`, blocks);

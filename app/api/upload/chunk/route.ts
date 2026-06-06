@@ -75,25 +75,21 @@ export async function POST(request: NextRequest) {
 
   if (result.status === "complete") {
     // Mark the upload row complete (best-effort; the file is already in Drive).
-    let finalized = false;
     try {
-      const complete = await finalizeUpload({ uploadId, providerFileId: result.fileId });
-      finalized = complete.ok;
+      await finalizeUpload({ uploadId, providerFileId: result.fileId });
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
     }
-    if (finalized) {
-      // Fire notifications. For a single upload this emails + webhooks now; for a
-      // bundled batch it sends once, when the batch's last file lands (the claim
-      // dedupes against the client's batch-complete call). Awaited so it runs
-      // before the serverless function exits; never throws.
-      try {
-        await notifyAfterUpload(uploadId);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("[upload/chunk] notify failed (file is safe):", err);
-      }
+    // Fire notifications. For a single upload this emails + webhooks now; for a
+    // bundled batch it sends once, when the batch's last file lands (the claim
+    // dedupes against the client's batch-complete call). Awaited so it runs
+    // before the serverless function exits; never throws.
+    try {
+      await notifyAfterUpload(uploadId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[upload/chunk] notify failed (file is safe):", err);
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

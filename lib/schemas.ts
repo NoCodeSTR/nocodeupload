@@ -39,6 +39,7 @@ export const notificationRuleSchema = z.object({
   conditions: z.array(ruleConditionSchema).max(5).default([]),
   destinationIds: z.array(z.string().uuid()).max(20).default([]),
   ownerEmail: z.boolean().default(false),
+  messageTemplate: z.string().max(1000).optional().nullable(),
 });
 export type NotificationRuleInput = z.infer<typeof notificationRuleSchema>;
 

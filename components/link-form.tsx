@@ -201,20 +201,35 @@ export function LinkForm({
   function removeRule(id: string) {
     setRules((prev) => prev.filter((r) => r.id !== id));
   }
-  function setRuleField(id: string, field: string) {
+  function addCondition(id: string) {
     setRules((prev) =>
       prev.map((r) => {
-        if (r.id !== id) return r;
-        if (field === "__always") return { ...r, conditions: [] };
-        const existing = r.conditions[0];
-        return { ...r, conditions: [{ field, op: existing?.op ?? "equals", value: existing?.value ?? "" }] };
+        if (r.id !== id || r.conditions.length >= 5) return r;
+        const firstField = customFields.find((f) => f.label.trim())?.label.trim() ?? "__fileType";
+        return { ...r, conditions: [...r.conditions, { field: firstField, op: "equals", value: "" }] };
       }),
     );
   }
-  function setRuleCond(id: string, patch: Partial<RuleCondition>) {
+  function updateCondition(id: string, idx: number, patch: Partial<RuleCondition>) {
     setRules((prev) =>
       prev.map((r) =>
-        r.id === id && r.conditions[0] ? { ...r, conditions: [{ ...r.conditions[0], ...patch }] } : r,
+        r.id === id
+          ? { ...r, conditions: r.conditions.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }
+          : r,
+      ),
+    );
+  }
+  function removeCondition(id: string, idx: number) {
+    setRules((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, conditions: r.conditions.filter((_, i) => i !== idx) } : r)),
+    );
+  }
+  function insertRuleToken(id: string, token: string) {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? { ...r, messageTemplate: r.messageTemplate ? `${r.messageTemplate}${token}` : token }
+          : r,
       ),
     );
   }
@@ -303,6 +318,7 @@ export function LinkForm({
         .filter((r) => r.destinationIds.length > 0 || r.ownerEmail)
         .map((r) => ({
           ...r,
+          messageTemplate: r.messageTemplate?.trim() || null,
           conditions: r.conditions
             .filter((c) => c.field && c.value.trim())
             .map((c) => ({ ...c, value: c.value.trim() })),
@@ -321,8 +337,8 @@ export function LinkForm({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
-        throw new Error(humanizeError(body.error, body.reason));
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(humanizeError(body.error));
       }
       router.push("/dashboard");
       router.refresh();
@@ -338,6 +354,8 @@ export function LinkForm({
     uploaderName: prefillName || "jane",
     uploaderEmail: prefillEmail || "jane@example.com",
     uploaderMessage: "Water damage under the kitchen sink",
+    resultUrl: "https://drive.google.com/file/d/EXAMPLE/view",
+    count: 3,
     customData: Object.fromEntries(
       customFields
         .filter((f) => f.label.trim())
@@ -918,9 +936,7 @@ export function LinkForm({
         )}
 
         {rules.map((rule) => {
-          const cond = rule.conditions[0];
-          const field = cond?.field ?? "__always";
-          const valueOptions = ruleValueOptions(field);
+          const messagePreview = renderText(rule.messageTemplate ?? "", previewCtx);
           return (
             <div key={rule.id} className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
               <input
@@ -930,58 +946,99 @@ export function LinkForm({
                 placeholder="Rule name (e.g. Maintenance alerts)"
                 maxLength={80}
               />
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-ink-500">When</span>
-                <select
-                  className="input w-auto"
-                  value={field}
-                  onChange={(e) => setRuleField(rule.id, e.target.value)}
-                >
-                  <option value="__always">Always</option>
-                  <option value="__fileType">File type</option>
-                  {customFields
-                    .filter((f) => f.label.trim())
-                    .map((f) => (
-                      <option key={f.id} value={f.label.trim()}>
-                        {f.label.trim()}
-                      </option>
-                    ))}
-                </select>
-                {field !== "__always" && (
-                  <>
-                    <select
-                      className="input w-auto"
-                      value={cond?.op ?? "equals"}
-                      onChange={(e) => setRuleCond(rule.id, { op: e.target.value as RuleCondition["op"] })}
-                    >
-                      <option value="equals">is</option>
-                      <option value="contains">contains</option>
-                    </select>
-                    {valueOptions ? (
+
+              {/* Conditions */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-ink-500">When</span>
+                  {rule.conditions.length > 1 && (
+                    <>
                       <select
                         className="input w-auto"
-                        value={cond?.value ?? ""}
-                        onChange={(e) => setRuleCond(rule.id, { value: e.target.value })}
+                        value={rule.matchMode}
+                        onChange={(e) => updateRule(rule.id, { matchMode: e.target.value as "all" | "any" })}
                       >
-                        <option value="">Choose…</option>
-                        {valueOptions.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
+                        <option value="all">all</option>
+                        <option value="any">any</option>
                       </select>
-                    ) : (
-                      <input
+                      <span className="text-ink-500">of these match:</span>
+                    </>
+                  )}
+                  {rule.conditions.length === 0 && <span className="text-ink-500">— always</span>}
+                </div>
+
+                {rule.conditions.map((c, idx) => {
+                  const valueOptions = ruleValueOptions(c.field);
+                  return (
+                    <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
+                      <select
                         className="input w-auto"
-                        value={cond?.value ?? ""}
-                        onChange={(e) => setRuleCond(rule.id, { value: e.target.value })}
-                        placeholder="value"
-                        maxLength={200}
-                      />
-                    )}
-                  </>
+                        value={c.field}
+                        onChange={(e) => updateCondition(rule.id, idx, { field: e.target.value })}
+                      >
+                        <option value="__fileType">File type</option>
+                        {customFields
+                          .filter((f) => f.label.trim())
+                          .map((f) => (
+                            <option key={f.id} value={f.label.trim()}>
+                              {f.label.trim()}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        className="input w-auto"
+                        value={c.op}
+                        onChange={(e) => updateCondition(rule.id, idx, { op: e.target.value as RuleCondition["op"] })}
+                      >
+                        <option value="equals">is</option>
+                        <option value="contains">contains</option>
+                      </select>
+                      {valueOptions ? (
+                        <select
+                          className="input w-auto"
+                          value={c.value}
+                          onChange={(e) => updateCondition(rule.id, idx, { value: e.target.value })}
+                        >
+                          <option value="">Choose…</option>
+                          {valueOptions.map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          className="input w-auto"
+                          value={c.value}
+                          onChange={(e) => updateCondition(rule.id, idx, { value: e.target.value })}
+                          placeholder="value"
+                          maxLength={200}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeCondition(rule.id, idx)}
+                        className="px-2 text-lg leading-none text-ink-400 hover:text-red-600"
+                        aria-label="Remove condition"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {rule.conditions.length < 5 && (
+                  <button
+                    type="button"
+                    onClick={() => addCondition(rule.id)}
+                    className="text-xs font-medium text-brand hover:underline"
+                  >
+                    + Add condition
+                  </button>
                 )}
               </div>
+
+              {/* Then notify */}
               <div className="space-y-1">
                 <span className="label">Then notify</span>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -1005,6 +1062,57 @@ export function LinkForm({
                   </label>
                 </div>
               </div>
+
+              {/* Custom message (SMS + Slack) */}
+              <div className="space-y-1.5 border-t border-ink-100 pt-2 dark:border-ink-800">
+                <span className="label">
+                  Message <span className="font-normal text-ink-400">(SMS &amp; Slack — optional)</span>
+                </span>
+                <textarea
+                  className="input min-h-[72px] text-sm"
+                  value={rule.messageTemplate ?? ""}
+                  onChange={(e) => updateRule(rule.id, { messageTemplate: e.target.value })}
+                  placeholder={"Hey Mike, new maintenance video: {link}\n\nNote from cleaner: {message}\n\nText back with questions."}
+                  maxLength={1000}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {["{name}", "{message}", "{link}", "{date}", "{count}"].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => insertRuleToken(rule.id, t)}
+                      className="rounded-md border border-ink-200 px-2 py-1 font-mono text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                  {customFields
+                    .filter((f) => f.label.trim())
+                    .map((f) => {
+                      const tok = `{field:${f.label.trim()}}`;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => insertRuleToken(rule.id, tok)}
+                          className="rounded-md border border-brand-200 bg-brand-50 px-2 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
+                        >
+                          {tok}
+                        </button>
+                      );
+                    })}
+                </div>
+                {(rule.messageTemplate ?? "").trim() && (
+                  <div className="text-xs text-ink-500">
+                    <span className="block">Preview:</span>
+                    <pre className="mt-1 whitespace-pre-wrap rounded bg-ink-100 px-2 py-1.5 font-sans dark:bg-ink-900">{messagePreview}</pre>
+                  </div>
+                )}
+                <p className="text-xs text-ink-400">
+                  Leave blank for the default summary. (Email always uses the full formatted layout.)
+                </p>
+              </div>
+
               <button
                 type="button"
                 onClick={() => removeRule(rule.id)}
@@ -1106,16 +1214,12 @@ function providerLabel(provider: ConnectionSummary["provider"]): string {
   }
 }
 
-function humanizeError(code?: string, reason?: string): string {
+function humanizeError(code?: string): string {
   switch (code) {
     case "connection_not_found":
       return "That Google account connection couldn't be found. Reconnect it in Settings.";
     case "invalid_request":
       return "Some fields are invalid. Double-check the form and try again.";
-    case "invalid_webhook":
-      return reason ?? "That webhook URL isn't allowed. Use a public https:// URL.";
-    case "invalid_redirect":
-      return "Use a full http:// or https:// URL for the after-upload redirect.";
     case "not_found":
       return "This link no longer exists.";
     default:

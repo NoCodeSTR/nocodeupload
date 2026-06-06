@@ -15,6 +15,8 @@ export interface ProfileRow {
   email: string | null;
   display_name: string | null;
   logo_url: string | null;
+  /** Set true once we've emailed the admin about this new signup (fire-once). */
+  signup_notified: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +149,8 @@ export interface NotificationRule {
   conditions: RuleCondition[];
   destinationIds: string[];
   ownerEmail: boolean;
+  /** Optional custom message (tokens) for SMS + Slack. Blank = default summary. */
+  messageTemplate?: string;
 }
 
 /** One send attempt, logged for observability. */

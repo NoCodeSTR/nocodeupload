@@ -59,6 +59,8 @@ const coreSchema = z.object({
   // Optional integrations
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().email().optional(),
+  // Where to email when a new user signs up (operator alert). Optional.
+  ADMIN_NOTIFY_EMAIL: z.string().email().optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   // Slack app (OAuth incoming-webhook) — optional; notifications fall back to

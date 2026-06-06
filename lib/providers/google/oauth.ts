@@ -74,8 +74,6 @@ export function buildAuthorizationUrl(state: string, scopes: string[] = GOOGLE_D
     scope: scopes.join(" "),
     access_type: "offline",
     prompt: "consent",
-    // Keep Drive and YouTube connections isolated: each connect flow should
-    // request only the provider-specific scope selected in Settings.
     include_granted_scopes: "false",
     state,
   });

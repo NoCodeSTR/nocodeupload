@@ -143,7 +143,6 @@ export async function POST(request: NextRequest) {
     originalFilename: input.filename,
     uploaderName: resolvedName,
     uploaderEmail: resolvedEmail,
-    uploaderMessage: input.uploaderMessage?.trim() || null,
     customData,
     date: new Date(),
   });

@@ -10,6 +10,8 @@
  *   {email}     → uploader email (slugified)
  *   {message}   → uploader's message / notes
  *   {original}  → original filename without extension
+ *   {link}      → result URL (Drive file / YouTube watch) — readable renderer only
+ *   {count}     → number of files in the batch — readable renderer only
  *   {field:Label} → a custom field's value, matched by label (case-insensitive)
  *
  * Output is kebab-cased and safe; the original extension is preserved. Empty
@@ -43,6 +45,10 @@ export interface FilenameContext {
   uploaderMessage?: string | null;
   customData?: Record<string, string>;
   date?: Date;
+  /** Result URL (Drive/YouTube) — for the {link} token in notification messages. */
+  resultUrl?: string | null;
+  /** Number of files in a batch — for the {count} token. */
+  count?: number;
 }
 
 export function renderFilename(template: string | null | undefined, ctx: FilenameContext): string {
@@ -107,6 +113,8 @@ export function renderText(template: string | null | undefined, ctx: FilenameCon
     email: (ctx.uploaderEmail ?? "").trim(),
     message: (ctx.uploaderMessage ?? "").trim(),
     original: base,
+    link: (ctx.resultUrl ?? "").trim(),
+    count: ctx.count != null ? String(ctx.count) : "",
   };
 
   let out = template;

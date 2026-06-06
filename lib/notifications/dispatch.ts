@@ -35,8 +35,8 @@ import type { NotificationRule, RuleCondition } from "@/lib/db-types";
 
 interface Senders {
   email: (addr: string) => Promise<NotifyResult>;
-  slack: (webhookUrl: string) => Promise<NotifyResult>;
-  quo: (creds: QuoCreds) => Promise<NotifyResult>;
+  slack: (webhookUrl: string, message?: string) => Promise<NotifyResult>;
+  quo: (creds: QuoCreds, message?: string) => Promise<NotifyResult>;
 }
 
 interface DispatchData {
@@ -128,70 +128,57 @@ async function dispatchRules(
   const destinations = await getDestinationsByIds(data.userId, neededIds);
   const destById = new Map(destinations.map((d) => [d.id, d]));
 
-  // Collect the unique email addresses + Slack channels + Quo numbers to hit.
-  const addresses = new Set<string>();
-  const slackDests = new Map<string, (typeof destinations)[number]>();
-  const quoDests = new Map<string, (typeof destinations)[number]>();
+  // Process rules in order so each destination gets the message from the FIRST
+  // matching rule that targets it; de-dupe per destination across rules.
+  const sentSlack = new Set<string>();
+  const sentQuo = new Set<string>();
+
   for (const rule of matched) {
+    const message = rule.messageTemplate?.trim() || undefined;
+
+    // Email (custom message intentionally not applied — email keeps its rich
+    // formatted layout). Owner-email opt-in routes to the account address.
+    const emailAddrs: string[] = [];
     for (const id of rule.destinationIds ?? []) {
       const dest = destById.get(id);
-      if (!dest) continue;
-      if (dest.type === "email") {
+      if (dest?.type === "email") {
         const addr = (dest.config as { address?: string }).address;
-        if (addr) addresses.add(addr);
-      } else if (dest.type === "slack") {
-        slackDests.set(dest.id, dest);
-      } else if (dest.type === "quo") {
-        quoDests.set(dest.id, dest);
+        if (addr) emailAddrs.push(addr);
       }
     }
-    if (rule.ownerEmail && data.ownerEmail) addresses.add(data.ownerEmail);
-  }
+    if (rule.ownerEmail && data.ownerEmail) emailAddrs.push(data.ownerEmail);
+    for (const addr of emailAddrs) {
+      if (alreadyEmailed.has(addr)) continue;
+      alreadyEmailed.add(addr);
+      const result = await senders.email(addr);
+      await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "email", result, uploadId: ids.uploadId, batchId: ids.batchId });
+    }
 
-  for (const addr of addresses) {
-    if (alreadyEmailed.has(addr)) continue;
-    alreadyEmailed.add(addr);
-    const result = await senders.email(addr);
-    await logDelivery({
-      userId: data.userId,
-      uploadLinkId: data.uploadLinkId,
-      channel: "email",
-      result,
-      uploadId: ids.uploadId,
-      batchId: ids.batchId,
-    });
-  }
+    // Slack — custom message rendered as the lead block when present.
+    for (const id of rule.destinationIds ?? []) {
+      const dest = destById.get(id);
+      if (!dest || dest.type !== "slack" || sentSlack.has(id)) continue;
+      sentSlack.add(id);
+      const channel = (dest.config as { channel?: string }).channel ?? "slack";
+      const webhookUrl = decryptSlackWebhook(dest.config);
+      const result: NotifyResult = webhookUrl
+        ? { ...(await senders.slack(webhookUrl, message)), target: channel }
+        : { status: "skipped", target: channel, detail: "Slack webhook unavailable — reconnect in Settings" };
+      await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "slack", result, uploadId: ids.uploadId, batchId: ids.batchId });
+    }
 
-  for (const dest of slackDests.values()) {
-    const channel = (dest.config as { channel?: string }).channel ?? "slack";
-    const webhookUrl = decryptSlackWebhook(dest.config);
-    const result: NotifyResult = webhookUrl
-      ? { ...(await senders.slack(webhookUrl)), target: channel }
-      : { status: "skipped", target: channel, detail: "Slack webhook unavailable — reconnect in Settings" };
-    await logDelivery({
-      userId: data.userId,
-      uploadLinkId: data.uploadLinkId,
-      channel: "slack",
-      result,
-      uploadId: ids.uploadId,
-      batchId: ids.batchId,
-    });
-  }
-
-  for (const dest of quoDests.values()) {
-    const to = (dest.config as { to?: string }).to ?? "sms";
-    const creds = decryptQuoCreds(dest.config);
-    const result: NotifyResult = creds
-      ? await senders.quo(creds)
-      : { status: "skipped", target: to, detail: "Quo credentials unavailable — re-add in Settings" };
-    await logDelivery({
-      userId: data.userId,
-      uploadLinkId: data.uploadLinkId,
-      channel: "quo",
-      result,
-      uploadId: ids.uploadId,
-      batchId: ids.batchId,
-    });
+    // Quo SMS — custom message becomes the text body when present.
+    for (const id of rule.destinationIds ?? []) {
+      const dest = destById.get(id);
+      if (!dest || dest.type !== "quo" || sentQuo.has(id)) continue;
+      sentQuo.add(id);
+      const to = (dest.config as { to?: string }).to ?? "sms";
+      const creds = decryptQuoCreds(dest.config);
+      const result: NotifyResult = creds
+        ? await senders.quo(creds, message)
+        : { status: "skipped", target: to, detail: "Quo credentials unavailable — re-add in Settings" };
+      await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "quo", result, uploadId: ids.uploadId, batchId: ids.batchId });
+    }
   }
 }
 
@@ -238,8 +225,8 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
     emailed,
     {
       email: (addr) => sendUploadEmailTo(addr, uploadId),
-      slack: (url) => sendSlackForUpload(url, uploadId),
-      quo: (creds) => sendQuoForUpload(creds, uploadId),
+      slack: (url, message) => sendSlackForUpload(url, uploadId, message),
+      quo: (creds, message) => sendQuoForUpload(creds, uploadId, message),
     },
     { uploadId },
   );
@@ -288,8 +275,8 @@ export async function deliverForBatch(batchId: string): Promise<void> {
     emailed,
     {
       email: (addr) => sendBatchEmailTo(addr, batchId),
-      slack: (url) => sendSlackForBatch(url, batchId),
-      quo: (creds) => sendQuoForBatch(creds, batchId),
+      slack: (url, message) => sendSlackForBatch(url, batchId, message),
+      quo: (creds, message) => sendQuoForBatch(creds, batchId, message),
     },
     { batchId },
   );

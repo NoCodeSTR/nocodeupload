@@ -276,3 +276,35 @@ export async function sendBatchEmailTo(to: string, batchId: string): Promise<Not
   if (!built) return { status: "skipped", target: to, detail: "no completed files in batch" };
   return sendEmail(to, built.content);
 }
+
+/**
+ * Operator alert: email the configured ADMIN_NOTIFY_EMAIL when a new user signs
+ * up, so the team can welcome/guide them. No-ops if email or the admin address
+ * isn't configured. Best-effort.
+ */
+export async function sendNewSignupNotification(newUserEmail: string | null): Promise<NotifyResult> {
+  const env = coreEnv();
+  const to = env.ADMIN_NOTIFY_EMAIL;
+  if (!to) return { status: "skipped", detail: "ADMIN_NOTIFY_EMAIL not set" };
+
+  const appUrl = env.NEXT_PUBLIC_APP_URL;
+  const who = newUserEmail ? escapeHtml(newUserEmail) : "(no email on record)";
+  const html = `
+  <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#18181b">
+    <h1 style="font-size:18px;margin:0 0 4px">New NoCodeUpload signup 🎉</h1>
+    <p style="color:#71717a;margin:0 0 16px">A new user just created an account.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px">
+      ${row("Email", who)}
+      ${row("When", new Date().toLocaleString("en-US"))}
+    </table>
+    <p style="margin-top:24px;color:#a1a1aa;font-size:12px">
+      <a href="${appUrl}/dashboard" style="color:#a1a1aa">Open NoCodeUpload</a>
+    </p>
+  </div>`;
+
+  return sendEmail(to, {
+    subject: `New signup: ${newUserEmail ?? "new user"}`,
+    html,
+    replyTo: newUserEmail ?? null,
+  });
+}
