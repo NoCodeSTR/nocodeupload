@@ -110,7 +110,7 @@ export interface CustomFieldDef {
 
 // --- Notifications v2 --------------------------------------------------------
 
-export type NotificationDestinationType = "email" | "slack";
+export type NotificationDestinationType = "email" | "slack" | "quo";
 
 /** A reusable, account-level notification channel. */
 export interface NotificationDestinationRow {

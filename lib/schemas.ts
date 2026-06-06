@@ -42,16 +42,28 @@ export const notificationRuleSchema = z.object({
 });
 export type NotificationRuleInput = z.infer<typeof notificationRuleSchema>;
 
-/** Create a notification destination (email type for now; slack via OAuth). */
+/**
+ * Create a notification destination via the API:
+ *  - email: { address }
+ *  - quo:   { apiKey, fromNumber, toNumber } (Slack is created via OAuth, not here)
+ */
+const e164 = z.string().regex(/^\+[1-9]\d{6,14}$/, "Use E.164 format, e.g. +15555550123");
 export const destinationCreateSchema = z
   .object({
-    type: z.enum(["email", "slack"]),
+    type: z.enum(["email", "slack", "quo"]),
     label: z.string().min(1, "Label is required").max(80),
     address: z.string().email().optional().nullable(),
+    apiKey: z.string().min(10).max(200).optional().nullable(),
+    fromNumber: e164.optional().nullable(),
+    toNumber: e164.optional().nullable(),
   })
   .refine((d) => d.type !== "email" || Boolean(d.address), {
     message: "An email address is required for email destinations",
     path: ["address"],
+  })
+  .refine((d) => d.type !== "quo" || Boolean(d.apiKey && d.fromNumber && d.toNumber), {
+    message: "Quo needs an API key, a from-number, and a to-number",
+    path: ["apiKey"],
   });
 export type DestinationCreateInput = z.infer<typeof destinationCreateSchema>;
 

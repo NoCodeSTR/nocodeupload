@@ -23,14 +23,20 @@ import {
 } from "@/lib/email";
 import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
 import { sendSlackForUpload, sendSlackForBatch } from "@/lib/notifications/slack";
+import { sendQuoForUpload, sendQuoForBatch, type QuoCreds } from "@/lib/notifications/quo";
 import { logDelivery } from "@/lib/notifications/deliveries";
-import { getDestinationsByIds, decryptSlackWebhook } from "@/lib/notifications/destinations";
+import {
+  getDestinationsByIds,
+  decryptSlackWebhook,
+  decryptQuoCreds,
+} from "@/lib/notifications/destinations";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { NotificationRule, RuleCondition } from "@/lib/db-types";
 
 interface Senders {
   email: (addr: string) => Promise<NotifyResult>;
   slack: (webhookUrl: string) => Promise<NotifyResult>;
+  quo: (creds: QuoCreds) => Promise<NotifyResult>;
 }
 
 interface DispatchData {
@@ -122,9 +128,10 @@ async function dispatchRules(
   const destinations = await getDestinationsByIds(data.userId, neededIds);
   const destById = new Map(destinations.map((d) => [d.id, d]));
 
-  // Collect the unique email addresses + Slack channels this event should hit.
+  // Collect the unique email addresses + Slack channels + Quo numbers to hit.
   const addresses = new Set<string>();
   const slackDests = new Map<string, (typeof destinations)[number]>();
+  const quoDests = new Map<string, (typeof destinations)[number]>();
   for (const rule of matched) {
     for (const id of rule.destinationIds ?? []) {
       const dest = destById.get(id);
@@ -134,6 +141,8 @@ async function dispatchRules(
         if (addr) addresses.add(addr);
       } else if (dest.type === "slack") {
         slackDests.set(dest.id, dest);
+      } else if (dest.type === "quo") {
+        quoDests.set(dest.id, dest);
       }
     }
     if (rule.ownerEmail && data.ownerEmail) addresses.add(data.ownerEmail);
@@ -163,6 +172,22 @@ async function dispatchRules(
       userId: data.userId,
       uploadLinkId: data.uploadLinkId,
       channel: "slack",
+      result,
+      uploadId: ids.uploadId,
+      batchId: ids.batchId,
+    });
+  }
+
+  for (const dest of quoDests.values()) {
+    const to = (dest.config as { to?: string }).to ?? "sms";
+    const creds = decryptQuoCreds(dest.config);
+    const result: NotifyResult = creds
+      ? await senders.quo(creds)
+      : { status: "skipped", target: to, detail: "Quo credentials unavailable — re-add in Settings" };
+    await logDelivery({
+      userId: data.userId,
+      uploadLinkId: data.uploadLinkId,
+      channel: "quo",
       result,
       uploadId: ids.uploadId,
       batchId: ids.batchId,
@@ -214,6 +239,7 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
     {
       email: (addr) => sendUploadEmailTo(addr, uploadId),
       slack: (url) => sendSlackForUpload(url, uploadId),
+      quo: (creds) => sendQuoForUpload(creds, uploadId),
     },
     { uploadId },
   );
@@ -263,6 +289,7 @@ export async function deliverForBatch(batchId: string): Promise<void> {
     {
       email: (addr) => sendBatchEmailTo(addr, batchId),
       slack: (url) => sendSlackForBatch(url, batchId),
+      quo: (creds) => sendQuoForBatch(creds, batchId),
     },
     { batchId },
   );

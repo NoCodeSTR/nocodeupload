@@ -11,4 +11,4 @@ export interface NotifyResult {
   detail?: string;
 }
 
-export type NotificationChannel = "email" | "slack" | "webhook";
+export type NotificationChannel = "email" | "slack" | "webhook" | "quo";

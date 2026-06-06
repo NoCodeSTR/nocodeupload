@@ -381,10 +381,10 @@ grant select on public.upload_link_stats to authenticated;
 create table public.notification_destinations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  type text not null check (type in ('email', 'slack')),
+  type text not null check (type in ('email', 'slack', 'quo')),
   label text not null,
   -- Adapter-owned shape. email: { address }; slack: encrypted incoming-webhook
-  -- url + { channel, team }.
+  -- url + { channel, team }; quo: encrypted API key + { from, to } numbers.
   config jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );

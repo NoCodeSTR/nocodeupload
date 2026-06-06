@@ -30,6 +30,10 @@ function safeDetail(d: NotificationDestinationRow): string | null {
     const c = d.config as { channel?: string; team?: string };
     return c.channel ? `${c.team ? `${c.team} · ` : ""}${c.channel}` : null;
   }
+  if (d.type === "quo") {
+    const c = d.config as { to?: string };
+    return c.to ? `SMS to ${c.to}` : null;
+  }
   return null;
 }
 
@@ -108,6 +112,54 @@ export function decryptSlackWebhook(config: Record<string, unknown>): string | n
   if (!ciphertext || !iv || !authTag) return null;
   try {
     return decryptString({ ciphertext, iv, authTag });
+  } catch {
+    return null;
+  }
+}
+
+/** Persist a Quo (OpenPhone) SMS destination — API key stored encrypted. */
+export async function createQuoDestination(args: {
+  userId: string;
+  label: string;
+  apiKey: string;
+  from: string;
+  to: string;
+}): Promise<{ id: string }> {
+  const supabase = createSupabaseServerClient();
+  const blob = encryptString(args.apiKey);
+  const row = {
+    user_id: args.userId,
+    type: "quo",
+    label: args.label,
+    config: {
+      apikey_ciphertext: blob.ciphertext,
+      apikey_iv: blob.iv,
+      apikey_auth_tag: blob.authTag,
+      from: args.from,
+      to: args.to,
+    },
+  };
+  const { data, error } = await supabase
+    .from("notification_destinations")
+    .insert(row as never)
+    .select("id")
+    .single();
+  if (error) throw new Error(formatPgError("Failed to create Quo destination", error));
+  return { id: (data as { id: string }).id };
+}
+
+/** Decrypt a Quo destination's credentials (null if incomplete/invalid). */
+export function decryptQuoCreds(
+  config: Record<string, unknown>,
+): { apiKey: string; from: string; to: string } | null {
+  const ciphertext = config.apikey_ciphertext as string | undefined;
+  const iv = config.apikey_iv as string | undefined;
+  const authTag = config.apikey_auth_tag as string | undefined;
+  const from = config.from as string | undefined;
+  const to = config.to as string | undefined;
+  if (!ciphertext || !iv || !authTag || !from || !to) return null;
+  try {
+    return { apiKey: decryptString({ ciphertext, iv, authTag }), from, to };
   } catch {
     return null;
   }
