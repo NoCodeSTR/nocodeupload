@@ -92,6 +92,7 @@ export interface UploadLinkRow {
   webhook_secret: string | null;
   success_message: string | null;
   success_redirect_url: string | null;
+  upload_password: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -243,4 +244,5 @@ export interface UploadLinkPublicRow {
   branding_color: string | null;
   success_message: string | null;
   success_redirect_url: string | null;
+  requires_password: boolean;
 }

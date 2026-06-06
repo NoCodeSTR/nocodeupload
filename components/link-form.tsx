@@ -115,6 +115,8 @@ export function LinkForm({
   const [successRedirectUrl, setSuccessRedirectUrl] = useState(
     initialLink?.success_redirect_url ?? "",
   );
+  const [usePassword, setUsePassword] = useState(Boolean(initialLink?.upload_password));
+  const [uploadPassword, setUploadPassword] = useState(initialLink?.upload_password ?? "");
   const [rules, setRules] = useState<NotificationRule[]>(initialLink?.notification_rules ?? []);
 
   const [submitting, setSubmitting] = useState(false);
@@ -144,7 +146,7 @@ export function LinkForm({
   }
 
   function addCustomField() {
-    if (customFields.length >= 3) return;
+    if (customFields.length >= 5) return;
     setCustomFields((prev) => [
       ...prev,
       { id: crypto.randomUUID(), label: "", value: "", visible: true, required: false, type: "text" },
@@ -326,6 +328,7 @@ export function LinkForm({
         })),
       successMessage: successMessage.trim() || null,
       successRedirectUrl: successRedirectUrl.trim() || null,
+      uploadPassword: usePassword ? uploadPassword.trim() || null : null,
     };
 
     setSubmitting(true);
@@ -526,6 +529,26 @@ export function LinkForm({
           />
           <p className="mt-1 text-xs text-ink-400">After this date the link stops accepting uploads.</p>
         </div>
+
+        <div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />
+            Require a password to upload
+          </label>
+          {usePassword && (
+            <input
+              className="input mt-2"
+              value={uploadPassword}
+              onChange={(e) => setUploadPassword(e.target.value)}
+              placeholder="e.g. 1234 — share it with your uploaders"
+              maxLength={100}
+            />
+          )}
+          <p className="mt-1 text-xs text-ink-400">
+            Off by default. When on, uploaders must enter this exact value first. Keep it as
+            simple as you like (a 4-digit code works).
+          </p>
+        </div>
       </CollapsibleSection>
 
       {/* Uploader form fields */}
@@ -569,7 +592,7 @@ export function LinkForm({
       <CollapsibleSection
         title="Custom fields"
         badge="Pro"
-        description="Up to 3 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
+        description="Up to 5 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
       >
 
         {customFields.map((f) => (
@@ -679,7 +702,7 @@ export function LinkForm({
           </div>
         ))}
 
-        {customFields.length < 3 && (
+        {customFields.length < 5 && (
           <button type="button" onClick={addCustomField} className="btn-secondary text-sm">
             + Add custom field
           </button>

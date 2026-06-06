@@ -95,7 +95,7 @@ export const uploadLinkCreateSchema = z.object({
   prefillEmail: z.string().max(255).optional().nullable(),
   hideName: z.boolean().default(false),
   hideEmail: z.boolean().default(false),
-  customFields: z.array(customFieldSchema).max(3).optional(),
+  customFields: z.array(customFieldSchema).max(5).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),
   notifyEmail: z.boolean().default(true),
@@ -106,6 +106,8 @@ export const uploadLinkCreateSchema = z.object({
   webhookUrl: z.string().url().optional().nullable(),
   successMessage: z.string().max(500).optional().nullable(),
   successRedirectUrl: z.string().url().optional().nullable(),
+  // Optional upload gate. Owner-chosen; any value (e.g. a 4-digit code).
+  uploadPassword: z.string().max(100).optional().nullable(),
 });
 
 export type UploadLinkCreateInput = z.infer<typeof uploadLinkCreateSchema>;
@@ -130,6 +132,8 @@ export const uploadInitiateSchema = z.object({
   // one file is uploaded in a single submission.
   batchId: z.string().uuid().optional().nullable(),
   batchSize: z.number().int().positive().max(1000).optional().nullable(),
+  // Password the uploader entered, when the link is password-protected.
+  password: z.string().max(100).optional().nullable(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;

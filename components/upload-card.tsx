@@ -58,6 +58,7 @@ export function UploadCard({
             customFields={link.visible_custom_fields}
             successMessage={link.success_message}
             successRedirectUrl={link.success_redirect_url}
+            requiresPassword={link.requires_password}
           />
         </div>
       </div>

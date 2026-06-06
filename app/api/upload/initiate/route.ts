@@ -74,6 +74,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "expired" }, { status: 403 });
   }
 
+  // Optional password gate — the owner-set value must match exactly.
+  const requiredPassword = link.upload_password?.trim();
+  if (requiredPassword) {
+    if ((input.password ?? "").trim() !== requiredPassword) {
+      return NextResponse.json({ error: "invalid_password" }, { status: 403 });
+    }
+  }
+
   // Size + type checks.
   const maxBytes = link.max_file_size_mb * 1024 * 1024;
   if (input.size > maxBytes) {

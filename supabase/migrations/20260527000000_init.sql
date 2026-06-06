@@ -232,6 +232,9 @@ create table public.upload_links (
   -- sends the uploader to the owner's own page instead of our success screen.
   success_message text,
   success_redirect_url text,
+  -- Optional gate: when set, the public uploader must enter this before
+  -- uploading. Any owner-chosen value (e.g. a 4-digit code). Null = no password.
+  upload_password text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -300,7 +303,9 @@ select
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color,
   l.success_message,
-  l.success_redirect_url
+  l.success_redirect_url,
+  -- Only whether a password is required — never the password itself.
+  (l.upload_password is not null and l.upload_password <> '') as requires_password
 from public.upload_links l
 join public.profiles p on p.id = l.user_id
 where l.is_active = true

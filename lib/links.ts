@@ -179,6 +179,7 @@ export async function createLink(
       webhook_secret: randomBytes(24).toString("hex"),
       success_message: input.successMessage ?? null,
       success_redirect_url: input.successRedirectUrl ?? null,
+      upload_password: input.uploadPassword?.trim() || null,
     };
 
     const { data, error } = await supabase
@@ -248,6 +249,7 @@ export async function duplicateLink(args: {
       webhook_secret: randomBytes(24).toString("hex"),
       success_message: src.success_message,
       success_redirect_url: src.success_redirect_url,
+      upload_password: src.upload_password,
     };
 
     const { data, error } = await supabase
@@ -327,6 +329,7 @@ export async function updateLink(args: {
   }
   if (i.successMessage !== undefined) patch.success_message = i.successMessage;
   if (i.successRedirectUrl !== undefined) patch.success_redirect_url = i.successRedirectUrl;
+  if (i.uploadPassword !== undefined) patch.upload_password = i.uploadPassword?.trim() || null;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

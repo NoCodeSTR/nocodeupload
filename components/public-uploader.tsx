@@ -31,6 +31,7 @@ interface PublicUploaderProps {
   customFields?: PublicCustomField[];
   successMessage?: string | null;
   successRedirectUrl?: string | null;
+  requiresPassword?: boolean;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -150,8 +151,10 @@ export function PublicUploader({
   customFields = [],
   successMessage = null,
   successRedirectUrl = null,
+  requiresPassword = false,
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [password, setPassword] = useState("");
   const [name, setName] = useState(prefillName ?? "");
   const [email, setEmail] = useState(prefillEmail ?? "");
   const [message, setMessage] = useState("");
@@ -254,6 +257,7 @@ export function PublicUploader({
           // the owner can get a single bundled notification.
           batchId: batch?.id ?? null,
           batchSize: batch?.size ?? null,
+          password: password.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -291,6 +295,10 @@ export function PublicUploader({
 
   async function handleUpload() {
     setFormError(null);
+    if (requiresPassword && !password.trim()) {
+      setFormError("Enter the upload password to continue.");
+      return;
+    }
     if (showName && requireName && !name.trim()) {
       setFormError("Please enter your name.");
       return;
@@ -417,6 +425,23 @@ export function PublicUploader({
 
   return (
     <div className="space-y-4">
+      {requiresPassword && (
+        <div>
+          <label className="label mb-1" htmlFor="uploader-password">
+            Password <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="uploader-password"
+            type="password"
+            className="input"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter the password"
+            disabled={uploading}
+            autoComplete="off"
+          />
+        </div>
+      )}
       {showName && (
         <div>
           <label className="label mb-1" htmlFor="uploader-name">
@@ -604,6 +629,7 @@ function humanizeInitiateError(code: string | undefined, maxMb: number): string 
     case "expired": return "This upload link has expired.";
     case "too_large": return `That file is too large (max ${formatSizeMb(maxMb)}).`;
     case "type_not_allowed": return "That file type isn't allowed here.";
+    case "invalid_password": return "Incorrect password. Check with whoever shared this link.";
     case "missing_name": return "Please enter your name.";
     case "missing_email": return "Please enter a valid email.";
     case "provider_unavailable": return "The destination isn't reachable right now. The owner may need to reconnect their storage.";
