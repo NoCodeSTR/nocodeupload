@@ -1,10 +1,12 @@
 /**
- * Email notifications via Resend. Entirely optional: every function no-ops if
- * RESEND_API_KEY / RESEND_FROM_EMAIL aren't configured (features().emailNotifications).
+ * Email notifications via Resend.
  *
- * sendUploadNotification(uploadId) emails the link owner when a file lands,
- * branded with their company logo, including the uploader's details and an
- * open-in-Drive link.
+ * Structure (Notifications v2): rendering is separated from sending so the same
+ * branded email can go to the link owner (default) OR to an arbitrary address
+ * (a routing-rule destination). Every send returns a NotifyResult so the
+ * dispatch layer can log it — a missing RESEND_API_KEY / RESEND_FROM_EMAIL now
+ * surfaces as a visible "skipped: email not configured" instead of a silent
+ * no-op.
  */
 import "server-only";
 import { Resend } from "resend";
@@ -12,6 +14,7 @@ import { coreEnv, features } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
+import type { NotifyResult } from "@/lib/notifications/types";
 import type { StorageProvider } from "@/lib/db-types";
 
 function escapeHtml(s: string): string {
@@ -22,53 +25,83 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export async function sendUploadNotification(uploadId: string): Promise<void> {
-  if (!features().emailNotifications) return;
+function row(label: string, value: string): string {
+  return `<tr>
+    <td style="padding:6px 12px 6px 0;color:#71717a;vertical-align:top;white-space:nowrap">${label}</td>
+    <td style="padding:6px 0;color:#18181b">${value}</td>
+  </tr>`;
+}
 
+interface UploadEmailRow {
+  upload_link_id: string;
+  provider: StorageProvider | null;
+  provider_file_id: string | null;
+  original_filename: string;
+  mime_type: string | null;
+  uploader_name: string | null;
+  uploader_email: string | null;
+  uploader_message: string | null;
+  custom_data: Record<string, string> | null;
+}
+
+interface LinkEmailRow {
+  name: string;
+  user_id: string;
+  branding_color: string | null;
+  branding_logo_url: string | null;
+  notify_email: boolean;
+}
+
+interface EmailContent {
+  subject: string;
+  html: string;
+  replyTo: string | null;
+}
+
+const UPLOAD_SELECT =
+  "upload_link_id, provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data";
+
+// --- Low-level send ----------------------------------------------------------
+
+/** Send pre-rendered content to one address. Returns a loggable status. */
+async function sendEmail(to: string, content: EmailContent): Promise<NotifyResult> {
+  if (!features().emailNotifications) {
+    return {
+      status: "skipped",
+      target: to,
+      detail: "Email not configured (set RESEND_API_KEY and RESEND_FROM_EMAIL)",
+    };
+  }
   const env = coreEnv();
+  try {
+    const resend = new Resend(env.RESEND_API_KEY!);
+    const res = await resend.emails.send({
+      from: env.RESEND_FROM_EMAIL!,
+      to,
+      subject: content.subject,
+      html: content.html,
+      ...(content.replyTo ? { replyTo: content.replyTo } : {}),
+    });
+    if (res.error) {
+      return { status: "failed", target: to, detail: res.error.message };
+    }
+    return { status: "sent", target: to };
+  } catch (err) {
+    return { status: "failed", target: to, detail: err instanceof Error ? err.message : "send failed" };
+  }
+}
+
+// --- Loaders -----------------------------------------------------------------
+
+async function loadLink(uploadLinkId: string): Promise<{ link: LinkEmailRow; logo: string | null; ownerEmail: string | null } | null> {
   const admin = getSupabaseAdmin();
-
-  const { data: uploadData } = await admin
-    .from("uploads")
-    .select(
-      "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, status",
-    )
-    .eq("id", uploadId)
-    .maybeSingle();
-  const upload = uploadData as
-    | {
-        upload_link_id: string;
-        provider_file_id: string | null;
-        provider: StorageProvider | null;
-        original_filename: string;
-        mime_type: string | null;
-        file_size_bytes: number | null;
-        uploader_name: string | null;
-        uploader_email: string | null;
-        uploader_message: string | null;
-        custom_data: Record<string, string> | null;
-        status: string;
-      }
-    | null;
-  if (!upload || upload.status !== "complete") return;
-
   const { data: linkData } = await admin
     .from("upload_links")
     .select("name, user_id, branding_color, branding_logo_url, notify_email")
-    .eq("id", upload.upload_link_id)
+    .eq("id", uploadLinkId)
     .maybeSingle();
-  const link = linkData as
-    | {
-        name: string;
-        user_id: string;
-        branding_color: string | null;
-        branding_logo_url: string | null;
-        notify_email: boolean;
-      }
-    | null;
-  if (!link) return;
-  // Owner disabled email for this link (webhook-only flow).
-  if (link.notify_email === false) return;
+  const link = linkData as LinkEmailRow | null;
+  if (!link) return null;
 
   const { data: profileData } = await admin
     .from("profiles")
@@ -76,20 +109,26 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
     .eq("id", link.user_id)
     .maybeSingle();
   const profile = profileData as { email: string | null; logo_url: string | null } | null;
-  const to = profile?.email;
-  if (!to) return;
 
+  return {
+    link,
+    logo: link.branding_logo_url || profile?.logo_url || null,
+    ownerEmail: profile?.email ?? null,
+  };
+}
+
+// --- Renderers ---------------------------------------------------------------
+
+function renderSingle(upload: UploadEmailRow, link: LinkEmailRow, logo: string | null): EmailContent {
   const accent = link.branding_color || "#2563eb";
-  const logo = link.branding_logo_url || profile?.logo_url || null;
+  const appUrl = coreEnv().NEXT_PUBLIC_APP_URL;
   const resultUrl = resultUrlFor(upload.provider, upload.provider_file_id);
   const resultLabel = resultUrlLabel(upload.provider);
-  const appUrl = env.NEXT_PUBLIC_APP_URL;
 
   const rows: string[] = [];
   if (upload.uploader_name) rows.push(row("From", escapeHtml(upload.uploader_name)));
   if (upload.uploader_email) rows.push(row("Email", escapeHtml(upload.uploader_email)));
   if (upload.uploader_message) rows.push(row("Message", escapeHtml(upload.uploader_message)));
-  // Owner-defined custom field tags.
   for (const [label, value] of Object.entries(upload.custom_data ?? {})) {
     if (value) rows.push(row(escapeHtml(label), escapeHtml(String(value))));
   }
@@ -115,90 +154,15 @@ export async function sendUploadNotification(uploadId: string): Promise<void> {
     </p>
   </div>`;
 
-  const resend = new Resend(env.RESEND_API_KEY!);
-  await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL!,
-    to,
-    subject: `New upload: ${link.name}`,
-    html,
-    ...(upload.uploader_email ? { replyTo: upload.uploader_email } : {}),
-  });
+  return { subject: `New upload: ${link.name}`, html, replyTo: upload.uploader_email };
 }
 
-function row(label: string, value: string): string {
-  return `<tr>
-    <td style="padding:6px 12px 6px 0;color:#71717a;vertical-align:top;white-space:nowrap">${label}</td>
-    <td style="padding:6px 0;color:#18181b">${value}</td>
-  </tr>`;
-}
-
-/**
- * Bundled notification for a whole batch — one email listing every file
- * uploaded together in a single submission. Mirrors sendUploadNotification but
- * aggregates the files. No-ops if email is disabled, the link opted out, or no
- * files in the batch completed.
- */
-export async function sendBatchUploadNotification(batchId: string): Promise<void> {
-  if (!features().emailNotifications) return;
-
-  const env = coreEnv();
-  const admin = getSupabaseAdmin();
-
-  const { data: uploadsData } = await admin
-    .from("uploads")
-    .select(
-      "upload_link_id, provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data",
-    )
-    .eq("batch_id", batchId)
-    .eq("status", "complete")
-    .order("completed_at", { ascending: true });
-  const uploads = (uploadsData ?? []) as Array<{
-    upload_link_id: string;
-    provider: StorageProvider | null;
-    provider_file_id: string | null;
-    original_filename: string;
-    mime_type: string | null;
-    uploader_name: string | null;
-    uploader_email: string | null;
-    uploader_message: string | null;
-    custom_data: Record<string, string> | null;
-  }>;
-  if (uploads.length === 0) return;
-
+function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string | null): EmailContent {
+  const accent = link.branding_color || "#2563eb";
+  const appUrl = coreEnv().NEXT_PUBLIC_APP_URL;
+  const count = uploads.length;
   const rep = uploads[0];
 
-  const { data: linkData } = await admin
-    .from("upload_links")
-    .select("name, user_id, branding_color, branding_logo_url, notify_email")
-    .eq("id", rep.upload_link_id)
-    .maybeSingle();
-  const link = linkData as
-    | {
-        name: string;
-        user_id: string;
-        branding_color: string | null;
-        branding_logo_url: string | null;
-        notify_email: boolean;
-      }
-    | null;
-  if (!link) return;
-  if (link.notify_email === false) return;
-
-  const { data: profileData } = await admin
-    .from("profiles")
-    .select("email, logo_url")
-    .eq("id", link.user_id)
-    .maybeSingle();
-  const profile = profileData as { email: string | null; logo_url: string | null } | null;
-  const to = profile?.email;
-  if (!to) return;
-
-  const accent = link.branding_color || "#2563eb";
-  const logo = link.branding_logo_url || profile?.logo_url || null;
-  const appUrl = env.NEXT_PUBLIC_APP_URL;
-  const count = uploads.length;
-
-  // Shared metadata (uploader + custom fields are the same across the batch).
   const metaRows: string[] = [];
   if (rep.uploader_name) metaRows.push(row("From", escapeHtml(rep.uploader_name)));
   if (rep.uploader_email) metaRows.push(row("Email", escapeHtml(rep.uploader_email)));
@@ -207,7 +171,6 @@ export async function sendBatchUploadNotification(batchId: string): Promise<void
     if (value) metaRows.push(row(escapeHtml(label), escapeHtml(String(value))));
   }
 
-  // One row per file: name + type + an open link.
   const fileRows = uploads
     .map((u) => {
       const url = resultUrlFor(u.provider, u.provider_file_id);
@@ -238,12 +201,78 @@ export async function sendBatchUploadNotification(batchId: string): Promise<void
     </p>
   </div>`;
 
-  const resend = new Resend(env.RESEND_API_KEY!);
-  await resend.emails.send({
-    from: env.RESEND_FROM_EMAIL!,
-    to,
-    subject: `New upload: ${link.name} (${count} files)`,
-    html,
-    ...(rep.uploader_email ? { replyTo: rep.uploader_email } : {}),
-  });
+  return { subject: `New upload: ${link.name} (${count} files)`, html, replyTo: rep.uploader_email };
+}
+
+// --- Content builders (load + render) ---------------------------------------
+
+async function buildUploadContent(uploadId: string): Promise<
+  { content: EmailContent; link: LinkEmailRow; ownerEmail: string | null } | null
+> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin.from("uploads").select(UPLOAD_SELECT).eq("id", uploadId).maybeSingle();
+  const upload = data as UploadEmailRow | null;
+  if (!upload) return null;
+  const linkInfo = await loadLink(upload.upload_link_id);
+  if (!linkInfo) return null;
+  return {
+    content: renderSingle(upload, linkInfo.link, linkInfo.logo),
+    link: linkInfo.link,
+    ownerEmail: linkInfo.ownerEmail,
+  };
+}
+
+async function buildBatchContent(batchId: string): Promise<
+  { content: EmailContent; link: LinkEmailRow; ownerEmail: string | null } | null
+> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("uploads")
+    .select(UPLOAD_SELECT + ", completed_at")
+    .eq("batch_id", batchId)
+    .eq("status", "complete")
+    .order("completed_at", { ascending: true });
+  const uploads = (data ?? []) as UploadEmailRow[];
+  if (uploads.length === 0) return null;
+  const linkInfo = await loadLink(uploads[0].upload_link_id);
+  if (!linkInfo) return null;
+  return {
+    content: renderBatch(uploads, linkInfo.link, linkInfo.logo),
+    link: linkInfo.link,
+    ownerEmail: linkInfo.ownerEmail,
+  };
+}
+
+// --- Public senders ----------------------------------------------------------
+
+/** Default owner notification for a single upload (respects notify_email). */
+export async function sendUploadNotification(uploadId: string): Promise<NotifyResult> {
+  const built = await buildUploadContent(uploadId);
+  if (!built) return { status: "skipped", detail: "upload or link not found" };
+  if (built.link.notify_email === false) return { status: "skipped", target: "owner", detail: "email disabled for this link" };
+  if (!built.ownerEmail) return { status: "skipped", detail: "owner has no email on file" };
+  return sendEmail(built.ownerEmail, built.content);
+}
+
+/** Default owner notification for a batch (respects notify_email). */
+export async function sendBatchUploadNotification(batchId: string): Promise<NotifyResult> {
+  const built = await buildBatchContent(batchId);
+  if (!built) return { status: "skipped", detail: "no completed files in batch" };
+  if (built.link.notify_email === false) return { status: "skipped", target: "owner", detail: "email disabled for this link" };
+  if (!built.ownerEmail) return { status: "skipped", detail: "owner has no email on file" };
+  return sendEmail(built.ownerEmail, built.content);
+}
+
+/** Rule destination: send a single-upload email to an explicit address. */
+export async function sendUploadEmailTo(to: string, uploadId: string): Promise<NotifyResult> {
+  const built = await buildUploadContent(uploadId);
+  if (!built) return { status: "skipped", target: to, detail: "upload or link not found" };
+  return sendEmail(to, built.content);
+}
+
+/** Rule destination: send a batch email to an explicit address. */
+export async function sendBatchEmailTo(to: string, batchId: string): Promise<NotifyResult> {
+  const built = await buildBatchContent(batchId);
+  if (!built) return { status: "skipped", target: to, detail: "no completed files in batch" };
+  return sendEmail(to, built.content);
 }

@@ -10,6 +10,7 @@ import { LinkForm } from "@/components/link-form";
 import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
 import { listUserConnections } from "@/lib/connections";
+import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 
 export default async function NewLinkPage() {
   const user = await requireUser();
@@ -18,6 +19,13 @@ export default async function NewLinkPage() {
   if (!isGoogleConfigured()) redirect("/settings");
   const connections = await listUserConnections(user.id);
   if (connections.length === 0) redirect("/settings");
+
+  let destinations: DestinationSummary[] = [];
+  try {
+    destinations = await listDestinations(user.id);
+  } catch {
+    /* non-fatal */
+  }
 
   const env = publicGoogleEnv();
   const pickerConfig = {
@@ -34,7 +42,12 @@ export default async function NewLinkPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to links
           </Link>
-          <LinkForm mode="create" connections={connections} pickerConfig={pickerConfig} />
+          <LinkForm
+            mode="create"
+            connections={connections}
+            pickerConfig={pickerConfig}
+            destinations={destinations}
+          />
         </div>
       </main>
     </>

@@ -1,0 +1,243 @@
+/**
+ * Notification dispatch — the single place where "an upload/batch completed"
+ * fans out to channels, and the single place that logs every attempt.
+ *
+ * Flow for an event (single upload OR a bundled batch):
+ *   1. Default destinations (back-compat): owner email (respects notify_email)
+ *      + the link's webhook. Always attempted, now always logged.
+ *   2. Routing rules: each rule whose condition matches the upload's context
+ *      (custom-field values, file type) fans out to its destinations
+ *      (email addresses today; Slack/Quo as they land) + optionally the owner.
+ *   3. De-dupe so the same email address isn't hit twice for one event.
+ *
+ * Every send returns a NotifyResult that we write to notification_deliveries.
+ */
+import "server-only";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { fileCategory } from "@/lib/upload-validation";
+import {
+  sendUploadNotification,
+  sendBatchUploadNotification,
+  sendUploadEmailTo,
+  sendBatchEmailTo,
+} from "@/lib/email";
+import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
+import { logDelivery } from "@/lib/notifications/deliveries";
+import { getDestinationsByIds } from "@/lib/notifications/destinations";
+import type { NotificationRule, RuleCondition } from "@/lib/db-types";
+
+interface DispatchData {
+  userId: string;
+  uploadLinkId: string;
+  ownerEmail: string | null;
+  notifyEmail: boolean;
+  rules: NotificationRule[];
+  customData: Record<string, string>;
+  categories: string[];
+}
+
+// --- Condition evaluation ----------------------------------------------------
+
+function conditionMatches(
+  c: RuleCondition,
+  customData: Record<string, string>,
+  categories: string[],
+): boolean {
+  let fieldVal: string;
+  if (c.field === "__fileType") {
+    fieldVal = categories.join(", ");
+  } else {
+    const key = Object.keys(customData).find((k) => k.toLowerCase() === c.field.toLowerCase());
+    fieldVal = key ? customData[key] : "";
+  }
+  const a = fieldVal.toLowerCase();
+  const b = (c.value ?? "").trim().toLowerCase();
+  if (!b) return false;
+  if (c.op === "equals") {
+    // Treat comma-joined values (multiselect, file-type list) as sets.
+    const parts = a.split(",").map((s) => s.trim());
+    return a === b || parts.includes(b);
+  }
+  return a.includes(b); // contains
+}
+
+function ruleMatches(
+  rule: NotificationRule,
+  customData: Record<string, string>,
+  categories: string[],
+): boolean {
+  const conds = rule.conditions ?? [];
+  if (conds.length === 0) return true; // "always"
+  const results = conds.map((c) => conditionMatches(c, customData, categories));
+  return rule.matchMode === "any" ? results.some(Boolean) : results.every(Boolean);
+}
+
+// --- Loaders -----------------------------------------------------------------
+
+async function loadLinkDispatch(
+  uploadLinkId: string,
+): Promise<{ userId: string; ownerEmail: string | null; notifyEmail: boolean; rules: NotificationRule[] } | null> {
+  const admin = getSupabaseAdmin();
+  const { data: linkData } = await admin
+    .from("upload_links")
+    .select("user_id, notify_email, notification_rules")
+    .eq("id", uploadLinkId)
+    .maybeSingle();
+  const link = linkData as
+    | { user_id: string; notify_email: boolean; notification_rules: NotificationRule[] | null }
+    | null;
+  if (!link) return null;
+  const { data: profileData } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("id", link.user_id)
+    .maybeSingle();
+  return {
+    userId: link.user_id,
+    ownerEmail: (profileData as { email: string | null } | null)?.email ?? null,
+    notifyEmail: link.notify_email,
+    rules: Array.isArray(link.notification_rules) ? link.notification_rules : [],
+  };
+}
+
+// --- Rule fan-out (shared by single + batch) ---------------------------------
+
+async function dispatchRules(
+  data: DispatchData,
+  alreadyEmailed: Set<string>,
+  sendEmailTo: (addr: string) => Promise<import("@/lib/notifications/types").NotifyResult>,
+  ids: { uploadId?: string | null; batchId?: string | null },
+): Promise<void> {
+  const matched = data.rules.filter((r) => ruleMatches(r, data.customData, data.categories));
+  if (matched.length === 0) return;
+
+  const neededIds = Array.from(new Set(matched.flatMap((r) => r.destinationIds ?? [])));
+  const destinations = await getDestinationsByIds(data.userId, neededIds);
+  const destById = new Map(destinations.map((d) => [d.id, d]));
+
+  // Collect the email addresses this event should additionally hit.
+  const addresses = new Set<string>();
+  let slackPending = 0;
+  for (const rule of matched) {
+    for (const id of rule.destinationIds ?? []) {
+      const dest = destById.get(id);
+      if (!dest) continue;
+      if (dest.type === "email") {
+        const addr = (dest.config as { address?: string }).address;
+        if (addr) addresses.add(addr);
+      } else if (dest.type === "slack") {
+        slackPending += 1;
+      }
+    }
+    if (rule.ownerEmail && data.ownerEmail) addresses.add(data.ownerEmail);
+  }
+
+  for (const addr of addresses) {
+    if (alreadyEmailed.has(addr)) continue;
+    alreadyEmailed.add(addr);
+    const result = await sendEmailTo(addr);
+    await logDelivery({
+      userId: data.userId,
+      uploadLinkId: data.uploadLinkId,
+      channel: "email",
+      result,
+      uploadId: ids.uploadId,
+      batchId: ids.batchId,
+    });
+  }
+
+  // Slack destinations are recognized but not yet wired (A-2) — log a skip so
+  // the owner sees it's pending rather than silently dropped.
+  if (slackPending > 0) {
+    await logDelivery({
+      userId: data.userId,
+      uploadLinkId: data.uploadLinkId,
+      channel: "slack",
+      result: { status: "skipped", target: "slack", detail: "Slack delivery ships in the next update" },
+      uploadId: ids.uploadId,
+      batchId: ids.batchId,
+    });
+  }
+}
+
+// --- Public entry points -----------------------------------------------------
+
+export async function deliverForUpload(uploadId: string): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("uploads")
+    .select("user_id, upload_link_id, custom_data, mime_type")
+    .eq("id", uploadId)
+    .maybeSingle();
+  const upload = data as
+    | { user_id: string; upload_link_id: string; custom_data: Record<string, string> | null; mime_type: string | null }
+    | null;
+  if (!upload) return;
+
+  const linkDispatch = await loadLinkDispatch(upload.upload_link_id);
+  if (!linkDispatch) return;
+
+  const ctx: DispatchData = {
+    userId: linkDispatch.userId,
+    uploadLinkId: upload.upload_link_id,
+    ownerEmail: linkDispatch.ownerEmail,
+    notifyEmail: linkDispatch.notifyEmail,
+    rules: linkDispatch.rules,
+    customData: upload.custom_data ?? {},
+    categories: [fileCategory(upload.mime_type)],
+  };
+
+  const emailed = new Set<string>();
+
+  // Default owner email (self-gates on notify_email + recipient).
+  const emailResult = await sendUploadNotification(uploadId);
+  if (emailResult.status === "sent" && ctx.ownerEmail) emailed.add(ctx.ownerEmail);
+  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "email", result: emailResult, uploadId });
+
+  // Default webhook.
+  const webhookResult = await sendUploadWebhook(uploadId);
+  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
+
+  await dispatchRules(ctx, emailed, (addr) => sendUploadEmailTo(addr, uploadId), { uploadId });
+}
+
+export async function deliverForBatch(batchId: string): Promise<void> {
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from("uploads")
+    .select("user_id, upload_link_id, custom_data, mime_type")
+    .eq("batch_id", batchId)
+    .eq("status", "complete");
+  const uploads = (data ?? []) as Array<{
+    user_id: string;
+    upload_link_id: string;
+    custom_data: Record<string, string> | null;
+    mime_type: string | null;
+  }>;
+  if (uploads.length === 0) return;
+
+  const rep = uploads[0];
+  const linkDispatch = await loadLinkDispatch(rep.upload_link_id);
+  if (!linkDispatch) return;
+
+  const ctx: DispatchData = {
+    userId: linkDispatch.userId,
+    uploadLinkId: rep.upload_link_id,
+    ownerEmail: linkDispatch.ownerEmail,
+    notifyEmail: linkDispatch.notifyEmail,
+    rules: linkDispatch.rules,
+    customData: rep.custom_data ?? {},
+    categories: Array.from(new Set(uploads.map((u) => fileCategory(u.mime_type)))),
+  };
+
+  const emailed = new Set<string>();
+
+  const emailResult = await sendBatchUploadNotification(batchId);
+  if (emailResult.status === "sent" && ctx.ownerEmail) emailed.add(ctx.ownerEmail);
+  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "email", result: emailResult, batchId });
+
+  const webhookResult = await sendBatchUploadWebhook(batchId);
+  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
+
+  await dispatchRules(ctx, emailed, (addr) => sendBatchEmailTo(addr, batchId), { batchId });
+}

@@ -26,6 +26,35 @@ export const customFieldSchema = z.object({
 });
 export type CustomFieldInput = z.infer<typeof customFieldSchema>;
 
+export const ruleConditionSchema = z.object({
+  field: z.string().min(1).max(80),
+  op: z.enum(["equals", "contains"]),
+  value: z.string().max(200).default(""),
+});
+
+export const notificationRuleSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().max(80).default(""),
+  matchMode: z.enum(["all", "any"]).default("all"),
+  conditions: z.array(ruleConditionSchema).max(5).default([]),
+  destinationIds: z.array(z.string().uuid()).max(20).default([]),
+  ownerEmail: z.boolean().default(false),
+});
+export type NotificationRuleInput = z.infer<typeof notificationRuleSchema>;
+
+/** Create a notification destination (email type for now; slack via OAuth). */
+export const destinationCreateSchema = z
+  .object({
+    type: z.enum(["email", "slack"]),
+    label: z.string().min(1, "Label is required").max(80),
+    address: z.string().email().optional().nullable(),
+  })
+  .refine((d) => d.type !== "email" || Boolean(d.address), {
+    message: "An email address is required for email destinations",
+    path: ["address"],
+  });
+export type DestinationCreateInput = z.infer<typeof destinationCreateSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
@@ -48,6 +77,7 @@ export const uploadLinkCreateSchema = z.object({
   descriptionTemplate: z.string().max(2000).optional().nullable(),
   notifyEmail: z.boolean().default(true),
   bundleNotifications: z.boolean().default(true),
+  notificationRules: z.array(notificationRuleSchema).max(10).optional(),
   brandingLogoUrl: z.string().url().optional().nullable(),
   brandingColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().nullable(),
   webhookUrl: z.string().url().optional().nullable(),

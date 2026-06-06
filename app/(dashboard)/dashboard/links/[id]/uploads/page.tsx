@@ -12,7 +12,8 @@ import { getLinkForUser } from "@/lib/links";
 import { listUploadsForLink } from "@/lib/uploads";
 import { formatBytes, fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
-import type { UploadRow } from "@/lib/db-types";
+import { listDeliveriesForLink } from "@/lib/notifications/deliveries";
+import type { UploadRow, NotificationDeliveryRow } from "@/lib/db-types";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,14 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
   const batchCounts = new Map<string, number>();
   for (const u of uploads) {
     if (u.batch_id) batchCounts.set(u.batch_id, (batchCounts.get(u.batch_id) ?? 0) + 1);
+  }
+
+  // Recent notification delivery attempts (observability).
+  let deliveries: NotificationDeliveryRow[] = [];
+  try {
+    deliveries = await listDeliveriesForLink({ userId: user.id, linkId: params.id, limit: 12 });
+  } catch {
+    /* non-fatal */
   }
 
   return (
@@ -62,6 +71,23 @@ export default async function LinkUploadsPage({ params }: { params: { id: string
           {loadError && (
             <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
               Couldn&apos;t load submissions just now — refresh in a moment.
+            </div>
+          )}
+
+          {deliveries.length > 0 && (
+            <div className="mb-6 rounded-lg border border-ink-200 p-4 dark:border-ink-700">
+              <h3 className="mb-2 font-display text-sm font-semibold">Recent notifications</h3>
+              <ul className="space-y-1.5 text-xs">
+                {deliveries.map((d) => (
+                  <li key={d.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <DeliveryStatusBadge status={d.status} />
+                    <span className="font-medium capitalize">{d.channel}</span>
+                    {d.target && <span className="text-ink-500">&rarr; {d.target}</span>}
+                    {d.detail && <span className="text-ink-400">· {d.detail}</span>}
+                    <span className="ml-auto text-ink-400">{formatDateTime(d.created_at)}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -168,6 +194,18 @@ function UploadRowCard({ upload, batchCount }: { upload: UploadRow; batchCount?:
         )}
       </div>
     </li>
+  );
+}
+
+function DeliveryStatusBadge({ status }: { status: NotificationDeliveryRow["status"] }) {
+  const styles =
+    status === "sent"
+      ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-100"
+      : status === "failed"
+        ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-100"
+        : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100";
+  return (
+    <span className={`rounded px-1.5 py-0.5 font-medium capitalize ${styles}`}>{status}</span>
   );
 }
 

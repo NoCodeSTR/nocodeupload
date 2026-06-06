@@ -25,8 +25,17 @@ import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import type { StorageProvider } from "@/lib/db-types";
+import type { NotifyResult } from "@/lib/notifications/types";
 
 const TIMEOUT_MS = 10_000;
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "webhook";
+  }
+}
 
 const UPLOAD_COLUMNS =
   "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
@@ -87,15 +96,14 @@ async function loadLink(uploadLinkId: string): Promise<LinkShape | null> {
   return (data ?? null) as LinkShape | null;
 }
 
-/** Sign + POST the payload to the link's webhook. Never throws. */
-async function deliver(link: LinkShape, eventName: string, payload: unknown): Promise<void> {
-  if (!link.webhook_url) return;
+/** Sign + POST the payload to the link's webhook. Never throws; returns status. */
+async function deliver(link: LinkShape, eventName: string, payload: unknown): Promise<NotifyResult> {
+  if (!link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
+  const target = hostOf(link.webhook_url);
   // Defense in depth: never POST to an unsafe target even if one slipped past
   // the save-time check (e.g. a row predating this guard).
   if (!isPubliclySafeHttpUrl(link.webhook_url).safe) {
-    // eslint-disable-next-line no-console
-    console.warn("[webhook] skipping unsafe webhook URL");
-    return;
+    return { status: "skipped", target, detail: "unsafe webhook URL" };
   }
 
   const body = JSON.stringify(payload);
@@ -119,19 +127,18 @@ async function deliver(link: LinkShape, eventName: string, payload: unknown): Pr
       cache: "no-store",
     });
     if (!res.ok) {
-      // eslint-disable-next-line no-console
-      console.warn(`[webhook] ${link.webhook_url} responded ${res.status}`);
+      return { status: "failed", target, detail: `responded ${res.status}` };
     }
+    return { status: "sent", target };
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("[webhook] delivery failed:", err instanceof Error ? err.message : err);
+    return { status: "failed", target, detail: err instanceof Error ? err.message : "delivery failed" };
   } finally {
     clearTimeout(timer);
   }
 }
 
 /** Single-file webhook — one completed upload. */
-export async function sendUploadWebhook(uploadId: string): Promise<void> {
+export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
@@ -139,13 +146,13 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
     .eq("id", uploadId)
     .maybeSingle();
   const upload = (data ?? null) as UploadShape | null;
-  if (!upload || upload.status !== "complete") return;
+  if (!upload || upload.status !== "complete") return { status: "skipped", detail: "upload not complete" };
 
   const link = await loadLink(upload.upload_link_id);
-  if (!link || !link.webhook_url) return;
+  if (!link || !link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
 
   const file = filePayload(upload);
-  await deliver(link, "upload.completed", {
+  return deliver(link, "upload.completed", {
     event: "upload.completed",
     uploadType: "single",
     uploadId,
@@ -172,7 +179,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<void> {
  * submission. uploadType "batch", with a `batch` object and the full `files`
  * array. No-ops if the link has no webhook or no files in the batch completed.
  */
-export async function sendBatchUploadWebhook(batchId: string): Promise<void> {
+export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
@@ -181,11 +188,11 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<void> {
     .eq("status", "complete")
     .order("completed_at", { ascending: true });
   const uploads = (data ?? []) as UploadShape[];
-  if (uploads.length === 0) return;
+  if (uploads.length === 0) return { status: "skipped", detail: "no completed files in batch" };
 
   const rep = uploads[0];
   const link = await loadLink(rep.upload_link_id);
-  if (!link || !link.webhook_url) return;
+  if (!link || !link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
 
   const files = uploads.map(filePayload);
   const uploadedAt =
@@ -194,7 +201,7 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<void> {
       return latest;
     }, null) ?? new Date().toISOString();
 
-  await deliver(link, "batch.completed", {
+  return deliver(link, "batch.completed", {
     event: "batch.completed",
     uploadType: "batch",
     batch: { id: batchId, fileCount: files.length },

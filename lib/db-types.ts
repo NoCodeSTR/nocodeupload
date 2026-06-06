@@ -83,6 +83,7 @@ export interface UploadLinkRow {
   description_template: string | null;
   notify_email: boolean;
   bundle_notifications: boolean;
+  notification_rules: NotificationRule[];
   branding_logo_url: string | null;
   branding_color: string | null;
   webhook_url: string | null;
@@ -105,6 +106,61 @@ export interface CustomFieldDef {
   required: boolean; // only meaningful when visible
   type?: CustomFieldType; // defaults to "text" when absent (back-compat)
   options?: string[]; // choices for select / multiselect
+}
+
+// --- Notifications v2 --------------------------------------------------------
+
+export type NotificationDestinationType = "email" | "slack";
+
+/** A reusable, account-level notification channel. */
+export interface NotificationDestinationRow {
+  id: string;
+  user_id: string;
+  type: NotificationDestinationType;
+  label: string;
+  /**
+   * Adapter-owned. email: { address }. slack: { channel, team, and the
+   * AES-GCM-encrypted incoming-webhook url as webhook_ciphertext/iv/auth_tag }.
+   */
+  config: Record<string, unknown>;
+  created_at: string;
+}
+
+export type RuleConditionOp = "equals" | "contains";
+
+/** A single condition within a routing rule. */
+export interface RuleCondition {
+  /** A custom-field label, or the special token "__fileType". */
+  field: string;
+  op: RuleConditionOp;
+  value: string;
+}
+
+/**
+ * A per-link routing rule. Empty `conditions` means "always". Matching rules
+ * fan out to their destinations (and optionally the owner's account email).
+ */
+export interface NotificationRule {
+  id: string;
+  name: string;
+  matchMode: "all" | "any";
+  conditions: RuleCondition[];
+  destinationIds: string[];
+  ownerEmail: boolean;
+}
+
+/** One send attempt, logged for observability. */
+export interface NotificationDeliveryRow {
+  id: string;
+  user_id: string;
+  upload_link_id: string | null;
+  batch_id: string | null;
+  upload_id: string | null;
+  channel: string;
+  target: string | null;
+  status: "sent" | "failed" | "skipped";
+  detail: string | null;
+  created_at: string;
 }
 
 /** The visible subset exposed by the public view (no hidden fields). */

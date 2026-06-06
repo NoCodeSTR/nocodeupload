@@ -27,11 +27,13 @@ import {
 import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { LogoUploader } from "@/components/logo-uploader";
+import { DestinationsManager, type DestinationSummary } from "@/components/destinations-manager";
 import { requireUser } from "@/lib/auth";
-import { isGoogleConfigured } from "@/lib/env";
+import { isGoogleConfigured, features } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PROVIDER_INFO, PROVIDER_DISPLAY_ORDER } from "@/lib/providers/registry";
 import { listUserConnections, type ConnectionSummary } from "@/lib/connections";
+import { listDestinations } from "@/lib/notifications/destinations";
 import type { StorageProvider } from "@/lib/db-types";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -85,6 +87,20 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       "We couldn't load your connected accounts just now. You can still connect a new one below; refresh to retry.";
     // eslint-disable-next-line no-console
     console.error("[settings] failed to load connections:", err);
+  }
+
+  // Notification destinations + email-sending status (best-effort).
+  let destinations: DestinationSummary[] = [];
+  try {
+    destinations = await listDestinations(user.id);
+  } catch {
+    /* non-fatal */
+  }
+  let emailConfigured = false;
+  try {
+    emailConfigured = features().emailNotifications;
+  } catch {
+    /* non-fatal */
   }
 
   // Current account logo (best-effort).
@@ -229,6 +245,39 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </p>
             <div className="mt-3">
               <LogoUploader currentLogoUrl={logoUrl} />
+            </div>
+          </div>
+
+          <div className="pt-4">
+            <h2 className="font-display text-xl font-semibold">Notifications</h2>
+            <p className="mt-1 text-sm text-ink-500">
+              How you and your team hear about new uploads. Add destinations here, then route
+              to them per link with rules.
+            </p>
+
+            <div
+              className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+                emailConfigured
+                  ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-900/30 dark:text-green-100"
+                  : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100"
+              }`}
+            >
+              {emailConfigured ? (
+                <>Email sending is <strong>active</strong>. Upload notifications will be delivered.</>
+              ) : (
+                <>
+                  Email sending is <strong>not configured</strong> on this deployment — that&apos;s
+                  why notification emails aren&apos;t arriving. Set{" "}
+                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">RESEND_API_KEY</code>{" "}
+                  and{" "}
+                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">RESEND_FROM_EMAIL</code>{" "}
+                  (a verified Resend domain) to turn it on.
+                </>
+              )}
+            </div>
+
+            <div className="mt-3">
+              <DestinationsManager destinations={destinations} />
             </div>
           </div>
 

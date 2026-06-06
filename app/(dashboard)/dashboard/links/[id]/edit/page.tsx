@@ -11,6 +11,7 @@ import { LinkForm } from "@/components/link-form";
 import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
 import { listUserConnections } from "@/lib/connections";
+import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 import { getLinkForUser } from "@/lib/links";
 
 export default async function EditLinkPage({ params }: { params: { id: string } }) {
@@ -21,6 +22,12 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
   if (!link) notFound();
 
   const connections = await listUserConnections(user.id);
+  let destinations: DestinationSummary[] = [];
+  try {
+    destinations = await listDestinations(user.id);
+  } catch {
+    /* non-fatal */
+  }
   const env = publicGoogleEnv();
   const pickerConfig = {
     apiKey: env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY,
@@ -41,6 +48,7 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
             connections={connections}
             pickerConfig={pickerConfig}
             initialLink={link}
+            destinations={destinations}
           />
         </div>
       </main>

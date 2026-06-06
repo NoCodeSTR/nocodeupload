@@ -216,6 +216,9 @@ create table public.upload_links (
   -- When true, multiple files sent in ONE submission produce a single bundled
   -- notification + webhook (one "batch") instead of one per file.
   bundle_notifications boolean not null default true,
+  -- Conditional routing rules: [{ id, name, conditions, matchMode,
+  -- destinationIds, ownerEmail }]. Evaluated by the notification dispatch layer.
+  notification_rules jsonb not null default '[]'::jsonb,
   branding_logo_url text,
   branding_color text,
   -- Optional per-link webhook (Zapier/Make/custom) fired on each completed
@@ -373,6 +376,55 @@ group by l.id, l.user_id;
 grant select on public.upload_link_stats to authenticated;
 
 -- -----------------------------------------------------------------------------
+-- notification_destinations — reusable, account-level channels
+-- -----------------------------------------------------------------------------
+create table public.notification_destinations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  type text not null check (type in ('email', 'slack')),
+  label text not null,
+  -- Adapter-owned shape. email: { address }; slack: encrypted incoming-webhook
+  -- url + { channel, team }.
+  config jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index notification_destinations_user_id_idx
+  on public.notification_destinations (user_id);
+
+alter table public.notification_destinations enable row level security;
+
+create policy "notification_destinations: owner all"
+  on public.notification_destinations for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
+-- notification_deliveries — per-attempt log (observability)
+-- -----------------------------------------------------------------------------
+create table public.notification_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  upload_link_id uuid references public.upload_links(id) on delete cascade,
+  batch_id uuid,
+  upload_id uuid,
+  channel text not null,                 -- 'email' | 'slack' | 'webhook'
+  target text,                           -- display only (address/channel/host) — never secrets
+  status text not null check (status in ('sent', 'failed', 'skipped')),
+  detail text,                           -- reason or error
+  created_at timestamptz not null default now()
+);
+create index notification_deliveries_link_idx
+  on public.notification_deliveries (upload_link_id, created_at desc);
+create index notification_deliveries_user_idx
+  on public.notification_deliveries (user_id, created_at desc);
+
+alter table public.notification_deliveries enable row level security;
+
+create policy "notification_deliveries: owner read"
+  on public.notification_deliveries for select
+  using (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
 -- Role grants
 -- -----------------------------------------------------------------------------
 -- Supabase normally auto-grants anon/authenticated/service_role on new public
@@ -393,6 +445,8 @@ grant select, insert, update, delete on public.storage_connections to authentica
 grant select, insert, update, delete on public.upload_links to authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant select on public.uploads to authenticated;
+grant select, insert, update, delete on public.notification_destinations to authenticated;
+grant select on public.notification_deliveries to authenticated;
 
 -- Ensure any future tables/sequences inherit the same grants.
 alter default privileges in schema public grant all on tables to service_role;

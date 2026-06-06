@@ -18,7 +18,10 @@ import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { renderFilename, renderText } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
-import type { UploadLinkRow, CustomFieldDef } from "@/lib/db-types";
+import type { DestinationSummary } from "@/components/destinations-manager";
+import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition } from "@/lib/db-types";
+
+const FILE_TYPE_CHOICES = ["image", "video", "pdf", "audio", "document", "other"];
 
 // Sentinel folder id for YouTube links. YouTube has no folders — videos land on
 // the connected channel — but upload_links.folder_id is NOT NULL and the upload
@@ -31,6 +34,7 @@ interface LinkFormProps {
   connections: ConnectionSummary[];
   pickerConfig: { apiKey: string; projectNumber: string };
   initialLink?: UploadLinkRow;
+  destinations?: DestinationSummary[];
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -63,7 +67,13 @@ function isoToDateInput(iso: string | null): string {
   return new Date(iso).toISOString().slice(0, 10);
 }
 
-export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkFormProps) {
+export function LinkForm({
+  mode,
+  connections,
+  pickerConfig,
+  initialLink,
+  destinations = [],
+}: LinkFormProps) {
   const router = useRouter();
 
   const [connectionId, setConnectionId] = useState(
@@ -104,6 +114,7 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
   const [successRedirectUrl, setSuccessRedirectUrl] = useState(
     initialLink?.success_redirect_url ?? "",
   );
+  const [rules, setRules] = useState<NotificationRule[]>(initialLink?.notification_rules ?? []);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +187,60 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
     );
   }
 
+  // --- Routing rules ---------------------------------------------------------
+  function addRule() {
+    if (rules.length >= 10) return;
+    setRules((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: "", matchMode: "all", conditions: [], destinationIds: [], ownerEmail: false },
+    ]);
+  }
+  function updateRule(id: string, patch: Partial<NotificationRule>) {
+    setRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeRule(id: string) {
+    setRules((prev) => prev.filter((r) => r.id !== id));
+  }
+  function setRuleField(id: string, field: string) {
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        if (field === "__always") return { ...r, conditions: [] };
+        const existing = r.conditions[0];
+        return { ...r, conditions: [{ field, op: existing?.op ?? "equals", value: existing?.value ?? "" }] };
+      }),
+    );
+  }
+  function setRuleCond(id: string, patch: Partial<RuleCondition>) {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.id === id && r.conditions[0] ? { ...r, conditions: [{ ...r.conditions[0], ...patch }] } : r,
+      ),
+    );
+  }
+  function toggleRuleDestination(id: string, destId: string) {
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const has = r.destinationIds.includes(destId);
+        return {
+          ...r,
+          destinationIds: has ? r.destinationIds.filter((d) => d !== destId) : [...r.destinationIds, destId],
+        };
+      }),
+    );
+  }
+  // Value choices for a rule condition: file-type list, a select field's
+  // options, or null (free text).
+  function ruleValueOptions(field: string): string[] | null {
+    if (field === "__fileType") return FILE_TYPE_CHOICES;
+    const cf = customFields.find((f) => f.label.trim() === field);
+    if (cf && (cf.type === "select" || cf.type === "multiselect")) {
+      return (cf.options ?? []).map((o) => o.trim()).filter(Boolean);
+    }
+    return null;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -233,6 +298,15 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
       descriptionTemplate: isYouTube ? descriptionTemplate.trim() || null : null,
       notifyEmail,
       bundleNotifications,
+      // Keep only rules that actually route somewhere; trim condition values.
+      notificationRules: rules
+        .filter((r) => r.destinationIds.length > 0 || r.ownerEmail)
+        .map((r) => ({
+          ...r,
+          conditions: r.conditions
+            .filter((c) => c.field && c.value.trim())
+            .map((c) => ({ ...c, value: c.value.trim() })),
+        })),
       successMessage: successMessage.trim() || null,
       successRedirectUrl: successRedirectUrl.trim() || null,
     };
@@ -819,6 +893,133 @@ export function LinkForm({ mode, connections, pickerConfig, initialLink }: LinkF
               <CopyButton value={initialLink.webhook_secret} label="Copy secret" />
             </div>
           </div>
+        )}
+      </section>
+
+      {/* Routing rules */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-semibold">
+            Routing rules{" "}
+            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
+          </h2>
+          <p className="text-sm text-ink-500">
+            Send specific uploads to specific people. Add destinations in Settings &rarr;
+            Notifications, then route here — e.g. when a field is &ldquo;Maintenance needed,&rdquo;
+            notify your maintenance email.
+          </p>
+        </div>
+
+        {destinations.length === 0 && (
+          <p className="rounded-md bg-ink-50 px-3 py-2 text-xs text-ink-500 dark:bg-ink-900/40">
+            No destinations yet. Add an email destination in Settings &rarr; Notifications and it
+            will appear here. (You can still use &ldquo;Email me&rdquo; on a rule.)
+          </p>
+        )}
+
+        {rules.map((rule) => {
+          const cond = rule.conditions[0];
+          const field = cond?.field ?? "__always";
+          const valueOptions = ruleValueOptions(field);
+          return (
+            <div key={rule.id} className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+              <input
+                className="input"
+                value={rule.name}
+                onChange={(e) => updateRule(rule.id, { name: e.target.value })}
+                placeholder="Rule name (e.g. Maintenance alerts)"
+                maxLength={80}
+              />
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-ink-500">When</span>
+                <select
+                  className="input w-auto"
+                  value={field}
+                  onChange={(e) => setRuleField(rule.id, e.target.value)}
+                >
+                  <option value="__always">Always</option>
+                  <option value="__fileType">File type</option>
+                  {customFields
+                    .filter((f) => f.label.trim())
+                    .map((f) => (
+                      <option key={f.id} value={f.label.trim()}>
+                        {f.label.trim()}
+                      </option>
+                    ))}
+                </select>
+                {field !== "__always" && (
+                  <>
+                    <select
+                      className="input w-auto"
+                      value={cond?.op ?? "equals"}
+                      onChange={(e) => setRuleCond(rule.id, { op: e.target.value as RuleCondition["op"] })}
+                    >
+                      <option value="equals">is</option>
+                      <option value="contains">contains</option>
+                    </select>
+                    {valueOptions ? (
+                      <select
+                        className="input w-auto"
+                        value={cond?.value ?? ""}
+                        onChange={(e) => setRuleCond(rule.id, { value: e.target.value })}
+                      >
+                        <option value="">Choose…</option>
+                        {valueOptions.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className="input w-auto"
+                        value={cond?.value ?? ""}
+                        onChange={(e) => setRuleCond(rule.id, { value: e.target.value })}
+                        placeholder="value"
+                        maxLength={200}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="space-y-1">
+                <span className="label">Then notify</span>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  {destinations.map((d) => (
+                    <label key={d.id} className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={rule.destinationIds.includes(d.id)}
+                        onChange={() => toggleRuleDestination(rule.id, d.id)}
+                      />
+                      {d.label}
+                    </label>
+                  ))}
+                  <label className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={rule.ownerEmail}
+                      onChange={() => updateRule(rule.id, { ownerEmail: !rule.ownerEmail })}
+                    />
+                    Email me
+                  </label>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeRule(rule.id)}
+                className="text-xs text-red-600 hover:underline dark:text-red-300"
+              >
+                Remove rule
+              </button>
+            </div>
+          );
+        })}
+
+        {rules.length < 10 && (
+          <button type="button" onClick={addRule} className="btn-secondary text-sm">
+            + Add rule
+          </button>
         )}
       </section>
 

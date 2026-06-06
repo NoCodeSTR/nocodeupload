@@ -171,6 +171,7 @@ export async function createLink(
       description_template: input.descriptionTemplate ?? null,
       notify_email: input.notifyEmail ?? true,
       bundle_notifications: input.bundleNotifications ?? true,
+      notification_rules: input.notificationRules ?? [],
       branding_logo_url: input.brandingLogoUrl ?? null,
       branding_color: input.brandingColor ?? null,
       webhook_url: input.webhookUrl ?? null,
@@ -239,6 +240,7 @@ export async function duplicateLink(args: {
       description_template: src.description_template,
       notify_email: src.notify_email,
       bundle_notifications: src.bundle_notifications,
+      notification_rules: src.notification_rules ?? [],
       branding_logo_url: src.branding_logo_url,
       branding_color: src.branding_color,
       webhook_url: src.webhook_url,
@@ -313,6 +315,7 @@ export async function updateLink(args: {
   if (i.descriptionTemplate !== undefined) patch.description_template = i.descriptionTemplate;
   if (i.notifyEmail !== undefined) patch.notify_email = i.notifyEmail;
   if (i.bundleNotifications !== undefined) patch.bundle_notifications = i.bundleNotifications;
+  if (i.notificationRules !== undefined) patch.notification_rules = i.notificationRules;
   if (i.brandingLogoUrl !== undefined) patch.branding_logo_url = i.brandingLogoUrl;
   if (i.brandingColor !== undefined) patch.branding_color = i.brandingColor;
   if (i.webhookUrl !== undefined) {

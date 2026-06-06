@@ -1,31 +1,19 @@
 /**
  * Batch notification orchestration.
  *
- * A "batch" is a set of files uploaded together in one submission (they share a
- * batch_id). When the link has bundle_notifications on, we send ONE notification
- * + webhook for the whole batch instead of one per file.
+ * Decides single vs. bundled and guarantees exactly-once bundled delivery via
+ * an atomic claim (claimBatchNotification), raced by two triggers (the chunk
+ * route's "last file finalizes" and the client's batch-complete call). The
+ * actual fan-out to channels (default email/webhook + routing rules) lives in
+ * lib/notifications/dispatch.ts; this module just decides WHEN to dispatch.
  *
- * Exactly-once delivery is guaranteed by an atomic claim (claimBatchNotification):
- * whichever trigger reaches a "batch is done" state first wins and sends; any
- * other no-ops. Two triggers race, by design, for robustness:
- *
- *   1. The chunk route, after each file finalizes — fires once every declared
- *      file has reached a terminal state (the "last finalizer wins" path). This
- *      is resilient to the uploader closing their tab after the last file.
- *   2. The client's /api/upload/batch-complete call, after its upload loop ends
- *      — authoritative "the browser is done", which also covers the case where a
- *      file's initiate failed (so no row exists and the count-based path can
- *      never reach the declared size).
- *
- * Known limitation: if the uploader abandons mid-batch (files still in flight),
- * no bundled notification fires. Completed files are safely in storage and
- * visible in the dashboard; the owner just doesn't get a partial-batch ping.
+ * Known limitation: if the uploader abandons mid-batch, no bundled notification
+ * fires. Completed files are safe in storage and visible in the dashboard.
  */
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getBatchProgress, claimBatchNotification } from "@/lib/uploads";
-import { sendUploadNotification, sendBatchUploadNotification } from "@/lib/email";
-import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
+import { deliverForUpload, deliverForBatch } from "@/lib/notifications/dispatch";
 
 async function getLinkBundling(linkId: string): Promise<boolean> {
   const admin = getSupabaseAdmin();
@@ -38,15 +26,12 @@ async function getLinkBundling(linkId: string): Promise<boolean> {
   return link?.bundle_notifications ?? true;
 }
 
-async function sendSingle(uploadId: string): Promise<void> {
-  await Promise.allSettled([sendUploadNotification(uploadId), sendUploadWebhook(uploadId)]);
-}
-
 /**
- * Claim + send the bundled notification for a batch, if it's ready.
+ * Claim + dispatch the bundled notification for a batch, if it's ready.
  *  - requireDeclaredComplete: only fire once `terminal >= batch_size` (the
- *    chunk-route path, so we don't fire mid-batch since rows are created lazily).
- *    When false (client path), fire as long as nothing is still uploading.
+ *    chunk-route path, so we don't fire mid-batch since rows are created
+ *    lazily). When false (client path), fire as long as nothing is still
+ *    uploading.
  */
 async function maybeSendBatch(
   batchId: string,
@@ -54,28 +39,21 @@ async function maybeSendBatch(
 ): Promise<void> {
   const progress = await getBatchProgress(batchId);
   if (progress.total === 0) return;
-  // Never fire while a file in the batch is still uploading.
   if (progress.uploading > 0) return;
 
   if (opts.requireDeclaredComplete) {
-    // Without a declared size we can't tell "all arrived" apart from "between
-    // files" (rows are created lazily), so defer to the client trigger.
     if (progress.declaredSize == null) return;
     if (progress.terminal < progress.declaredSize) return;
   }
 
-  // Exactly one caller wins the claim and sends.
   const claimed = await claimBatchNotification(batchId);
   if (!claimed) return;
-  await Promise.allSettled([
-    sendBatchUploadNotification(batchId),
-    sendBatchUploadWebhook(batchId),
-  ]);
+  await deliverForBatch(batchId);
 }
 
 /**
  * Called by the chunk route after a file finalizes. Routes to a single
- * notification, per-file (bundling off), or the bundled batch path.
+ * dispatch, per-file (bundling off), or the bundled batch path.
  */
 export async function notifyAfterUpload(uploadId: string): Promise<void> {
   const admin = getSupabaseAdmin();
@@ -87,16 +65,16 @@ export async function notifyAfterUpload(uploadId: string): Promise<void> {
   const upload = data as { batch_id: string | null; upload_link_id: string } | null;
   if (!upload) return;
 
-  // Not part of a batch → single notification (the common, original path).
+  // Not part of a batch → single dispatch (the common, original path).
   if (!upload.batch_id) {
-    await sendSingle(uploadId);
+    await deliverForUpload(uploadId);
     return;
   }
 
   const bundling = await getLinkBundling(upload.upload_link_id);
   if (!bundling) {
     // Owner wants one notification per file, even within a batch.
-    await sendSingle(uploadId);
+    await deliverForUpload(uploadId);
     return;
   }
 
@@ -106,7 +84,7 @@ export async function notifyAfterUpload(uploadId: string): Promise<void> {
 /**
  * Called by /api/upload/batch-complete once the browser finishes its upload
  * loop. Authoritative "done" trigger (also covers initiate failures). No-op
- * when the link has bundling off (the chunk route already sent per-file).
+ * when the link has bundling off (the chunk route already dispatched per-file).
  */
 export async function finalizeBatchFromClient(batchId: string): Promise<void> {
   const admin = getSupabaseAdmin();
