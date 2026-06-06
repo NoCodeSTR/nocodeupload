@@ -11,8 +11,10 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { encryptString, decryptString } from "@/lib/crypto/tokens";
 import { formatPgError } from "@/lib/pg-error";
 import type { NotificationDestinationRow, NotificationDestinationType } from "@/lib/db-types";
+import type { SlackInstall } from "@/lib/slack";
 
 /** Safe-for-UI projection — never includes secrets. */
 export interface DestinationSummary {
@@ -66,6 +68,49 @@ export async function createEmailDestination(args: {
     .single();
   if (error) throw new Error(formatPgError("Failed to create destination", error));
   return { id: (data as { id: string }).id };
+}
+
+/** Persist a connected Slack channel (incoming webhook URL stored encrypted). */
+export async function createSlackDestination(args: {
+  userId: string;
+  install: SlackInstall;
+}): Promise<{ id: string }> {
+  const supabase = createSupabaseServerClient();
+  const blob = encryptString(args.install.webhookUrl);
+  const channel = args.install.channel || "channel";
+  const label = [args.install.teamName, channel].filter(Boolean).join(" · ") || "Slack";
+  const row = {
+    user_id: args.userId,
+    type: "slack",
+    label,
+    config: {
+      webhook_ciphertext: blob.ciphertext,
+      webhook_iv: blob.iv,
+      webhook_auth_tag: blob.authTag,
+      channel,
+      team: args.install.teamName,
+    },
+  };
+  const { data, error } = await supabase
+    .from("notification_destinations")
+    .insert(row as never)
+    .select("id")
+    .single();
+  if (error) throw new Error(formatPgError("Failed to create Slack destination", error));
+  return { id: (data as { id: string }).id };
+}
+
+/** Decrypt a Slack destination's incoming webhook URL (null if not present). */
+export function decryptSlackWebhook(config: Record<string, unknown>): string | null {
+  const ciphertext = config.webhook_ciphertext as string | undefined;
+  const iv = config.webhook_iv as string | undefined;
+  const authTag = config.webhook_auth_tag as string | undefined;
+  if (!ciphertext || !iv || !authTag) return null;
+  try {
+    return decryptString({ ciphertext, iv, authTag });
+  } catch {
+    return null;
+  }
 }
 
 export async function deleteDestination(args: { userId: string; id: string }): Promise<void> {

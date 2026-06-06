@@ -97,8 +97,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     /* non-fatal */
   }
   let emailConfigured = false;
+  let slackConfigured = false;
   try {
-    emailConfigured = features().emailNotifications;
+    const f = features();
+    emailConfigured = f.emailNotifications;
+    slackConfigured = f.slack;
   } catch {
     /* non-fatal */
   }
@@ -129,9 +132,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       ? "Google Drive connected."
       : searchParams.connected === "youtube"
         ? "YouTube connected."
-        : searchParams.connected
-          ? `${searchParams.connected} connected.`
-          : null;
+        : searchParams.connected === "slack"
+          ? "Slack connected."
+          : searchParams.connected
+            ? `${searchParams.connected} connected.`
+            : null;
 
   return (
     <>
@@ -277,7 +282,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
 
             <div className="mt-3">
-              <DestinationsManager destinations={destinations} />
+              <DestinationsManager destinations={destinations} slackConfigured={slackConfigured} />
             </div>
           </div>
 

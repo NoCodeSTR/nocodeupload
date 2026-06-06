@@ -61,6 +61,10 @@ const coreSchema = z.object({
   RESEND_FROM_EMAIL: z.string().email().optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  // Slack app (OAuth incoming-webhook) — optional; notifications fall back to
+  // email/webhook when unset. Redirect URI is derived from NEXT_PUBLIC_APP_URL.
+  SLACK_CLIENT_ID: z.string().optional(),
+  SLACK_CLIENT_SECRET: z.string().optional(),
 });
 
 const googleSchema = z.object({
@@ -194,6 +198,7 @@ export function features() {
   return {
     emailNotifications: Boolean(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL),
     rateLimit: Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN),
+    slack: Boolean(env.SLACK_CLIENT_ID && env.SLACK_CLIENT_SECRET),
   };
 }
 

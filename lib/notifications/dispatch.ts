@@ -22,9 +22,16 @@ import {
   sendBatchEmailTo,
 } from "@/lib/email";
 import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
+import { sendSlackForUpload, sendSlackForBatch } from "@/lib/notifications/slack";
 import { logDelivery } from "@/lib/notifications/deliveries";
-import { getDestinationsByIds } from "@/lib/notifications/destinations";
+import { getDestinationsByIds, decryptSlackWebhook } from "@/lib/notifications/destinations";
+import type { NotifyResult } from "@/lib/notifications/types";
 import type { NotificationRule, RuleCondition } from "@/lib/db-types";
+
+interface Senders {
+  email: (addr: string) => Promise<NotifyResult>;
+  slack: (webhookUrl: string) => Promise<NotifyResult>;
+}
 
 interface DispatchData {
   userId: string;
@@ -105,7 +112,7 @@ async function loadLinkDispatch(
 async function dispatchRules(
   data: DispatchData,
   alreadyEmailed: Set<string>,
-  sendEmailTo: (addr: string) => Promise<import("@/lib/notifications/types").NotifyResult>,
+  senders: Senders,
   ids: { uploadId?: string | null; batchId?: string | null },
 ): Promise<void> {
   const matched = data.rules.filter((r) => ruleMatches(r, data.customData, data.categories));
@@ -115,9 +122,9 @@ async function dispatchRules(
   const destinations = await getDestinationsByIds(data.userId, neededIds);
   const destById = new Map(destinations.map((d) => [d.id, d]));
 
-  // Collect the email addresses this event should additionally hit.
+  // Collect the unique email addresses + Slack channels this event should hit.
   const addresses = new Set<string>();
-  let slackPending = 0;
+  const slackDests = new Map<string, (typeof destinations)[number]>();
   for (const rule of matched) {
     for (const id of rule.destinationIds ?? []) {
       const dest = destById.get(id);
@@ -126,7 +133,7 @@ async function dispatchRules(
         const addr = (dest.config as { address?: string }).address;
         if (addr) addresses.add(addr);
       } else if (dest.type === "slack") {
-        slackPending += 1;
+        slackDests.set(dest.id, dest);
       }
     }
     if (rule.ownerEmail && data.ownerEmail) addresses.add(data.ownerEmail);
@@ -135,7 +142,7 @@ async function dispatchRules(
   for (const addr of addresses) {
     if (alreadyEmailed.has(addr)) continue;
     alreadyEmailed.add(addr);
-    const result = await sendEmailTo(addr);
+    const result = await senders.email(addr);
     await logDelivery({
       userId: data.userId,
       uploadLinkId: data.uploadLinkId,
@@ -146,14 +153,17 @@ async function dispatchRules(
     });
   }
 
-  // Slack destinations are recognized but not yet wired (A-2) — log a skip so
-  // the owner sees it's pending rather than silently dropped.
-  if (slackPending > 0) {
+  for (const dest of slackDests.values()) {
+    const channel = (dest.config as { channel?: string }).channel ?? "slack";
+    const webhookUrl = decryptSlackWebhook(dest.config);
+    const result: NotifyResult = webhookUrl
+      ? { ...(await senders.slack(webhookUrl)), target: channel }
+      : { status: "skipped", target: channel, detail: "Slack webhook unavailable — reconnect in Settings" };
     await logDelivery({
       userId: data.userId,
       uploadLinkId: data.uploadLinkId,
       channel: "slack",
-      result: { status: "skipped", target: "slack", detail: "Slack delivery ships in the next update" },
+      result,
       uploadId: ids.uploadId,
       batchId: ids.batchId,
     });
@@ -198,7 +208,15 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
   const webhookResult = await sendUploadWebhook(uploadId);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
 
-  await dispatchRules(ctx, emailed, (addr) => sendUploadEmailTo(addr, uploadId), { uploadId });
+  await dispatchRules(
+    ctx,
+    emailed,
+    {
+      email: (addr) => sendUploadEmailTo(addr, uploadId),
+      slack: (url) => sendSlackForUpload(url, uploadId),
+    },
+    { uploadId },
+  );
 }
 
 export async function deliverForBatch(batchId: string): Promise<void> {
@@ -239,5 +257,13 @@ export async function deliverForBatch(batchId: string): Promise<void> {
   const webhookResult = await sendBatchUploadWebhook(batchId);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
 
-  await dispatchRules(ctx, emailed, (addr) => sendBatchEmailTo(addr, batchId), { batchId });
+  await dispatchRules(
+    ctx,
+    emailed,
+    {
+      email: (addr) => sendBatchEmailTo(addr, batchId),
+      slack: (url) => sendSlackForBatch(url, batchId),
+    },
+    { batchId },
+  );
 }

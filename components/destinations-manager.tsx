@@ -16,7 +16,13 @@ export interface DestinationSummary {
   detail: string | null;
 }
 
-export function DestinationsManager({ destinations }: { destinations: DestinationSummary[] }) {
+export function DestinationsManager({
+  destinations,
+  slackConfigured = false,
+}: {
+  destinations: DestinationSummary[];
+  slackConfigured?: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [adding, setAdding] = useState(false);
@@ -113,15 +119,22 @@ export function DestinationsManager({ destinations }: { destinations: Destinatio
             <Mail className="h-4 w-4" />
             Add email destination
           </button>
-          <button
-            type="button"
-            disabled
-            title="Slack connects in the next update"
-            className="btn-secondary cursor-not-allowed text-sm opacity-50"
-          >
-            <Slack className="h-4 w-4" />
-            Connect Slack (soon)
-          </button>
+          {slackConfigured ? (
+            <a href="/api/slack/connect" className="btn-secondary text-sm">
+              <Slack className="h-4 w-4" />
+              Connect Slack
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to enable Slack"
+              className="btn-secondary cursor-not-allowed text-sm opacity-50"
+            >
+              <Slack className="h-4 w-4" />
+              Connect Slack (not configured)
+            </button>
+          )}
         </div>
       )}
     </div>
