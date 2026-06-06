@@ -16,6 +16,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { renderFilename, renderText } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { DestinationSummary } from "@/components/destinations-manager";
@@ -373,11 +374,7 @@ export function LinkForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {/* Destination */}
-      <section className="space-y-4">
-        <div>
-          <h2 className="font-display text-base font-semibold">Destination</h2>
-          <p className="text-sm text-ink-500">Where uploaded files will land.</p>
-        </div>
+      <CollapsibleSection title="Destination" description="Where uploaded files will land." defaultOpen>
 
         {connections.length > 1 && (
           <div>
@@ -431,14 +428,10 @@ export function LinkForm({
             )}
           </div>
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* Details */}
-      <section className="space-y-4">
-        <div>
-          <h2 className="font-display text-base font-semibold">Details</h2>
-          <p className="text-sm text-ink-500">What this link is for.</p>
-        </div>
+      <CollapsibleSection title="Details" description="What this link is for." defaultOpen>
         <div>
           <label className="label mb-1" htmlFor="name">Link name</label>
           <input
@@ -464,14 +457,10 @@ export function LinkForm({
             maxLength={2000}
           />
         </div>
-      </section>
+      </CollapsibleSection>
 
       {/* Upload rules */}
-      <section className="space-y-4">
-        <div>
-          <h2 className="font-display text-base font-semibold">Upload rules</h2>
-          <p className="text-sm text-ink-500">Control what visitors can send.</p>
-        </div>
+      <CollapsibleSection title="Upload rules" description="Control what visitors can send." defaultOpen>
 
         <div>
           <label className="label mb-1" htmlFor="maxsize">Max file size</label>
@@ -537,14 +526,11 @@ export function LinkForm({
           />
           <p className="mt-1 text-xs text-ink-400">After this date the link stops accepting uploads.</p>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {/* Uploader form fields */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">Uploader form</h2>
-          <p className="text-sm text-ink-500">What you ask visitors for (optional fields).</p>
-        </div>
+      <CollapsibleSection title="Uploader form" description="What you ask visitors for (optional fields).">
+
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={requireName} onChange={(e) => setRequireName(e.target.checked)} />
           Require uploader name
@@ -577,20 +563,14 @@ export function LinkForm({
             </label>
           </div>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {/* Custom fields */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">
-            Custom fields <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
-          </h2>
-          <p className="text-sm text-ink-500">
-            Up to 3 of your own fields. Hidden + prefilled values get attached to every
-            upload and flow into your webhook — perfect for tagging a cleaner&apos;s
-            Airtable record ID, phone, etc.
-          </p>
-        </div>
+      <CollapsibleSection
+        title="Custom fields"
+        badge="Pro"
+        description="Up to 3 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
+      >
 
         {customFields.map((f) => (
           <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
@@ -704,21 +684,18 @@ export function LinkForm({
             + Add custom field
           </button>
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* File naming / Video title */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">
-            {isYouTube ? "Video title" : "File naming"}{" "}
-            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
-          </h2>
-          <p className="text-sm text-ink-500">
-            {isYouTube
-              ? "Build each video's title from a template. Leave blank to use the uploaded file's name."
-              : "Auto-rename uploaded files using a template. Leave blank to keep the original filenames. Great for searchable, organized uploads."}
-          </p>
-        </div>
+      <CollapsibleSection
+        title={isYouTube ? "Video title" : "File naming"}
+        badge="Pro"
+        description={
+          isYouTube
+            ? "Build each video's title from a template. Leave blank to use the uploaded file's name."
+            : "Auto-rename uploaded files using a template. Leave blank to keep the original filenames. Great for searchable, organized uploads."
+        }
+      >
         <input
           className="input font-mono text-sm"
           value={filenameTemplate}
@@ -766,22 +743,16 @@ export function LinkForm({
             </p>
           )
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* Video description (YouTube only) */}
       {isYouTube && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="font-display text-base font-semibold">
-              Video description{" "}
-              <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
-            </h2>
-            <p className="text-sm text-ink-500">
-              Auto-fill the YouTube description from the upload&apos;s details. Use the same
-              tokens as the title — including hidden custom fields, the uploader&apos;s message,
-              and the date. Leave blank for no description.
-            </p>
-          </div>
+        <CollapsibleSection
+          title="Video description"
+          badge="Pro"
+          description="Auto-fill the YouTube description from the upload's details. Use the same tokens as the title — including hidden custom fields, the uploader's message, and the date. Leave blank for no description."
+          defaultOpen
+        >
           <textarea
             className="input min-h-[96px] font-mono text-sm"
             value={descriptionTemplate}
@@ -822,15 +793,11 @@ export function LinkForm({
               <pre className="mt-1 whitespace-pre-wrap rounded bg-ink-100 px-2 py-1.5 font-sans dark:bg-ink-900">{descriptionPreview}</pre>
             </div>
           )}
-        </section>
+        </CollapsibleSection>
       )}
 
       {/* Branding */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">Branding</h2>
-          <p className="text-sm text-ink-500">Personalize the public upload page.</p>
-        </div>
+      <CollapsibleSection title="Branding" description="Personalize the public upload page.">
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={useCustomColor} onChange={(e) => setUseCustomColor(e.target.checked)} />
           Custom accent color
@@ -844,16 +811,10 @@ export function LinkForm({
             aria-label="Accent color"
           />
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* Notifications & webhook */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">Notifications &amp; webhook</h2>
-          <p className="text-sm text-ink-500">
-            Choose how you hear about new uploads.
-          </p>
-        </div>
+      <CollapsibleSection title="Notifications & webhook" description="Choose how you hear about new uploads.">
 
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -912,21 +873,14 @@ export function LinkForm({
             </div>
           </div>
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* Routing rules */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">
-            Routing rules{" "}
-            <span className="rounded bg-brand-50 px-1.5 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">Pro</span>
-          </h2>
-          <p className="text-sm text-ink-500">
-            Send specific uploads to specific people. Add destinations in Settings &rarr;
-            Notifications, then route here — e.g. when a field is &ldquo;Maintenance needed,&rdquo;
-            notify your maintenance email.
-          </p>
-        </div>
+      <CollapsibleSection
+        title="Routing rules"
+        badge="Pro"
+        description="Send specific uploads to specific people. Add destinations in Settings → Notifications, then route here — e.g. when a field is “Maintenance needed,” notify your maintenance email."
+      >
 
         {destinations.length === 0 && (
           <p className="rounded-md bg-ink-50 px-3 py-2 text-xs text-ink-500 dark:bg-ink-900/40">
@@ -1129,16 +1083,10 @@ export function LinkForm({
             + Add rule
           </button>
         )}
-      </section>
+      </CollapsibleSection>
 
       {/* After upload */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-semibold">After upload</h2>
-          <p className="text-sm text-ink-500">
-            What the uploader sees once their files finish.
-          </p>
-        </div>
+      <CollapsibleSection title="After upload" description="What the uploader sees once their files finish.">
         <div>
           <label className="label mb-1" htmlFor="success-message">
             Success message <span className="font-normal text-ink-400">(optional)</span>
@@ -1172,7 +1120,7 @@ export function LinkForm({
             built-in success screen (with an &ldquo;Upload more&rdquo; button).
           </p>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">

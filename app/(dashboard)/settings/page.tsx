@@ -28,6 +28,7 @@ import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { LogoUploader } from "@/components/logo-uploader";
 import { DestinationsManager, type DestinationSummary } from "@/components/destinations-manager";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, features } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -143,15 +144,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       <Topbar email={user.email} title="Settings" />
       <main className="flex-1 px-6 py-8">
         <div className="mx-auto max-w-3xl space-y-6">
-          <div>
-            <h2 className="font-display text-xl font-semibold">Connected storage providers</h2>
-            <p className="mt-1 text-sm text-ink-500">
-              NoCode Upload sends files to the storage provider of your choice. We
-              never store files ourselves. Connect a provider to start creating
-              upload links.
-            </p>
-          </div>
-
           {successLabel && (
             <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-900/30 dark:text-green-100">
               {successLabel}
@@ -168,6 +160,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           )}
 
+          <CollapsibleSection
+            title="Connected storage providers"
+            description="NoCode Upload sends files to the storage provider of your choice. We never store files ourselves. Connect a provider to start creating upload links."
+            defaultOpen
+          >
           {PROVIDER_DISPLAY_ORDER.map((id) => {
             const info = PROVIDER_INFO[id];
             const Icon = ICONS[info.iconName] ?? HardDrive;
@@ -242,26 +239,23 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
             );
           })}
+          </CollapsibleSection>
 
-          <div className="pt-4">
-            <h2 className="font-display text-xl font-semibold">Branding</h2>
-            <p className="mt-1 text-sm text-ink-500">
-              Personalize your upload pages and notification emails.
-            </p>
-            <div className="mt-3">
-              <LogoUploader currentLogoUrl={logoUrl} />
-            </div>
-          </div>
+          <CollapsibleSection
+            title="Branding"
+            description="Personalize your upload pages and notification emails."
+            defaultOpen
+          >
+            <LogoUploader currentLogoUrl={logoUrl} />
+          </CollapsibleSection>
 
-          <div className="pt-4">
-            <h2 className="font-display text-xl font-semibold">Notifications</h2>
-            <p className="mt-1 text-sm text-ink-500">
-              How you and your team hear about new uploads. Add destinations here, then route
-              to them per link with rules.
-            </p>
-
+          <CollapsibleSection
+            title="Notifications"
+            description="How you and your team hear about new uploads. Add destinations here, then route to them per link with rules."
+            defaultOpen
+          >
             <div
-              className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+              className={`rounded-lg border px-4 py-3 text-sm ${
                 emailConfigured
                   ? "border-green-200 bg-green-50 text-green-800 dark:border-green-900 dark:bg-green-900/30 dark:text-green-100"
                   : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100"
@@ -280,16 +274,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </>
               )}
             </div>
+            <DestinationsManager destinations={destinations} slackConfigured={slackConfigured} />
+          </CollapsibleSection>
 
-            <div className="mt-3">
-              <DestinationsManager destinations={destinations} slackConfigured={slackConfigured} />
-            </div>
-          </div>
-
-          <div className="pt-4">
-            <h2 className="font-display text-xl font-semibold">Account</h2>
-            <p className="mt-1 text-sm text-ink-500">Signed in as {user.email}</p>
-          </div>
+          <CollapsibleSection title="Account" description={`Signed in as ${user.email}`}>
+            <p className="text-sm text-ink-500">
+              You&apos;re signed in. Use the top bar to log out.
+            </p>
+          </CollapsibleSection>
         </div>
       </main>
     </>
