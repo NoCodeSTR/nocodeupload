@@ -136,9 +136,11 @@ export const uploadInitiateSchema = z.object({
   // require_email, the initiate route enforces a valid format server-side.
   uploaderEmail: z.string().max(255).optional().nullable(),
   uploaderMessage: z.string().max(2000).optional().nullable(),
-  // Visible custom-field values, keyed by field id. Hidden fields are
-  // injected server-side and never accepted from the browser.
+  // Visible custom-field values, keyed by field id.
   customValues: z.record(z.string().max(500)).optional(),
+  // Raw URL-prefill values, keyed by each field's prefill key (slug of its
+  // label). Used to populate hidden fields server-side (owner-generated links).
+  prefillValues: z.record(z.string().max(500)).optional(),
   // Batch grouping: the browser sets a shared id (and the count) when more than
   // one file is uploaded in a single submission.
   batchId: z.string().uuid().optional().nullable(),

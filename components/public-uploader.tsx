@@ -14,6 +14,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide-react";
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
+import { prefillKey } from "@/lib/filename";
 import type { PublicCustomField } from "@/lib/db-types";
 
 interface PublicUploaderProps {
@@ -33,6 +34,8 @@ interface PublicUploaderProps {
   successRedirectUrl?: string | null;
   /** Verified password (from the gate) forwarded to initiate; null if none. */
   unlockedPassword?: string | null;
+  /** URL query prefills (lowercased keys), used to seed fields. */
+  prefill?: Record<string, string>;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -153,13 +156,15 @@ export function PublicUploader({
   successMessage = null,
   successRedirectUrl = null,
   unlockedPassword = null,
+  prefill = {},
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(prefillName ?? "");
-  const [email, setEmail] = useState(prefillEmail ?? "");
-  const [message, setMessage] = useState("");
+  const [name, setName] = useState(prefill.name ?? prefillName ?? "");
+  const [email, setEmail] = useState(prefill.email ?? prefillEmail ?? "");
+  const [message, setMessage] = useState(prefill.message ?? "");
+  // Seed each custom field from its URL prefill (by label key), else the owner default.
   const [customValues, setCustomValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(customFields.map((f) => [f.id, f.value ?? ""])),
+    Object.fromEntries(customFields.map((f) => [f.id, prefill[prefillKey(f.label)] ?? f.value ?? ""])),
   );
   const [files, setFiles] = useState<FileItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -258,6 +263,8 @@ export function PublicUploader({
           batchId: batch?.id ?? null,
           batchSize: batch?.size ?? null,
           password: unlockedPassword ?? null,
+          // Raw URL prefills so the server can populate hidden fields.
+          prefillValues: prefill,
         }),
       });
       if (!res.ok) {

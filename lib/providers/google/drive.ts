@@ -21,6 +21,42 @@ import type { ResumableUploadSession, InitiateUploadArgs } from "@/lib/providers
 
 export const DRIVE_CHUNK_SIZE = 4 * 1024 * 1024;
 const DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
+const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+
+/**
+ * Create a Drive folder and return its id + name. Allowed under drive.file (the
+ * app may create files/folders it makes — no broad scope needed). Optionally
+ * nested under `parentId` (a folder the app already has access to); otherwise
+ * created at the user's My Drive root.
+ */
+export async function createFolder(args: {
+  accessToken: string;
+  name: string;
+  parentId?: string | null;
+}): Promise<{ id: string; name: string }> {
+  const body: Record<string, unknown> = {
+    name: args.name,
+    mimeType: "application/vnd.google-apps.folder",
+  };
+  if (args.parentId) body.parents = [args.parentId];
+
+  const res = await fetch(`${DRIVE_API_BASE}/files?fields=id,name&supportsAllDrives=true`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to create Drive folder (${res.status}): ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { id?: string; name?: string };
+  if (!data.id) throw new Error("Drive folder create returned no id.");
+  return { id: data.id, name: data.name ?? args.name };
+}
 
 /**
  * Open a Drive resumable upload session and return its session URL plus the

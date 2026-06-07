@@ -19,6 +19,7 @@ export function UploadGate({
   accent,
   brandingLogoUrl,
   showBrandHeader = true,
+  prefill = {},
 }: {
   slug: string;
   name: string;
@@ -26,6 +27,7 @@ export function UploadGate({
   accent: string;
   brandingLogoUrl: string | null;
   showBrandHeader?: boolean;
+  prefill?: Record<string, string>;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,14 @@ export function UploadGate({
 
   // Verified → hand off to the real form, passing the password through.
   if (config) {
-    return <UploadCard link={config} showBrandHeader={showBrandHeader} unlockedPassword={password} />;
+    return (
+      <UploadCard
+        link={config}
+        showBrandHeader={showBrandHeader}
+        unlockedPassword={password}
+        prefill={prefill}
+      />
+    );
   }
 
   async function unlock() {

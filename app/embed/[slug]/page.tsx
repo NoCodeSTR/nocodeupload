@@ -16,8 +16,24 @@ import { getPublicLinkBySlug } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
 
-export default async function EmbedUploadPage({ params }: { params: { slug: string } }) {
+function buildPrefill(searchParams: Record<string, string | string[] | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(searchParams ?? {})) {
+    if (v == null) continue;
+    out[k.toLowerCase()] = Array.isArray(v) ? (v[0] ?? "") : v;
+  }
+  return out;
+}
+
+export default async function EmbedUploadPage({
+  params,
+  searchParams,
+}: {
+  params: { slug: string };
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   const link = await getPublicLinkBySlug(params.slug);
+  const prefill = buildPrefill(searchParams);
 
   if (!link) {
     return (
@@ -40,9 +56,10 @@ export default async function EmbedUploadPage({ params }: { params: { slug: stri
             accent={link.branding_color ?? "#2563eb"}
             brandingLogoUrl={link.branding_logo_url}
             showBrandHeader={false}
+            prefill={prefill}
           />
         ) : (
-          <UploadCard link={link} showBrandHeader={false} />
+          <UploadCard link={link} showBrandHeader={false} prefill={prefill} />
         )}
         <p className="mt-3 text-center text-xs text-ink-400">
           Powered by{" "}

@@ -32,6 +32,20 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+/**
+ * URL-prefill query-parameter key for a custom field, derived from its label.
+ * e.g. "Property Name" → "property_name". Stable + URL-friendly so owners can
+ * build prefilled links (e.g. via an Airtable formula) that don't break.
+ */
+export function prefillKey(label: string): string {
+  return (label || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+}
+
 export function splitExt(filename: string): { base: string; ext: string } {
   const i = filename.lastIndexOf(".");
   if (i <= 0 || i === filename.length - 1) return { base: filename, ext: "" };

@@ -11,11 +11,14 @@ export function UploadCard({
   link,
   showBrandHeader = true,
   unlockedPassword = null,
+  prefill = {},
 }: {
   link: UploadLinkPublicRow;
   showBrandHeader?: boolean;
   /** Verified password from the gate, forwarded to initiate (if protected). */
   unlockedPassword?: string | null;
+  /** URL query prefills (lowercased keys). */
+  prefill?: Record<string, string>;
 }) {
   const accent = link.branding_color ?? "#2563eb";
 
@@ -62,6 +65,7 @@ export function UploadCard({
             successMessage={link.success_message}
             successRedirectUrl={link.success_redirect_url}
             unlockedPassword={unlockedPassword}
+            prefill={prefill}
           />
         </div>
       </div>

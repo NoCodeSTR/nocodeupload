@@ -24,7 +24,7 @@ import { createUploadRecord } from "@/lib/uploads";
 import { getValidAccessToken, TokenError } from "@/lib/tokens";
 import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
-import { renderFilename, renderText, splitExt } from "@/lib/filename";
+import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -37,6 +37,29 @@ function clientIp(request: NextRequest): string {
 
 function isValidEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+/** Normalize/validate a custom-field value by type (shared by visible + hidden). */
+function cleanFieldValue(type: string, raw: string, options: string[]): string {
+  switch (type) {
+    case "select":
+      return raw && options.includes(raw) ? raw : "";
+    case "multiselect":
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s && options.includes(s))
+        .join(", ");
+    case "checkbox":
+      return raw === "Yes" ? "Yes" : "";
+    case "number":
+    case "currency":
+      return raw.replace(/[^0-9.\-]/g, "");
+    case "email":
+      return isValidEmail(raw) ? raw : "";
+    default:
+      return raw; // text, phone
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -112,46 +135,28 @@ export async function POST(request: NextRequest) {
   }
 
   // Resolve custom fields → custom_data. Visible values come from the browser
-  // (falling back to the prefill); hidden values are injected server-side and
-  // never accepted from the client.
+  // (already seeded from URL prefills by the client). Hidden values come from a
+  // URL prefill when present (owner-generated links, e.g. an Airtable formula
+  // that silently tags a record id) and otherwise from the owner's value.
   const customData: Record<string, string> = {};
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
+  const prefillValues = input.prefillValues ?? {};
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;
     if (f.visible) {
       const raw = String(submitted[f.id] ?? f.value ?? "").trim();
-      if (type === "select") {
-        // Accept only a value that's one of the owner's defined options.
-        val = raw && (f.options ?? []).includes(raw) ? raw : "";
-      } else if (type === "multiselect") {
-        // Keep only submitted choices that are valid options; re-join cleanly.
-        const opts = f.options ?? [];
-        val = raw
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s) => s && opts.includes(s))
-          .join(", ");
-      } else if (type === "checkbox") {
-        // Stored as "Yes" when ticked, otherwise nothing.
-        val = raw === "Yes" ? "Yes" : "";
-      } else if (type === "number" || type === "currency") {
-        // Keep digits, one decimal, optional leading minus — drop $ , etc.
-        val = raw.replace(/[^0-9.\-]/g, "");
-      } else if (type === "email") {
-        // Drop invalid emails (required + invalid then fails below).
-        val = isValidEmail(raw) ? raw : "";
-      } else {
-        // text, phone — store as typed.
-        val = raw;
-      }
+      val = cleanFieldValue(type, raw, f.options ?? []);
       if (f.required && !val) {
         return NextResponse.json({ error: "missing_custom_field", label: f.label }, { status: 400 });
       }
     } else {
-      // Hidden field — inject the owner's value verbatim (never from the client).
-      val = String(f.value ?? "");
+      const urlRaw = prefillValues[prefillKey(f.label)];
+      val =
+        urlRaw != null && String(urlRaw).trim() !== ""
+          ? cleanFieldValue(type, String(urlRaw).trim(), f.options ?? [])
+          : String(f.value ?? "");
     }
     if (val) customData[f.label] = val;
   }

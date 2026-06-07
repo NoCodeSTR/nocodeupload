@@ -16,7 +16,7 @@
  * so the Picker is now the only selection path.)
  */
 import { useCallback, useState } from "react";
-import { Folder, Check, AlertCircle } from "lucide-react";
+import { Folder, FolderPlus, Check, AlertCircle } from "lucide-react";
 
 // ----- Picker SDK types (loose; we only use a handful of fields) ----------
 
@@ -131,6 +131,9 @@ export function FolderPicker({
   const [selected, setSelected] = useState<{ folderId: string; folderName: string } | null>(
     initialFolder ?? null,
   );
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [creatingBusy, setCreatingBusy] = useState(false);
 
   const fireOnPick = useCallback(
     (folder: { folderId: string; folderName: string }) => {
@@ -201,6 +204,38 @@ export function FolderPicker({
     }
   }, [connectionId, config, fireOnPick]);
 
+  // ---- Create a new folder (Drive API; nested under the current selection) --
+
+  const createNewFolder = useCallback(async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setCreatingBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/google/create-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId, name, parentId: selected?.folderId ?? null }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          body.error === "provider_unavailable"
+            ? "Couldn't reach Drive — reconnect the account in Settings."
+            : "Couldn't create the folder.",
+        );
+      }
+      const folder = (await res.json()) as { id: string; name: string };
+      fireOnPick({ folderId: folder.id, folderName: folder.name });
+      setNewName("");
+      setCreating(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't create the folder.");
+    } finally {
+      setCreatingBusy(false);
+    }
+  }, [connectionId, newName, selected, fireOnPick]);
+
   const busy = mode === "loading";
 
   return (
@@ -222,7 +257,59 @@ export function FolderPicker({
           <Folder className="h-4 w-4" />
           {busy ? "Opening…" : selected ? "Change folder" : "Pick a folder"}
         </button>
+        {!creating && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="btn-secondary text-sm"
+          >
+            <FolderPlus className="h-4 w-4" />
+            New folder
+          </button>
+        )}
       </div>
+
+      {creating && (
+        <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+          <p className="text-xs text-ink-500">
+            {selected ? `New folder inside “${selected.folderName}”` : "New folder in your Drive"}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className="input flex-1"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void createNewFolder();
+                }
+              }}
+              placeholder="Folder name"
+              maxLength={100}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => void createNewFolder()}
+              disabled={creatingBusy}
+              className="btn-primary text-sm"
+            >
+              {creatingBusy ? "Creating…" : "Create"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCreating(false);
+                setNewName("");
+              }}
+              className="btn-ghost text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">

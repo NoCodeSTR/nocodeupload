@@ -18,7 +18,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
-import { renderFilename, renderText } from "@/lib/filename";
+import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
@@ -869,6 +869,16 @@ export function LinkForm({
               </div>
             )}
 
+            {f.label.trim() && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-400">
+                <span>URL prefill:</span>
+                <code className="rounded bg-ink-100 px-1.5 py-0.5 dark:bg-ink-900">
+                  ?{prefillKey(f.label)}=
+                </code>
+                <CopyButton value={prefillKey(f.label)} label="Copy key" />
+              </div>
+            )}
+
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
               <div className="flex items-center gap-0.5">
                 <button
@@ -928,6 +938,14 @@ export function LinkForm({
             + Add custom field
           </button>
         )}
+        <p className="text-xs text-ink-400">
+          Prefill any field from the URL using its key above — plus{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?name=</code>,{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?email=</code>,{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?message=</code> for the
+          built-ins. Hidden fields prefill silently — perfect for Airtable formulas that generate
+          per-recipient links.
+        </p>
       </CollapsibleSection>
 
       {/* File naming / Video title */}
