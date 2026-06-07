@@ -180,6 +180,7 @@ export async function createLink(
       success_message: input.successMessage ?? null,
       success_redirect_url: input.successRedirectUrl ?? null,
       upload_password: input.uploadPassword?.trim() || null,
+      project_id: input.projectId ?? null,
     };
 
     const { data, error } = await supabase
@@ -250,6 +251,7 @@ export async function duplicateLink(args: {
       success_message: src.success_message,
       success_redirect_url: src.success_redirect_url,
       upload_password: src.upload_password,
+      project_id: src.project_id,
     };
 
     const { data, error } = await supabase
@@ -330,6 +332,7 @@ export async function updateLink(args: {
   if (i.successMessage !== undefined) patch.success_message = i.successMessage;
   if (i.successRedirectUrl !== undefined) patch.success_redirect_url = i.successRedirectUrl;
   if (i.uploadPassword !== undefined) patch.upload_password = i.uploadPassword?.trim() || null;
+  if (i.projectId !== undefined) patch.project_id = i.projectId;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

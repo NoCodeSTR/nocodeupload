@@ -12,6 +12,7 @@ import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
 import { listUserConnections } from "@/lib/connections";
 import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
+import { listProjects, type ProjectSummary } from "@/lib/projects";
 import { getLinkForUser } from "@/lib/links";
 
 export default async function EditLinkPage({ params }: { params: { id: string } }) {
@@ -25,6 +26,12 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
   let destinations: DestinationSummary[] = [];
   try {
     destinations = await listDestinations(user.id);
+  } catch {
+    /* non-fatal */
+  }
+  let projects: ProjectSummary[] = [];
+  try {
+    projects = await listProjects(user.id);
   } catch {
     /* non-fatal */
   }
@@ -49,6 +56,7 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
             pickerConfig={pickerConfig}
             initialLink={link}
             destinations={destinations}
+            projects={projects}
           />
         </div>
       </main>

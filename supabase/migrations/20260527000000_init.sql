@@ -235,6 +235,9 @@ create table public.upload_links (
   -- Optional gate: when set, the public uploader must enter this before
   -- uploading. Any owner-chosen value (e.g. a 4-digit code). Null = no password.
   upload_password text,
+  -- Optional grouping into a project (FK constraint added after the projects
+  -- table is created, below). Null = unassigned.
+  project_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -456,6 +459,30 @@ create policy "slack_connections: owner all"
   with check (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------------------
+-- projects — owner-defined groups for upload links (not the Drive folder!)
+-- -----------------------------------------------------------------------------
+create table public.projects (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create index projects_user_id_idx on public.projects (user_id);
+
+alter table public.projects enable row level security;
+
+create policy "projects: owner all"
+  on public.projects for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Now wire the upload_links → projects FK (projects exists at this point).
+alter table public.upload_links
+  add constraint upload_links_project_id_fkey
+  foreign key (project_id) references public.projects(id) on delete set null;
+create index upload_links_project_id_idx on public.upload_links (project_id);
+
+-- -----------------------------------------------------------------------------
 -- Role grants
 -- -----------------------------------------------------------------------------
 -- Supabase normally auto-grants anon/authenticated/service_role on new public
@@ -479,6 +506,7 @@ grant select on public.uploads to authenticated;
 grant select, insert, update, delete on public.notification_destinations to authenticated;
 grant select on public.notification_deliveries to authenticated;
 grant select, insert, update, delete on public.slack_connections to authenticated;
+grant select, insert, update, delete on public.projects to authenticated;
 
 -- Ensure any future tables/sequences inherit the same grants.
 alter default privileges in schema public grant all on tables to service_role;

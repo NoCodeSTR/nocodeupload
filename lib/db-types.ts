@@ -93,8 +93,17 @@ export interface UploadLinkRow {
   success_message: string | null;
   success_redirect_url: string | null;
   upload_password: string | null;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** An owner-defined group for organizing upload links. */
+export interface ProjectRow {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
 }
 
 /** Input control type for a custom field. */

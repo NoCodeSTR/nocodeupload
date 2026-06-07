@@ -19,6 +19,7 @@ import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, publicEnv } from "@/lib/env";
 import { countUserActiveConnections } from "@/lib/connections";
 import { listLinksWithStats, type UploadLinkWithStats } from "@/lib/links";
+import { listProjects, type ProjectSummary } from "@/lib/projects";
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -38,6 +39,15 @@ export default async function DashboardPage() {
       loadFailed = true;
       // eslint-disable-next-line no-console
       console.error("[dashboard] load failed:", err);
+    }
+  }
+
+  let projects: ProjectSummary[] = [];
+  if (anyProviderEnvReady && !loadFailed) {
+    try {
+      projects = await listProjects(user.id);
+    } catch {
+      /* non-fatal — show links without project filter */
     }
   }
 
@@ -72,7 +82,7 @@ export default async function DashboardPage() {
 
           {/* Main content */}
           {hasLinks ? (
-            <LinkList links={links} appUrl={appUrl} />
+            <LinkList links={links} appUrl={appUrl} projects={projects} />
           ) : (
             <EmptyState
               icon={Link2}

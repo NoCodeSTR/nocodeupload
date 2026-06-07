@@ -11,37 +11,126 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Link2, Pencil, Trash2, FolderOpen, Code2, Copy, QrCode, ExternalLink } from "lucide-react";
+import { Link2, Pencil, Trash2, FolderOpen, Folders, Code2, Copy, QrCode, ExternalLink, Search } from "lucide-react";
 import { CopyButton } from "@/components/copy-button";
 import type { UploadLinkWithStats } from "@/lib/links";
+import type { ProjectSummary } from "@/lib/projects";
 
 interface LinkListProps {
   links: UploadLinkWithStats[];
   appUrl: string;
+  projects?: ProjectSummary[];
 }
 
-export function LinkList({ links, appUrl }: LinkListProps) {
+export function LinkList({ links, appUrl, projects = [] }: LinkListProps) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState<string>("all"); // "all" | "none" | <projectId>
+  const [isPending, startTransition] = useTransition();
+
+  const projectName = new Map(projects.map((p) => [p.id, p.name]));
+  const q = search.trim().toLowerCase();
+
+  const filtered = links.filter((l) => {
+    if (projectFilter === "none" && l.project_id) return false;
+    if (projectFilter !== "all" && projectFilter !== "none" && l.project_id !== projectFilter) return false;
+    if (q) {
+      const hay = `${l.name} ${l.folder_name ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  function deleteSelectedProject() {
+    if (projectFilter === "all" || projectFilter === "none") return;
+    if (!window.confirm("Delete this project? Its links stay, just unassigned.")) return;
+    startTransition(async () => {
+      await fetch(`/api/projects/${projectFilter}`, { method: "DELETE" }).catch(() => {});
+      setProjectFilter("all");
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-ink-500">
-          {links.length} upload {links.length === 1 ? "link" : "links"}
-        </p>
-        <Link href="/dashboard/links/new" className="btn-primary h-9 text-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+            <input
+              className="input pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search links…"
+            />
+          </div>
+          {projects.length > 0 && (
+            <select
+              className="input w-auto"
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              aria-label="Filter by project"
+            >
+              <option value="all">All projects</option>
+              <option value="none">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {projectFilter !== "all" && projectFilter !== "none" && (
+            <button
+              type="button"
+              onClick={deleteSelectedProject}
+              disabled={isPending}
+              className="text-xs text-red-600 hover:underline dark:text-red-300"
+            >
+              Delete project
+            </button>
+          )}
+        </div>
+        <Link href="/dashboard/links/new" className="btn-primary h-9 flex-shrink-0 text-sm">
           New upload link
         </Link>
       </div>
 
-      <ul className="space-y-3">
-        {links.map((link) => (
-          <LinkRow key={link.id} link={link} appUrl={appUrl} />
-        ))}
-      </ul>
+      <p className="text-sm text-ink-500">
+        {filtered.length === links.length
+          ? `${links.length} upload ${links.length === 1 ? "link" : "links"}`
+          : `${filtered.length} of ${links.length} links`}
+      </p>
+
+      {filtered.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-ink-200 py-10 text-center text-sm text-ink-500 dark:border-ink-700">
+          No links match your search or filter.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {filtered.map((link) => (
+            <LinkRow
+              key={link.id}
+              link={link}
+              appUrl={appUrl}
+              projectLabel={link.project_id ? projectName.get(link.project_id) ?? null : null}
+            />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }) {
+function LinkRow({
+  link,
+  appUrl,
+  projectLabel,
+}: {
+  link: UploadLinkWithStats;
+  appUrl: string;
+  projectLabel?: string | null;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +192,12 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
             <Link2 className="h-4 w-4 flex-shrink-0 text-brand" />
             <h3 className="truncate font-display text-base font-semibold">{link.name}</h3>
             <StatusBadge active={link.is_active} expired={expired} />
+            {projectLabel && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-ink-100 px-2 py-0.5 text-xs font-medium text-ink-600 dark:bg-ink-800 dark:text-ink-300">
+                <Folders className="h-3 w-3" />
+                {projectLabel}
+              </span>
+            )}
           </div>
 
           <div className="mt-1 flex items-center gap-1.5 text-sm text-ink-500">

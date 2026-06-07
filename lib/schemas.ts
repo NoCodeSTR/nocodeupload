@@ -110,7 +110,14 @@ export const uploadLinkCreateSchema = z.object({
   successRedirectUrl: z.string().url().optional().nullable(),
   // Optional upload gate. Owner-chosen; any value (e.g. a 4-digit code).
   uploadPassword: z.string().max(100).optional().nullable(),
+  // Optional project assignment.
+  projectId: z.string().uuid().optional().nullable(),
 });
+
+export const projectCreateSchema = z.object({
+  name: z.string().min(1, "Name is required").max(80),
+});
+export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
 
 export type UploadLinkCreateInput = z.infer<typeof uploadLinkCreateSchema>;
 

@@ -20,6 +20,7 @@ import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { renderFilename, renderText } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
+import type { ProjectSummary } from "@/lib/projects";
 import type { DestinationSummary } from "@/components/destinations-manager";
 import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition } from "@/lib/db-types";
 
@@ -37,6 +38,7 @@ interface LinkFormProps {
   pickerConfig: { apiKey: string; projectNumber: string };
   initialLink?: UploadLinkRow;
   destinations?: DestinationSummary[];
+  projects?: ProjectSummary[];
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -75,6 +77,7 @@ export function LinkForm({
   pickerConfig,
   initialLink,
   destinations = [],
+  projects = [],
 }: LinkFormProps) {
   const router = useRouter();
 
@@ -83,6 +86,10 @@ export function LinkForm({
   );
   const [name, setName] = useState(initialLink?.name ?? "");
   const [description, setDescription] = useState(initialLink?.description ?? "");
+  const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
+  const [projectList, setProjectList] = useState<ProjectSummary[]>(projects);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
   const [folder, setFolder] = useState<{ folderId: string; folderName: string } | null>(
     initialLink ? { folderId: initialLink.folder_id, folderName: initialLink.folder_name ?? "Selected folder" } : null,
   );
@@ -127,6 +134,29 @@ export function LinkForm({
   // YouTube links behave differently: no folder, video-only, and the
   // filename/description templates drive the video's title + description.
   const isYouTube = selectedConnection?.provider === "youtube";
+
+  async function createProjectInline() {
+    const projectName = newProjectName.trim();
+    if (!projectName) return;
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: projectName }),
+      });
+      if (!res.ok) {
+        setError("Couldn't create that project.");
+        return;
+      }
+      const p = (await res.json()) as { id: string; name: string };
+      setProjectList((prev) => [...prev, p].sort((a, b) => a.name.localeCompare(b.name)));
+      setProjectId(p.id);
+      setNewProjectName("");
+      setCreatingProject(false);
+    } catch {
+      setError("Couldn't create that project.");
+    }
+  }
 
   function toggleType(key: string) {
     setTypePresets((prev) => {
@@ -341,6 +371,7 @@ export function LinkForm({
       successMessage: successMessage.trim() || null,
       successRedirectUrl: successRedirectUrl.trim() || null,
       uploadPassword: usePassword ? uploadPassword.trim() || null : null,
+      projectId: projectId || null,
     };
 
     setSubmitting(true);
@@ -471,6 +502,56 @@ export function LinkForm({
             placeholder="Only you see this. e.g. 'Cleaners use this after each turnover.'"
             maxLength={2000}
           />
+        </div>
+        <div>
+          <label className="label mb-1" htmlFor="project">
+            Project <span className="font-normal text-ink-400">(optional)</span>
+          </label>
+          <select
+            id="project"
+            className="input"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">No project</option>
+            {projectList.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {creatingProject ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                className="input flex-1"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="New project name"
+                maxLength={80}
+              />
+              <button type="button" onClick={createProjectInline} className="btn-primary h-9 text-sm">
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreatingProject(false);
+                  setNewProjectName("");
+                }}
+                className="btn-ghost h-9 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCreatingProject(true)}
+              className="mt-1.5 text-xs font-medium text-brand hover:underline"
+            >
+              + New project
+            </button>
+          )}
         </div>
       </CollapsibleSection>
 
