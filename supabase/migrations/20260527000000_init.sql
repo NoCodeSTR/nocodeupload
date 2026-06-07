@@ -483,6 +483,38 @@ alter table public.upload_links
 create index upload_links_project_id_idx on public.upload_links (project_id);
 
 -- -----------------------------------------------------------------------------
+-- tags + link_tags — reusable cross-cutting labels (many-to-many with links)
+-- -----------------------------------------------------------------------------
+create table public.tags (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now()
+);
+create index tags_user_id_idx on public.tags (user_id);
+
+alter table public.tags enable row level security;
+create policy "tags: owner all"
+  on public.tags for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create table public.link_tags (
+  link_id uuid not null references public.upload_links(id) on delete cascade,
+  tag_id uuid not null references public.tags(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  primary key (link_id, tag_id)
+);
+create index link_tags_user_id_idx on public.link_tags (user_id);
+create index link_tags_tag_id_idx on public.link_tags (tag_id);
+
+alter table public.link_tags enable row level security;
+create policy "link_tags: owner all"
+  on public.link_tags for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
 -- Role grants
 -- -----------------------------------------------------------------------------
 -- Supabase normally auto-grants anon/authenticated/service_role on new public
@@ -507,6 +539,8 @@ grant select, insert, update, delete on public.notification_destinations to auth
 grant select on public.notification_deliveries to authenticated;
 grant select, insert, update, delete on public.slack_connections to authenticated;
 grant select, insert, update, delete on public.projects to authenticated;
+grant select, insert, update, delete on public.tags to authenticated;
+grant select, insert, update, delete on public.link_tags to authenticated;
 
 -- Ensure any future tables/sequences inherit the same grants.
 alter default privileges in schema public grant all on tables to service_role;

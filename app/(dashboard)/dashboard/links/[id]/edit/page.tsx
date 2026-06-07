@@ -13,6 +13,7 @@ import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
 import { listUserConnections } from "@/lib/connections";
 import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 import { listProjects, type ProjectSummary } from "@/lib/projects";
+import { listTags, getTagsForLink, type TagSummary } from "@/lib/tags";
 import { getLinkForUser } from "@/lib/links";
 
 export default async function EditLinkPage({ params }: { params: { id: string } }) {
@@ -32,6 +33,13 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
   let projects: ProjectSummary[] = [];
   try {
     projects = await listProjects(user.id);
+  } catch {
+    /* non-fatal */
+  }
+  let allTags: TagSummary[] = [];
+  let initialTags: string[] = [];
+  try {
+    [allTags, initialTags] = await Promise.all([listTags(user.id), getTagsForLink(user.id, link.id)]);
   } catch {
     /* non-fatal */
   }
@@ -57,6 +65,8 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
             initialLink={link}
             destinations={destinations}
             projects={projects}
+            allTags={allTags}
+            initialTags={initialTags}
           />
         </div>
       </main>

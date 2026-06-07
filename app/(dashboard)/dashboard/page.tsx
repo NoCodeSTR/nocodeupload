@@ -20,6 +20,7 @@ import { isGoogleConfigured, publicEnv } from "@/lib/env";
 import { countUserActiveConnections } from "@/lib/connections";
 import { listLinksWithStats, type UploadLinkWithStats } from "@/lib/links";
 import { listProjects, type ProjectSummary } from "@/lib/projects";
+import { listTags, getTagsForLinks, type TagSummary } from "@/lib/tags";
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -43,11 +44,17 @@ export default async function DashboardPage() {
   }
 
   let projects: ProjectSummary[] = [];
+  let allTags: TagSummary[] = [];
+  let tagsByLink: Record<string, string[]> = {};
   if (anyProviderEnvReady && !loadFailed) {
     try {
-      projects = await listProjects(user.id);
+      [projects, allTags, tagsByLink] = await Promise.all([
+        listProjects(user.id),
+        listTags(user.id),
+        getTagsForLinks(user.id),
+      ]);
     } catch {
-      /* non-fatal — show links without project filter */
+      /* non-fatal — show links without project/tag filters */
     }
   }
 
@@ -82,7 +89,13 @@ export default async function DashboardPage() {
 
           {/* Main content */}
           {hasLinks ? (
-            <LinkList links={links} appUrl={appUrl} projects={projects} />
+            <LinkList
+              links={links}
+              appUrl={appUrl}
+              projects={projects}
+              allTags={allTags}
+              tagsByLink={tagsByLink}
+            />
           ) : (
             <EmptyState
               icon={Link2}

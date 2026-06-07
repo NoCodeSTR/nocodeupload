@@ -12,6 +12,7 @@ import { isGoogleConfigured, publicGoogleEnv } from "@/lib/env";
 import { listUserConnections } from "@/lib/connections";
 import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 import { listProjects, type ProjectSummary } from "@/lib/projects";
+import { listTags, type TagSummary } from "@/lib/tags";
 
 export default async function NewLinkPage() {
   const user = await requireUser();
@@ -30,6 +31,12 @@ export default async function NewLinkPage() {
   let projects: ProjectSummary[] = [];
   try {
     projects = await listProjects(user.id);
+  } catch {
+    /* non-fatal */
+  }
+  let allTags: TagSummary[] = [];
+  try {
+    allTags = await listTags(user.id);
   } catch {
     /* non-fatal */
   }
@@ -55,6 +62,7 @@ export default async function NewLinkPage() {
             pickerConfig={pickerConfig}
             destinations={destinations}
             projects={projects}
+            allTags={allTags}
           />
         </div>
       </main>

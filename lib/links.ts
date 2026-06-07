@@ -14,6 +14,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { generateSlug } from "@/lib/slug";
 import { formatPgError } from "@/lib/pg-error";
 import { getConnectionForUser } from "@/lib/connections";
+import { setLinkTags, getTagsForLink } from "@/lib/tags";
 import type { UploadLinkRow, UploadLinkPublicRow } from "@/lib/db-types";
 import type { UploadLinkCreateInput, UploadLinkUpdateInput } from "@/lib/schemas";
 
@@ -189,7 +190,16 @@ export async function createLink(
       .select("*")
       .single();
 
-    if (!error) return data as unknown as UploadLinkRow;
+    if (!error) {
+      const created = data as unknown as UploadLinkRow;
+      try {
+        await setLinkTags(userId, created.id, input.tags ?? []);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[createLink] setLinkTags failed (link saved):", e);
+      }
+      return created;
+    }
 
     // 23505 = unique_violation (slug). Retry once with a fresh slug.
     if (error.code === "23505" && attempt === 0) continue;
@@ -260,7 +270,17 @@ export async function duplicateLink(args: {
       .select("*")
       .single();
 
-    if (!error) return data as unknown as UploadLinkRow;
+    if (!error) {
+      const created = data as unknown as UploadLinkRow;
+      try {
+        const srcTags = await getTagsForLink(args.userId, src.id);
+        if (srcTags.length) await setLinkTags(args.userId, created.id, srcTags);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("[duplicateLink] tag copy failed:", e);
+      }
+      return created;
+    }
 
     // 23505 = unique_violation (slug). Retry once with a fresh slug.
     if (error.code === "23505" && attempt === 0) continue;
@@ -345,6 +365,14 @@ export async function updateLink(args: {
 
   if (error) {
     throw new Error(formatPgError("Failed to update link", error));
+  }
+  if (args.input.tags !== undefined) {
+    try {
+      await setLinkTags(args.userId, args.linkId, args.input.tags);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[updateLink] setLinkTags failed:", e);
+    }
   }
   return data as unknown as UploadLinkRow;
 }

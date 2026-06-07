@@ -15,27 +15,40 @@ import { Link2, Pencil, Trash2, FolderOpen, Folders, Code2, Copy, QrCode, Extern
 import { CopyButton } from "@/components/copy-button";
 import type { UploadLinkWithStats } from "@/lib/links";
 import type { ProjectSummary } from "@/lib/projects";
+import type { TagSummary } from "@/lib/tags";
 
 interface LinkListProps {
   links: UploadLinkWithStats[];
   appUrl: string;
   projects?: ProjectSummary[];
+  allTags?: TagSummary[];
+  tagsByLink?: Record<string, string[]>;
 }
 
-export function LinkList({ links, appUrl, projects = [] }: LinkListProps) {
+export function LinkList({ links, appUrl, projects = [], allTags = [], tagsByLink = {} }: LinkListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState<string>("all"); // "all" | "none" | <projectId>
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
 
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
   const q = search.trim().toLowerCase();
+  const linkTags = (id: string) => tagsByLink[id] ?? [];
+
+  function toggleTag(name: string) {
+    setSelectedTags((prev) => (prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]));
+  }
 
   const filtered = links.filter((l) => {
     if (projectFilter === "none" && l.project_id) return false;
     if (projectFilter !== "all" && projectFilter !== "none" && l.project_id !== projectFilter) return false;
+    if (selectedTags.length) {
+      const lt = linkTags(l.id).map((t) => t.toLowerCase());
+      if (!selectedTags.some((s) => lt.includes(s.toLowerCase()))) return false;
+    }
     if (q) {
-      const hay = `${l.name} ${l.folder_name ?? ""}`.toLowerCase();
+      const hay = `${l.name} ${l.folder_name ?? ""} ${linkTags(l.id).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -96,6 +109,38 @@ export function LinkList({ links, appUrl, projects = [] }: LinkListProps) {
         </Link>
       </div>
 
+      {allTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-ink-400">Tags:</span>
+          {allTags.map((t) => {
+            const on = selectedTags.includes(t.name);
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => toggleTag(t.name)}
+                className={
+                  on
+                    ? "rounded-md border border-brand bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                    : "rounded-md border border-ink-200 px-2 py-0.5 text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                }
+              >
+                {t.name}
+              </button>
+            );
+          })}
+          {selectedTags.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedTags([])}
+              className="text-xs text-ink-400 hover:underline"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       <p className="text-sm text-ink-500">
         {filtered.length === links.length
           ? `${links.length} upload ${links.length === 1 ? "link" : "links"}`
@@ -114,6 +159,7 @@ export function LinkList({ links, appUrl, projects = [] }: LinkListProps) {
               link={link}
               appUrl={appUrl}
               projectLabel={link.project_id ? projectName.get(link.project_id) ?? null : null}
+              tagLabels={linkTags(link.id)}
             />
           ))}
         </ul>
@@ -126,10 +172,12 @@ function LinkRow({
   link,
   appUrl,
   projectLabel,
+  tagLabels = [],
 }: {
   link: UploadLinkWithStats;
   appUrl: string;
   projectLabel?: string | null;
+  tagLabels?: string[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -204,6 +252,19 @@ function LinkRow({
             <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" />
             <span className="truncate">{link.folder_name ?? link.folder_id}</span>
           </div>
+
+          {tagLabels.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {tagLabels.map((t) => (
+                <span
+                  key={t}
+                  className="rounded bg-brand-50 px-1.5 py-0.5 text-xs text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <code className="min-w-0 max-w-full truncate rounded bg-ink-100 px-2 py-1 text-xs text-ink-700 dark:bg-ink-900 dark:text-ink-200">

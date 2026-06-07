@@ -21,6 +21,7 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { renderFilename, renderText } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
+import type { TagSummary } from "@/lib/tags";
 import type { DestinationSummary } from "@/components/destinations-manager";
 import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition } from "@/lib/db-types";
 
@@ -39,6 +40,8 @@ interface LinkFormProps {
   initialLink?: UploadLinkRow;
   destinations?: DestinationSummary[];
   projects?: ProjectSummary[];
+  allTags?: TagSummary[];
+  initialTags?: string[];
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -78,6 +81,8 @@ export function LinkForm({
   initialLink,
   destinations = [],
   projects = [],
+  allTags = [],
+  initialTags = [],
 }: LinkFormProps) {
   const router = useRouter();
 
@@ -90,6 +95,8 @@ export function LinkForm({
   const [projectList, setProjectList] = useState<ProjectSummary[]>(projects);
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [tags, setTags] = useState<string[]>(initialTags);
+  const [tagInput, setTagInput] = useState("");
   const [folder, setFolder] = useState<{ folderId: string; folderName: string } | null>(
     initialLink ? { folderId: initialLink.folder_id, folderName: initialLink.folder_name ?? "Selected folder" } : null,
   );
@@ -134,6 +141,17 @@ export function LinkForm({
   // YouTube links behave differently: no folder, video-only, and the
   // filename/description templates drive the video's title + description.
   const isYouTube = selectedConnection?.provider === "youtube";
+
+  function addTag(name: string) {
+    const n = name.trim();
+    setTagInput("");
+    if (!n || tags.length >= 20) return;
+    if (tags.some((t) => t.toLowerCase() === n.toLowerCase())) return;
+    setTags((prev) => [...prev, n]);
+  }
+  function removeTag(name: string) {
+    setTags((prev) => prev.filter((t) => t !== name));
+  }
 
   async function createProjectInline() {
     const projectName = newProjectName.trim();
@@ -372,6 +390,7 @@ export function LinkForm({
       successRedirectUrl: successRedirectUrl.trim() || null,
       uploadPassword: usePassword ? uploadPassword.trim() || null : null,
       projectId: projectId || null,
+      tags,
     };
 
     setSubmitting(true);
@@ -416,6 +435,15 @@ export function LinkForm({
   const filenamePreview = renderFilename(filenameTemplate, previewCtx);
   const titlePreview = renderText(filenameTemplate, previewCtx) || previewCtx.originalFilename;
   const descriptionPreview = renderText(descriptionTemplate, previewCtx);
+
+  // Tag suggestions: the user's existing tags not already selected, filtered by
+  // what they're typing.
+  const selectedTagsLower = new Set(tags.map((t) => t.toLowerCase()));
+  const tagQuery = tagInput.trim().toLowerCase();
+  const tagSuggestions = allTags
+    .map((t) => t.name)
+    .filter((n) => !selectedTagsLower.has(n.toLowerCase()) && (!tagQuery || n.toLowerCase().includes(tagQuery)))
+    .slice(0, 8);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -552,6 +580,62 @@ export function LinkForm({
               + New project
             </button>
           )}
+        </div>
+
+        <div>
+          <label className="label mb-1">
+            Tags <span className="font-normal text-ink-400">(optional)</span>
+          </label>
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-ink-200 p-2 dark:border-ink-700">
+            {tags.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+              >
+                {t}
+                <button
+                  type="button"
+                  onClick={() => removeTag(t)}
+                  className="leading-none hover:text-red-600"
+                  aria-label={`Remove ${t}`}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+            <input
+              className="min-w-[8rem] flex-1 bg-transparent text-sm outline-none"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addTag(tagInput);
+                } else if (e.key === "Backspace" && !tagInput && tags.length) {
+                  removeTag(tags[tags.length - 1]);
+                }
+              }}
+              placeholder={tags.length ? "Add another…" : "Add tags (e.g. Cleaners, Property A)"}
+            />
+          </div>
+          {tagSuggestions.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {tagSuggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => addTag(s)}
+                  className="rounded-md border border-ink-200 px-2 py-0.5 text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                >
+                  + {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="mt-1 text-xs text-ink-400">
+            Reusable labels for sorting &amp; search. Pick an existing one or type a new one
+            (Enter to add).
+          </p>
         </div>
       </CollapsibleSection>
 

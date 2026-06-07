@@ -112,6 +112,8 @@ export const uploadLinkCreateSchema = z.object({
   uploadPassword: z.string().max(100).optional().nullable(),
   // Optional project assignment.
   projectId: z.string().uuid().optional().nullable(),
+  // Reusable cross-cutting labels (tag names; created on save if new).
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 
 export const projectCreateSchema = z.object({
