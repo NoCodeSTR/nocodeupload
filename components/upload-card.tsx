@@ -10,9 +10,12 @@ import type { UploadLinkPublicRow } from "@/lib/db-types";
 export function UploadCard({
   link,
   showBrandHeader = true,
+  unlockedPassword = null,
 }: {
   link: UploadLinkPublicRow;
   showBrandHeader?: boolean;
+  /** Verified password from the gate, forwarded to initiate (if protected). */
+  unlockedPassword?: string | null;
 }) {
   const accent = link.branding_color ?? "#2563eb";
 
@@ -58,7 +61,7 @@ export function UploadCard({
             customFields={link.visible_custom_fields}
             successMessage={link.success_message}
             successRedirectUrl={link.success_redirect_url}
-            requiresPassword={link.requires_password}
+            unlockedPassword={unlockedPassword}
           />
         </div>
       </div>

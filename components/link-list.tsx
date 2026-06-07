@@ -97,7 +97,7 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
 
   return (
     <li className="card">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Link2 className="h-4 w-4 flex-shrink-0 text-brand" />
@@ -111,7 +111,7 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <code className="truncate rounded bg-ink-100 px-2 py-1 text-xs text-ink-700 dark:bg-ink-900 dark:text-ink-200">
+            <code className="min-w-0 max-w-full truncate rounded bg-ink-100 px-2 py-1 text-xs text-ink-700 dark:bg-ink-900 dark:text-ink-200">
               {publicUrl}
             </code>
             <CopyButton value={publicUrl} label="Copy link" />
@@ -140,7 +140,7 @@ function LinkRow({ link, appUrl }: { link: UploadLinkWithStats; appUrl: string }
           {error && <p className="mt-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-1">
+        <div className="flex flex-wrap items-center gap-1 sm:flex-shrink-0 sm:justify-end">
           <Link
             href={`/dashboard/links/${link.id}/qr`}
             className="btn-ghost h-8 px-2 text-xs"

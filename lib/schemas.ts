@@ -140,6 +140,13 @@ export const uploadInitiateSchema = z.object({
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;
 
+/** Verify a link's password before the upload form (and its fields) are shown. */
+export const uploadUnlockSchema = z.object({
+  slug: z.string().min(8).max(64),
+  password: z.string().max(100),
+});
+export type UploadUnlockInput = z.infer<typeof uploadUnlockSchema>;
+
 /**
  * Finalize an upload — either success (providerFileId set) or failure
  * (errorMessage set). The browser calls this after the direct-to-provider

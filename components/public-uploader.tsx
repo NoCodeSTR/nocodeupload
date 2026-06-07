@@ -31,7 +31,8 @@ interface PublicUploaderProps {
   customFields?: PublicCustomField[];
   successMessage?: string | null;
   successRedirectUrl?: string | null;
-  requiresPassword?: boolean;
+  /** Verified password (from the gate) forwarded to initiate; null if none. */
+  unlockedPassword?: string | null;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -151,10 +152,9 @@ export function PublicUploader({
   customFields = [],
   successMessage = null,
   successRedirectUrl = null,
-  requiresPassword = false,
+  unlockedPassword = null,
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [password, setPassword] = useState("");
   const [name, setName] = useState(prefillName ?? "");
   const [email, setEmail] = useState(prefillEmail ?? "");
   const [message, setMessage] = useState("");
@@ -257,7 +257,7 @@ export function PublicUploader({
           // the owner can get a single bundled notification.
           batchId: batch?.id ?? null,
           batchSize: batch?.size ?? null,
-          password: password.trim() || null,
+          password: unlockedPassword ?? null,
         }),
       });
       if (!res.ok) {
@@ -295,10 +295,6 @@ export function PublicUploader({
 
   async function handleUpload() {
     setFormError(null);
-    if (requiresPassword && !password.trim()) {
-      setFormError("Enter the upload password to continue.");
-      return;
-    }
     if (showName && requireName && !name.trim()) {
       setFormError("Please enter your name.");
       return;
@@ -425,23 +421,6 @@ export function PublicUploader({
 
   return (
     <div className="space-y-4">
-      {requiresPassword && (
-        <div>
-          <label className="label mb-1" htmlFor="uploader-password">
-            Password <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="uploader-password"
-            type="password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter the password"
-            disabled={uploading}
-            autoComplete="off"
-          />
-        </div>
-      )}
       {showName && (
         <div>
           <label className="label mb-1" htmlFor="uploader-name">

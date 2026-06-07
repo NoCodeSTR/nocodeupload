@@ -11,6 +11,7 @@
  * is the point.
  */
 import { UploadCard } from "@/components/upload-card";
+import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,18 @@ export default async function EmbedUploadPage({ params }: { params: { slug: stri
   return (
     <main className="bg-white px-4 py-6 dark:bg-ink-950">
       <div className="mx-auto max-w-lg">
-        <UploadCard link={link} showBrandHeader={false} />
+        {link.requires_password ? (
+          <UploadGate
+            slug={link.slug}
+            name={link.name}
+            description={link.description}
+            accent={link.branding_color ?? "#2563eb"}
+            brandingLogoUrl={link.branding_logo_url}
+            showBrandHeader={false}
+          />
+        ) : (
+          <UploadCard link={link} showBrandHeader={false} />
+        )}
         <p className="mt-3 text-center text-xs text-ink-400">
           Powered by{" "}
           <a
