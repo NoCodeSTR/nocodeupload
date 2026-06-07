@@ -20,7 +20,9 @@ export const customFieldSchema = z.object({
   value: z.string().max(500).default(""),
   visible: z.boolean().default(true),
   required: z.boolean().default(false),
-  type: z.enum(["text", "select", "multiselect"]).default("text"),
+  type: z
+    .enum(["text", "checkbox", "select", "multiselect", "currency", "number", "phone", "email"])
+    .default("text"),
   // Choices for select / multiselect. Capped to keep the public payload sane.
   options: z.array(z.string().min(1).max(80)).max(20).optional(),
 });

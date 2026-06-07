@@ -14,6 +14,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
@@ -158,6 +159,16 @@ export function LinkForm({
   function removeCustomField(id: string) {
     setCustomFields((prev) => prev.filter((f) => f.id !== id));
   }
+  function moveCustomField(id: string, dir: "up" | "down") {
+    setCustomFields((prev) => {
+      const i = prev.findIndex((f) => f.id === id);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
   // Switch a field's type, seeding a couple of empty options when becoming a
   // choice field so the options editor isn't blank.
   function setCustomFieldType(id: string, type: CustomFieldDef["type"]) {
@@ -256,6 +267,7 @@ export function LinkForm({
     if (cf && (cf.type === "select" || cf.type === "multiselect")) {
       return (cf.options ?? []).map((o) => o.trim()).filter(Boolean);
     }
+    if (cf && cf.type === "checkbox") return ["Yes"];
     return null;
   }
 
@@ -303,9 +315,9 @@ export function LinkForm({
         .map((f) => {
           const type = f.type ?? "text";
           const options =
-            type === "text"
-              ? undefined
-              : (f.options ?? []).map((o) => o.trim()).filter(Boolean);
+            type === "select" || type === "multiselect"
+              ? (f.options ?? []).map((o) => o.trim()).filter(Boolean)
+              : undefined;
           return { ...f, label: f.label.trim(), value: f.value.trim(), type, options };
         }),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
@@ -595,7 +607,7 @@ export function LinkForm({
         description="Up to 10 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
       >
 
-        {customFields.map((f) => (
+        {customFields.map((f, idx) => (
           <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
             <div className="grid gap-2 sm:grid-cols-2">
               <input
@@ -612,17 +624,41 @@ export function LinkForm({
                 aria-label="Field type"
               >
                 <option value="text">Text field</option>
+                <option value="checkbox">Checkbox</option>
                 <option value="select">Single-select</option>
                 <option value="multiselect">Multi-select</option>
+                <option value="currency">Currency ($)</option>
+                <option value="number">Number</option>
+                <option value="phone">Phone number</option>
+                <option value="email">Email</option>
               </select>
             </div>
 
-            {(f.type ?? "text") === "text" ? (
+            {(f.type ?? "text") === "checkbox" ? (
+              <label className="mt-2 flex items-center gap-2 text-sm text-ink-600 dark:text-ink-300">
+                <input
+                  type="checkbox"
+                  checked={f.value === "Yes"}
+                  onChange={(e) => updateCustomField(f.id, { value: e.target.checked ? "Yes" : "" })}
+                />
+                Checked by default
+              </label>
+            ) : (f.type ?? "text") !== "select" && (f.type ?? "text") !== "multiselect" ? (
               <input
                 className="input mt-2"
                 value={f.value}
                 onChange={(e) => updateCustomField(f.id, { value: e.target.value })}
-                placeholder="Default / prefilled value"
+                placeholder={
+                  f.type === "currency"
+                    ? "Default amount (optional)"
+                    : f.type === "number"
+                      ? "Default number (optional)"
+                      : f.type === "phone"
+                        ? "Default phone (optional)"
+                        : f.type === "email"
+                          ? "Default email (optional)"
+                          : "Default / prefilled value"
+                }
                 maxLength={500}
               />
             ) : (
@@ -669,6 +705,26 @@ export function LinkForm({
             )}
 
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => moveCustomField(f.id, "up")}
+                  disabled={idx === 0}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 enabled:hover:text-ink-700 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move field up"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveCustomField(f.id, "down")}
+                  disabled={idx === customFields.length - 1}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 enabled:hover:text-ink-700 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move field down"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
               <label className="flex items-center gap-1.5">
                 <input
                   type="checkbox"

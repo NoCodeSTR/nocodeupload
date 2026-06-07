@@ -133,7 +133,17 @@ export async function POST(request: NextRequest) {
           .map((s) => s.trim())
           .filter((s) => s && opts.includes(s))
           .join(", ");
+      } else if (type === "checkbox") {
+        // Stored as "Yes" when ticked, otherwise nothing.
+        val = raw === "Yes" ? "Yes" : "";
+      } else if (type === "number" || type === "currency") {
+        // Keep digits, one decimal, optional leading minus — drop $ , etc.
+        val = raw.replace(/[^0-9.\-]/g, "");
+      } else if (type === "email") {
+        // Drop invalid emails (required + invalid then fails below).
+        val = isValidEmail(raw) ? raw : "";
       } else {
+        // text, phone — store as typed.
         val = raw;
       }
       if (f.required && !val) {

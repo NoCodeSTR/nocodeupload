@@ -473,6 +473,23 @@ export function PublicUploader({
         const cur = customValues[f.id] ?? "";
         const setVal = (v: string) =>
           setCustomValues((prev) => ({ ...prev, [f.id]: v }));
+
+        if (type === "checkbox") {
+          return (
+            <div key={f.id}>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={cur === "Yes"}
+                  disabled={uploading}
+                  onChange={(e) => setVal(e.target.checked ? "Yes" : "")}
+                />
+                {f.label} {f.required && <span className="text-red-500">*</span>}
+              </label>
+            </div>
+          );
+        }
+
         return (
           <div key={f.id}>
             <label className="label mb-1" htmlFor={`cf-${f.id}`}>
@@ -529,13 +546,39 @@ export function PublicUploader({
                   );
                 })}
               </div>
+            ) : type === "currency" ? (
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400">
+                  $
+                </span>
+                <input
+                  id={`cf-${f.id}`}
+                  className="input pl-7"
+                  inputMode="decimal"
+                  value={cur}
+                  onChange={(e) => setVal(e.target.value)}
+                  disabled={uploading}
+                  placeholder="0.00"
+                />
+              </div>
             ) : (
               <input
                 id={`cf-${f.id}`}
                 className="input"
+                type={type === "email" ? "email" : type === "phone" ? "tel" : "text"}
+                inputMode={type === "number" ? "decimal" : undefined}
                 value={cur}
                 onChange={(e) => setVal(e.target.value)}
                 disabled={uploading}
+                placeholder={
+                  type === "email"
+                    ? "name@example.com"
+                    : type === "phone"
+                      ? "(555) 555-5555"
+                      : type === "number"
+                        ? "0"
+                        : undefined
+                }
               />
             )}
           </div>

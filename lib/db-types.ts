@@ -98,7 +98,15 @@ export interface UploadLinkRow {
 }
 
 /** Input control type for a custom field. */
-export type CustomFieldType = "text" | "select" | "multiselect";
+export type CustomFieldType =
+  | "text"
+  | "checkbox"
+  | "select"
+  | "multiselect"
+  | "currency"
+  | "number"
+  | "phone"
+  | "email";
 
 /** An owner-defined field on a link (max 3). */
 export interface CustomFieldDef {
