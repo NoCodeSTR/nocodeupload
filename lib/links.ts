@@ -182,6 +182,7 @@ export async function createLink(
       success_redirect_url: input.successRedirectUrl ?? null,
       upload_password: input.uploadPassword?.trim() || null,
       project_id: input.projectId ?? null,
+      airtable_config: input.airtableConfig ?? null,
     };
 
     const { data, error } = await supabase
@@ -262,6 +263,7 @@ export async function duplicateLink(args: {
       success_redirect_url: src.success_redirect_url,
       upload_password: src.upload_password,
       project_id: src.project_id,
+      airtable_config: src.airtable_config,
     };
 
     const { data, error } = await supabase
@@ -353,6 +355,7 @@ export async function updateLink(args: {
   if (i.successRedirectUrl !== undefined) patch.success_redirect_url = i.successRedirectUrl;
   if (i.uploadPassword !== undefined) patch.upload_password = i.uploadPassword?.trim() || null;
   if (i.projectId !== undefined) patch.project_id = i.projectId;
+  if (i.airtableConfig !== undefined) patch.airtable_config = i.airtableConfig;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

@@ -94,8 +94,54 @@ export interface UploadLinkRow {
   success_redirect_url: string | null;
   upload_password: string | null;
   project_id: string | null;
+  /** Optional Airtable destination (record creation alongside Drive). */
+  airtable_config: AirtableConfig | null;
   created_at: string;
   updated_at: string;
+}
+
+// --- Airtable (Phase A: records alongside Drive) -----------------------------
+
+/** A constant value written to a named Airtable field on every record. */
+export interface AirtableStaticValue {
+  field: string;
+  value: string;
+}
+
+/**
+ * Per-link Airtable destination config (stored in upload_links.airtable_config).
+ *
+ *   recordMode    "per_upload" → one record per file; "per_batch" → one record
+ *                 per multi-file submission (single files always get one record).
+ *   attachFiles   when true, also copy the file(s) into an Airtable attachment
+ *                 field (attachFieldName) via a temporary Drive share. Off by
+ *                 default — link mode just writes the file's URL.
+ *   mapping       our source key → the Airtable field NAME to write it into.
+ *                 Built-in keys: link, filename, filetype, size, name, email,
+ *                 message, date, count. Custom fields use "field:<Label>".
+ *   staticValues  constant field=value pairs written on every record.
+ */
+export interface AirtableConfig {
+  enabled: boolean;
+  baseId: string;
+  baseName: string;
+  tableId: string;
+  tableName: string;
+  recordMode: "per_upload" | "per_batch";
+  attachFiles: boolean;
+  attachFieldName: string | null;
+  mapping: Record<string, string>;
+  staticValues: AirtableStaticValue[];
+}
+
+/** A user's connected Airtable account (encrypted Personal Access Token). */
+export interface AirtableConnectionRow {
+  id: string;
+  user_id: string;
+  token_ciphertext: string;
+  token_iv: string;
+  token_auth_tag: string;
+  created_at: string;
 }
 
 /** An owner-defined group for organizing upload links. */
@@ -230,6 +276,8 @@ export interface UploadRow {
   batch_size: number | null;
   /** Set once, on every row of a batch, when the bundled notification fires. */
   batch_notified_at: string | null;
+  /** Single-create claim for the Airtable destination (per row or batch-wide). */
+  airtable_recorded_at: string | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;

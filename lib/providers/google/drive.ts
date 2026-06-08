@@ -59,6 +59,60 @@ export async function createFolder(args: {
 }
 
 /**
+ * Grant a temporary "anyone with the link can view" permission on a file and
+ * return the permission id. Used by the Airtable attachment path: Airtable
+ * fetches the bytes from a public URL, then we revoke (removeFilePermission).
+ * Allowed under drive.file for files the app created. Best-effort caller should
+ * handle throws.
+ */
+export async function setFilePublicRead(args: {
+  accessToken: string;
+  fileId: string;
+}): Promise<{ permissionId: string }> {
+  const res = await fetch(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(args.fileId)}/permissions?supportsAllDrives=true&fields=id`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ role: "reader", type: "anyone" }),
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Failed to share Drive file (${res.status}): ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { id?: string };
+  return { permissionId: data.id ?? "anyoneWithLink" };
+}
+
+/** Remove a previously granted permission (revoke the temporary public share). */
+export async function removeFilePermission(args: {
+  accessToken: string;
+  fileId: string;
+  permissionId: string;
+}): Promise<void> {
+  await fetch(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(args.fileId)}/permissions/${encodeURIComponent(args.permissionId)}?supportsAllDrives=true`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${args.accessToken}` },
+      cache: "no-store",
+    },
+  ).catch(() => {
+    /* best-effort revoke */
+  });
+}
+
+/** Direct-download URL for a shared Drive file (Airtable fetches this). */
+export function driveDownloadUrl(fileId: string): string {
+  return `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+}
+
+/**
  * Open a Drive resumable upload session and return its session URL plus the
  * chunk size the client should slice with. Uses `filename`; title/description
  * (YouTube-specific) are ignored.

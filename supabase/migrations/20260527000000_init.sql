@@ -238,6 +238,11 @@ create table public.upload_links (
   -- Optional grouping into a project (FK constraint added after the projects
   -- table is created, below). Null = unassigned.
   project_id uuid,
+  -- Optional Airtable destination (Phase A — record creation ALONGSIDE Drive):
+  -- { enabled, baseId, baseName, tableId, tableName, recordMode
+  --   (per_upload|per_batch), attachFiles, attachFieldName, mapping
+  --   {sourceKey: airtableFieldName}, staticValues [{field, value}] }.
+  airtable_config jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -348,6 +353,11 @@ create table public.uploads (
   batch_id uuid,
   batch_size integer,
   batch_notified_at timestamptz,
+  -- Single-create claim for the Airtable destination: set once (per row for
+  -- per_upload mode, or batch-wide for per_batch) so a record is never created
+  -- twice. Independent of batch_notified_at (Airtable record mode is decoupled
+  -- from notification bundling).
+  airtable_recorded_at timestamptz,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),
@@ -417,7 +427,7 @@ create table public.notification_deliveries (
   upload_link_id uuid references public.upload_links(id) on delete cascade,
   batch_id uuid,
   upload_id uuid,
-  channel text not null,                 -- 'email' | 'slack' | 'webhook'
+  channel text not null,                 -- 'email' | 'slack' | 'webhook' | 'quo' | 'airtable'
   target text,                           -- display only (address/channel/host) — never secrets
   status text not null check (status in ('sent', 'failed', 'skipped')),
   detail text,                           -- reason or error
@@ -455,6 +465,28 @@ alter table public.slack_connections enable row level security;
 
 create policy "slack_connections: owner all"
   on public.slack_connections for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
+-- airtable_connections — one Personal Access Token per user (encrypted)
+-- -----------------------------------------------------------------------------
+create table public.airtable_connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  -- AES-256-GCM encrypted Airtable Personal Access Token.
+  token_ciphertext text not null,
+  token_iv text not null,
+  token_auth_tag text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id)
+);
+create index airtable_connections_user_id_idx on public.airtable_connections (user_id);
+
+alter table public.airtable_connections enable row level security;
+
+create policy "airtable_connections: owner all"
+  on public.airtable_connections for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
@@ -538,6 +570,7 @@ grant select on public.uploads to authenticated;
 grant select, insert, update, delete on public.notification_destinations to authenticated;
 grant select on public.notification_deliveries to authenticated;
 grant select, insert, update, delete on public.slack_connections to authenticated;
+grant select, insert, update, delete on public.airtable_connections to authenticated;
 grant select, insert, update, delete on public.projects to authenticated;
 grant select, insert, update, delete on public.tags to authenticated;
 grant select, insert, update, delete on public.link_tags to authenticated;

@@ -16,6 +16,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { finalizeBatchFromClient } from "@/lib/batch";
+import { finalizeAirtableBatchFromClient } from "@/lib/airtable/record";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,6 +41,14 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line no-console
     console.warn("[upload/batch-complete] failed:", err);
     // Still 200 — notifications are best-effort and must never block the UI.
+  }
+
+  // Airtable per-batch record (authoritative trigger; deduped by claim).
+  try {
+    await finalizeAirtableBatchFromClient(batchId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[upload/batch-complete] airtable record failed:", err);
   }
 
   return NextResponse.json({ ok: true });

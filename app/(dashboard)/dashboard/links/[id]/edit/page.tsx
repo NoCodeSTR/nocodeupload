@@ -14,6 +14,7 @@ import { listUserConnections } from "@/lib/connections";
 import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 import { listProjects, type ProjectSummary } from "@/lib/projects";
 import { listTags, getTagsForLink, type TagSummary } from "@/lib/tags";
+import { getAirtableConnection } from "@/lib/airtable/connection";
 import { getLinkForUser } from "@/lib/links";
 
 export default async function EditLinkPage({ params }: { params: { id: string } }) {
@@ -43,6 +44,12 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
   } catch {
     /* non-fatal */
   }
+  let airtableConnected = false;
+  try {
+    airtableConnected = (await getAirtableConnection(user.id)) !== null;
+  } catch {
+    /* non-fatal */
+  }
   const env = publicGoogleEnv();
   const pickerConfig = {
     apiKey: env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY,
@@ -67,6 +74,7 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
             projects={projects}
             allTags={allTags}
             initialTags={initialTags}
+            airtableConnected={airtableConnected}
           />
         </div>
       </main>

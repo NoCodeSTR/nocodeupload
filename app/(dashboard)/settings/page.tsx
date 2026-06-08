@@ -28,6 +28,7 @@ import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { LogoUploader } from "@/components/logo-uploader";
 import { DestinationsManager, type DestinationSummary } from "@/components/destinations-manager";
+import { AirtableConnection } from "@/components/airtable-connection";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { requireUser } from "@/lib/auth";
 import { isGoogleConfigured, features } from "@/lib/env";
@@ -35,6 +36,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PROVIDER_INFO, PROVIDER_DISPLAY_ORDER } from "@/lib/providers/registry";
 import { listUserConnections, type ConnectionSummary } from "@/lib/connections";
 import { listDestinations, listSlackConnections, type SlackConnectionSummary } from "@/lib/notifications/destinations";
+import { getAirtableConnection } from "@/lib/airtable/connection";
 import type { StorageProvider } from "@/lib/db-types";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -109,6 +111,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   let slackConnections: SlackConnectionSummary[] = [];
   try {
     slackConnections = await listSlackConnections(user.id);
+  } catch {
+    /* non-fatal */
+  }
+  let airtableConnected = false;
+  try {
+    airtableConnected = (await getAirtableConnection(user.id)) !== null;
   } catch {
     /* non-fatal */
   }
@@ -285,6 +293,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               slackConfigured={slackConfigured}
               slackConnections={slackConnections}
             />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Airtable"
+            description="Turn uploads into Airtable records. Connect once here, then choose the base, table, and field mapping per link."
+          >
+            <AirtableConnection connected={airtableConnected} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Account" description={`Signed in as ${user.email}`}>

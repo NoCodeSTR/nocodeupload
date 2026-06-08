@@ -23,6 +23,7 @@ import { decryptFromToken } from "@/lib/crypto/tokens";
 import { putChunkToSession } from "@/lib/providers/resumable";
 import { finalizeUpload } from "@/lib/uploads";
 import { notifyAfterUpload } from "@/lib/batch";
+import { recordAfterUpload } from "@/lib/airtable/record";
 
 // Each chunk relay receives ≤4 MB and forwards it to Google. Give it headroom.
 export const maxDuration = 60;
@@ -90,6 +91,14 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn("[upload/chunk] notify failed (file is safe):", err);
+    }
+    // Airtable destination (record alongside Drive). Independent of notifications;
+    // self-claims so it never double-creates. Best-effort — never blocks success.
+    try {
+      await recordAfterUpload(uploadId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[upload/chunk] airtable record failed (file is safe):", err);
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

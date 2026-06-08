@@ -18,12 +18,13 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
+import { AirtableConfigEditor } from "@/components/airtable-config-editor";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
 import type { DestinationSummary } from "@/components/destinations-manager";
-import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition } from "@/lib/db-types";
+import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition, AirtableConfig } from "@/lib/db-types";
 
 const FILE_TYPE_CHOICES = ["image", "video", "pdf", "audio", "document", "other"];
 
@@ -42,6 +43,8 @@ interface LinkFormProps {
   projects?: ProjectSummary[];
   allTags?: TagSummary[];
   initialTags?: string[];
+  /** Whether the user has connected Airtable (gates the Airtable section). */
+  airtableConnected?: boolean;
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -83,6 +86,7 @@ export function LinkForm({
   projects = [],
   allTags = [],
   initialTags = [],
+  airtableConnected = false,
 }: LinkFormProps) {
   const router = useRouter();
 
@@ -133,6 +137,9 @@ export function LinkForm({
   const [usePassword, setUsePassword] = useState(Boolean(initialLink?.upload_password));
   const [uploadPassword, setUploadPassword] = useState(initialLink?.upload_password ?? "");
   const [rules, setRules] = useState<NotificationRule[]>(initialLink?.notification_rules ?? []);
+  const [airtableConfig, setAirtableConfig] = useState<AirtableConfig | null>(
+    initialLink?.airtable_config ?? null,
+  );
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -391,6 +398,12 @@ export function LinkForm({
       uploadPassword: usePassword ? uploadPassword.trim() || null : null,
       projectId: projectId || null,
       tags,
+      // Only persist a usable Airtable config (connected + enabled + targeted);
+      // otherwise null, which clears any previously-saved config on edit.
+      airtableConfig:
+        airtableConnected && airtableConfig?.enabled && airtableConfig.baseId && airtableConfig.tableId
+          ? airtableConfig
+          : null,
     };
 
     setSubmitting(true);
@@ -1345,6 +1358,20 @@ export function LinkForm({
             + Add rule
           </button>
         )}
+      </CollapsibleSection>
+
+      {/* Airtable destination */}
+      <CollapsibleSection
+        title="Airtable"
+        badge="Pro"
+        description="Log every upload as a row in an Airtable table — the file link, the uploader's answers, and (optionally) the file itself. Files still go to your storage; this adds a record alongside."
+      >
+        <AirtableConfigEditor
+          connected={airtableConnected}
+          value={airtableConfig}
+          onChange={setAirtableConfig}
+          customFields={customFields}
+        />
       </CollapsibleSection>
 
       {/* After upload */}

@@ -80,6 +80,38 @@ export const destinationCreateSchema = z
   });
 export type DestinationCreateInput = z.infer<typeof destinationCreateSchema>;
 
+// --- Airtable destination ----------------------------------------------------
+
+/** Connect Airtable: a Personal Access Token (pat… prefix; ~50+ chars). */
+export const airtableConnectSchema = z.object({
+  token: z.string().min(10, "Paste your Airtable Personal Access Token").max(200),
+});
+export type AirtableConnectInput = z.infer<typeof airtableConnectSchema>;
+
+const airtableStaticValueSchema = z.object({
+  field: z.string().min(1).max(120),
+  value: z.string().max(500).default(""),
+});
+
+/**
+ * Per-link Airtable config. `mapping` keys are our source keys (link, filename,
+ * filetype, size, name, email, message, date, count, or "field:<Label>"); values
+ * are the destination Airtable field names. Pruned client-side before save.
+ */
+export const airtableConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  baseId: z.string().max(60).default(""),
+  baseName: z.string().max(200).default(""),
+  tableId: z.string().max(60).default(""),
+  tableName: z.string().max(200).default(""),
+  recordMode: z.enum(["per_upload", "per_batch"]).default("per_upload"),
+  attachFiles: z.boolean().default(false),
+  attachFieldName: z.string().max(120).optional().nullable(),
+  mapping: z.record(z.string().max(120)).default({}),
+  staticValues: z.array(airtableStaticValueSchema).max(20).default([]),
+});
+export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
@@ -114,6 +146,8 @@ export const uploadLinkCreateSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   // Reusable cross-cutting labels (tag names; created on save if new).
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  // Optional Airtable destination (records alongside Drive). Null = disabled.
+  airtableConfig: airtableConfigSchema.optional().nullable(),
 });
 
 export const projectCreateSchema = z.object({

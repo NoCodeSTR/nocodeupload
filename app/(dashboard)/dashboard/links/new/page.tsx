@@ -13,6 +13,7 @@ import { listUserConnections } from "@/lib/connections";
 import { listDestinations, type DestinationSummary } from "@/lib/notifications/destinations";
 import { listProjects, type ProjectSummary } from "@/lib/projects";
 import { listTags, type TagSummary } from "@/lib/tags";
+import { getAirtableConnection } from "@/lib/airtable/connection";
 
 export default async function NewLinkPage() {
   const user = await requireUser();
@@ -40,6 +41,12 @@ export default async function NewLinkPage() {
   } catch {
     /* non-fatal */
   }
+  let airtableConnected = false;
+  try {
+    airtableConnected = (await getAirtableConnection(user.id)) !== null;
+  } catch {
+    /* non-fatal */
+  }
 
   const env = publicGoogleEnv();
   const pickerConfig = {
@@ -63,6 +70,7 @@ export default async function NewLinkPage() {
             destinations={destinations}
             projects={projects}
             allTags={allTags}
+            airtableConnected={airtableConnected}
           />
         </div>
       </main>
