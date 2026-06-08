@@ -4,14 +4,17 @@
  * Per-link Airtable destination editor (rendered inside the link form).
  *
  * Lets the owner enable Airtable for this link, choose a base + table (loaded
- * live from their connected account), pick per-upload vs per-batch records, map
- * upload data → table fields, add constant values, and optionally attach the
- * file(s) to an attachment field.
+ * live from their connected account, with searchable pickers for large bases),
+ * pick per-upload vs per-batch records, map upload data → table fields, add
+ * constant values, and optionally attach the file(s) to an attachment field.
  *
- * State is lifted: the parent owns the AirtableConfig and passes value/onChange.
+ * "Refresh fields" re-pulls the schema so a field you just added in Airtable
+ * shows up without leaving the form. State is lifted: the parent owns the
+ * AirtableConfig and passes value/onChange.
  */
-import { useCallback, useEffect, useState } from "react";
-import { Table2, AlertCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Table2, AlertCircle, RefreshCw } from "lucide-react";
+import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
 import { AIRTABLE_BUILTIN_SOURCES, customFieldSourceKey } from "@/lib/airtable/sources";
 import type { AirtableConfig, CustomFieldDef } from "@/lib/db-types";
 
@@ -47,6 +50,35 @@ const READONLY_TYPES = new Set([
 ]);
 const ATTACHMENT_TYPE = "multipleAttachments";
 
+// Single-value formatted fields that can't hold several newline-joined values.
+const SINGLE_FORMAT_TYPES = new Set(["url", "email", "phoneNumber"]);
+// Sources that can produce several values (one per file) in per-submission mode.
+const MULTI_VALUE_SOURCES = new Set(["link", "filename", "filetype"]);
+
+const TYPE_LABELS: Record<string, string> = {
+  singleLineText: "Text",
+  multilineText: "Long text",
+  richText: "Rich text",
+  url: "URL",
+  email: "Email",
+  phoneNumber: "Phone",
+  number: "Number",
+  currency: "Currency",
+  percent: "Percent",
+  singleSelect: "Single select",
+  multipleSelects: "Multi-select",
+  date: "Date",
+  dateTime: "Date/time",
+  checkbox: "Checkbox",
+  multipleAttachments: "Attachment",
+  rating: "Rating",
+  duration: "Duration",
+  barcode: "Barcode",
+};
+function prettyType(t: string): string {
+  return TYPE_LABELS[t] ?? t;
+}
+
 const DEFAULT_CONFIG: AirtableConfig = {
   enabled: true,
   baseId: "",
@@ -74,6 +106,7 @@ export function AirtableConfigEditor({
   customFields,
 }: AirtableConfigEditorProps) {
   const enabled = Boolean(value?.enabled);
+  const perBatch = value?.recordMode === "per_batch";
 
   const [bases, setBases] = useState<ApiBase[]>([]);
   const [tables, setTables] = useState<ApiTable[]>([]);
@@ -177,6 +210,58 @@ export function AirtableConfigEditor({
     update({ staticValues: (value?.staticValues ?? []).filter((_, i) => i !== idx) });
   }
 
+  const selectedTable = useMemo(
+    () => tables.find((t) => t.id === value?.tableId) ?? null,
+    [tables, value?.tableId],
+  );
+
+  const mappingFields = useMemo(
+    () =>
+      selectedTable
+        ? selectedTable.fields.filter((f) => !READONLY_TYPES.has(f.type) && f.type !== ATTACHMENT_TYPE)
+        : [],
+    [selectedTable],
+  );
+  const attachmentFields = useMemo(
+    () => (selectedTable ? selectedTable.fields.filter((f) => f.type === ATTACHMENT_TYPE) : []),
+    [selectedTable],
+  );
+
+  // Option lists for the searchable pickers.
+  const baseOptions: SelectOption[] = useMemo(() => {
+    const opts = bases.map((b) => ({ value: b.id, label: b.name }));
+    if (value?.baseId && !opts.some((o) => o.value === value.baseId)) {
+      opts.unshift({ value: value.baseId, label: value.baseName || value.baseId });
+    }
+    return opts;
+  }, [bases, value?.baseId, value?.baseName]);
+
+  const tableOptions: SelectOption[] = useMemo(() => {
+    const opts = tables.map((t) => ({ value: t.id, label: t.name }));
+    if (value?.tableId && !opts.some((o) => o.value === value.tableId)) {
+      opts.unshift({ value: value.tableId, label: value.tableName || value.tableId });
+    }
+    return opts;
+  }, [tables, value?.tableId, value?.tableName]);
+
+  const mappingOptions: SelectOption[] = useMemo(
+    () => mappingFields.map((f) => ({ value: f.name, label: f.name, hint: prettyType(f.type) })),
+    [mappingFields],
+  );
+  const attachmentOptions: SelectOption[] = useMemo(
+    () => attachmentFields.map((f) => ({ value: f.name, label: f.name })),
+    [attachmentFields],
+  );
+
+  function mappingWarning(sourceKey: string, fieldName: string | undefined): string | null {
+    if (!fieldName || !perBatch || !MULTI_VALUE_SOURCES.has(sourceKey)) return null;
+    const t = selectedTable?.fields.find((f) => f.name === fieldName)?.type;
+    if (t && SINGLE_FORMAT_TYPES.has(t)) {
+      return `Per-submission mode can write one value per file here. A ${prettyType(t)} field only holds one — use a Single line text or Long text field for multiple.`;
+    }
+    return null;
+  }
+
   if (!connected) {
     return (
       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
@@ -188,14 +273,6 @@ export function AirtableConfigEditor({
       </div>
     );
   }
-
-  const selectedTable = tables.find((t) => t.id === value?.tableId);
-  const mappingFields = selectedTable
-    ? selectedTable.fields.filter((f) => !READONLY_TYPES.has(f.type) && f.type !== ATTACHMENT_TYPE)
-    : [];
-  const attachmentFields = selectedTable
-    ? selectedTable.fields.filter((f) => f.type === ATTACHMENT_TYPE)
-    : [];
 
   const sources = [
     ...AIRTABLE_BUILTIN_SOURCES.map((s) => ({ key: s.key, label: s.label, hint: s.hint })),
@@ -217,43 +294,53 @@ export function AirtableConfigEditor({
           {/* Base + table */}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="label mb-1">Base</label>
-              <select
-                className="input"
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label">Base</label>
+                <button
+                  type="button"
+                  onClick={() => void loadBases()}
+                  disabled={loadingBases}
+                  className="inline-flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 disabled:opacity-50 dark:hover:text-ink-200"
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingBases ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+              <SearchableSelect
                 value={value?.baseId ?? ""}
-                onChange={(e) => pickBase(e.target.value)}
-                disabled={loadingBases}
-              >
-                <option value="">{loadingBases ? "Loading…" : "Choose a base…"}</option>
-                {/* Keep the saved base selectable even if the list hasn't loaded yet. */}
-                {value?.baseId && !bases.some((b) => b.id === value.baseId) && (
-                  <option value={value.baseId}>{value.baseName || value.baseId}</option>
-                )}
-                {bases.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+                onChange={pickBase}
+                options={baseOptions}
+                loading={loadingBases}
+                placeholder="Choose a base…"
+                searchPlaceholder="Search bases…"
+                ariaLabel="Airtable base"
+              />
             </div>
             <div>
-              <label className="label mb-1">Table</label>
-              <select
-                className="input"
-                value={value?.tableId ?? ""}
-                onChange={(e) => pickTable(e.target.value)}
-                disabled={!value?.baseId || loadingTables}
-              >
-                <option value="">{loadingTables ? "Loading…" : "Choose a table…"}</option>
-                {value?.tableId && !tables.some((t) => t.id === value.tableId) && (
-                  <option value={value.tableId}>{value.tableName || value.tableId}</option>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label">Table</label>
+                {value?.baseId && (
+                  <button
+                    type="button"
+                    onClick={() => value?.baseId && void loadTables(value.baseId)}
+                    disabled={loadingTables}
+                    className="inline-flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 disabled:opacity-50 dark:hover:text-ink-200"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loadingTables ? "animate-spin" : ""}`} />
+                    Refresh
+                  </button>
                 )}
-                {tables.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+              </div>
+              <SearchableSelect
+                value={value?.tableId ?? ""}
+                onChange={pickTable}
+                options={tableOptions}
+                loading={loadingTables}
+                disabled={!value?.baseId}
+                placeholder="Choose a table…"
+                searchPlaceholder="Search tables…"
+                ariaLabel="Airtable table"
+              />
             </div>
           </div>
 
@@ -281,7 +368,7 @@ export function AirtableConfigEditor({
                 <input
                   type="radio"
                   name="airtable-record-mode"
-                  checked={value?.recordMode === "per_batch"}
+                  checked={perBatch}
                   onChange={() => update({ recordMode: "per_batch" })}
                 />
                 Per submission (one row even if several files are sent at once)
@@ -292,29 +379,50 @@ export function AirtableConfigEditor({
           {/* Field mapping */}
           {selectedTable ? (
             <div className="space-y-2">
-              <span className="label block">Map upload data → Airtable fields</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="label">Map upload data → Airtable fields</span>
+                <button
+                  type="button"
+                  onClick={() => value?.baseId && void loadTables(value.baseId)}
+                  disabled={loadingTables}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-brand hover:underline disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingTables ? "animate-spin" : ""}`} />
+                  Refresh fields
+                </button>
+              </div>
               <div className="space-y-1.5">
-                {sources.map((s) => (
-                  <div key={s.key} className="flex flex-wrap items-center gap-2 text-sm">
-                    <div className="min-w-[9rem] flex-1">
-                      <span className="text-ink-700 dark:text-ink-200">{s.label}</span>
-                      {s.hint && <span className="ml-1 text-xs text-ink-400">({s.hint})</span>}
+                {sources.map((s) => {
+                  const mapped = value?.mapping?.[s.key];
+                  const warn = mappingWarning(s.key, mapped);
+                  return (
+                    <div key={s.key} className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <div className="min-w-[9rem] flex-1">
+                          <span className="text-ink-700 dark:text-ink-200">{s.label}</span>
+                          {s.hint && <span className="ml-1 text-xs text-ink-400">({s.hint})</span>}
+                        </div>
+                        <span className="text-ink-400">→</span>
+                        <SearchableSelect
+                          className="w-auto min-w-[11rem] flex-1"
+                          value={mapped ?? ""}
+                          onChange={(v) => setMapping(s.key, v)}
+                          options={mappingOptions}
+                          emptyOptionLabel="Don't sync"
+                          placeholder="Don't sync"
+                          searchPlaceholder="Search fields…"
+                          ariaLabel={`Field for ${s.label}`}
+                        />
+                      </div>
+                      {warn && (
+                        <p className="flex items-start gap-1 pl-1 text-xs text-amber-600 dark:text-amber-300">
+                          <AlertCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                          <span>{warn}</span>
+                        </p>
+                      )}
                     </div>
-                    <span className="text-ink-400">→</span>
-                    <select
-                      className="input w-auto min-w-[10rem] flex-1"
-                      value={value?.mapping?.[s.key] ?? ""}
-                      onChange={(e) => setMapping(s.key, e.target.value)}
-                    >
-                      <option value="">Don&apos;t sync</option>
-                      {mappingFields.map((f) => (
-                        <option key={f.id} value={f.name}>
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <p className="text-xs text-ink-400">
                 Only the rows you map are written. Computed fields (formulas, rollups, etc.) and
@@ -322,9 +430,7 @@ export function AirtableConfigEditor({
               </p>
             </div>
           ) : (
-            value?.baseId && (
-              <p className="text-xs text-ink-400">Choose a table to map fields.</p>
-            )
+            value?.baseId && <p className="text-xs text-ink-400">Choose a table to map fields.</p>
           )}
 
           {/* Static values */}
@@ -335,18 +441,15 @@ export function AirtableConfigEditor({
               </span>
               {(value?.staticValues ?? []).map((sv, idx) => (
                 <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
-                  <select
-                    className="input w-auto min-w-[9rem]"
+                  <SearchableSelect
+                    className="w-auto min-w-[9rem]"
                     value={sv.field}
-                    onChange={(e) => updateStatic(idx, { field: e.target.value })}
-                  >
-                    <option value="">Choose field…</option>
-                    {mappingFields.map((f) => (
-                      <option key={f.id} value={f.name}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => updateStatic(idx, { field: v })}
+                    options={mappingOptions}
+                    placeholder="Choose field…"
+                    searchPlaceholder="Search fields…"
+                    ariaLabel="Constant field"
+                  />
                   <span className="text-ink-400">=</span>
                   <input
                     className="input w-auto flex-1"
@@ -383,38 +486,50 @@ export function AirtableConfigEditor({
                   type="checkbox"
                   className="mt-0.5"
                   checked={Boolean(value?.attachFiles)}
-                  onChange={(e) => update({ attachFiles: e.target.checked, attachFieldName: e.target.checked ? value?.attachFieldName ?? null : null })}
+                  onChange={(e) =>
+                    update({
+                      attachFiles: e.target.checked,
+                      attachFieldName: e.target.checked ? value?.attachFieldName ?? null : null,
+                    })
+                  }
                 />
                 <span>
                   Also attach the file(s) to an attachment field
                   <span className="block text-xs text-ink-400">
-                    Google Drive only. We briefly share each file so Airtable can copy it in, then
-                    revoke the share. Leave off to just store the file link (recommended for large
-                    videos).
+                    Google Drive only. Each file streams to Airtable through a private, expiring link
+                    (it stays private in your Drive). Files over 100&nbsp;MB keep just the link
+                    (recommended for large videos).
                   </span>
                 </span>
               </label>
               {value?.attachFiles && (
-                <div>
+                <>
                   {attachmentFields.length > 0 ? (
-                    <select
-                      className="input"
+                    <SearchableSelect
                       value={value?.attachFieldName ?? ""}
-                      onChange={(e) => update({ attachFieldName: e.target.value || null })}
-                    >
-                      <option value="">Choose an attachment field…</option>
-                      {attachmentFields.map((f) => (
-                        <option key={f.id} value={f.name}>
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => update({ attachFieldName: v || null })}
+                      options={attachmentOptions}
+                      placeholder="Choose an attachment field…"
+                      searchPlaceholder="Search fields…"
+                      ariaLabel="Attachment field"
+                    />
                   ) : (
                     <p className="rounded-md bg-ink-50 px-3 py-2 text-xs text-ink-500 dark:bg-ink-900/40">
-                      This table has no attachment field. Add one in Airtable, then reopen this form.
+                      This table has no attachment field. Add one in Airtable, then click{" "}
+                      <strong>Refresh fields</strong> above.
                     </p>
                   )}
-                </div>
+                  {!perBatch && (
+                    <p className="flex items-start gap-1 text-xs text-amber-600 dark:text-amber-300">
+                      <AlertCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                      <span>
+                        Per-file mode creates a separate record (and attachment) for each file. To
+                        collect all files from one submission into a single attachment field, switch to{" "}
+                        <strong>Per submission</strong> above.
+                      </span>
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}

@@ -202,7 +202,7 @@ export function LinkForm({
   }
 
   function addCustomField() {
-    if (customFields.length >= 10) return;
+    if (customFields.length >= 50) return;
     setCustomFields((prev) => [
       ...prev,
       { id: crypto.randomUUID(), label: "", value: "", visible: true, required: false, type: "text" },
@@ -782,7 +782,7 @@ export function LinkForm({
       <CollapsibleSection
         title="Custom fields"
         badge="Pro"
-        description="Up to 10 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
+        description="Up to 50 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
       >
 
         {customFields.map((f, idx) => (
@@ -946,7 +946,7 @@ export function LinkForm({
           </div>
         ))}
 
-        {customFields.length < 10 && (
+        {customFields.length < 50 && (
           <button type="button" onClick={addCustomField} className="btn-secondary text-sm">
             + Add custom field
           </button>

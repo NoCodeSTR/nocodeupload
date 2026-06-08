@@ -63,17 +63,33 @@ costs nothing and works for files of any size.
 
 When you enable attachments:
 
-1. We briefly grant an *anyone-with-the-link* view permission on each Drive file.
-2. We hand Airtable the file's download URL; Airtable copies the bytes into the
-   attachment field (the bytes go **Google → Airtable**, not through our servers).
-3. Once Airtable has ingested the file, we **revoke** the temporary share.
+1. For each file we mint a **private, signed, expiring link** to it (default
+   30-minute lifetime) that points at our `/api/airtable/file` proxy.
+2. We create the record with those links in the attachment field; Airtable
+   fetches each file through the proxy, which streams the bytes straight from
+   your Drive. **The Drive file is never made public** — the proxy uses your
+   own connection to read it, and the link can't be forged or reused after it
+   expires.
+3. Because every link stays valid while Airtable works, **all files in a
+   multi-file submission are reliably attached** (no share/revoke timing race).
 
 Because of this flow:
 
 - Attachments work for **Google Drive** uploads only (YouTube links are stored
   as links).
-- Best for **photos and smaller files**. For large videos, leave attachments off
-  and rely on the file link — Google's download endpoint shows an interstitial
-  for very large files, and Airtable enforces its own attachment size limits.
-- The temporary share exists only for the few seconds Airtable needs to fetch
-  the file.
+- To collect several files from one submission into a **single record's
+  attachment field**, set the record mode to **Per submission**. Per-file mode
+  creates a separate record (and attachment) for each file.
+- Files larger than **100 MB** skip the attachment and keep just the link
+  (recommended for large videos — Airtable also enforces its own attachment
+  size limits).
+- The attached bytes pass through our server (unlike link mode). This only
+  applies to files you choose to attach.
+
+### Picking the right field type for the file link
+
+In **Per submission** mode, the *File link* and *File name* sources can contain
+several values (one per file, newline-separated). An Airtable **URL**, **Email**,
+or **Phone** field only holds a single formatted value, so map those sources to a
+**Single line text** or **Long text** field instead. The link editor warns you
+when a mapping would overflow a single-value field.

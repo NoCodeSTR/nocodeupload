@@ -113,6 +113,25 @@ export function driveDownloadUrl(fileId: string): string {
 }
 
 /**
+ * Fetch a file's raw bytes via the Drive API (alt=media). Allowed under
+ * drive.file for files the app created — no public share needed. Returns the
+ * raw fetch Response so the caller can stream `.body` straight through (used by
+ * the Airtable attachment proxy). The caller owns error handling.
+ */
+export async function fetchDriveMedia(args: {
+  accessToken: string;
+  fileId: string;
+}): Promise<Response> {
+  return fetch(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(args.fileId)}?alt=media&supportsAllDrives=true`,
+    {
+      headers: { Authorization: `Bearer ${args.accessToken}` },
+      cache: "no-store",
+    },
+  );
+}
+
+/**
  * Open a Drive resumable upload session and return its session URL plus the
  * chunk size the client should slice with. Uses `filename`; title/description
  * (YouTube-specific) are ignored.

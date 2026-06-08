@@ -20,23 +20,21 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getBatchProgress } from "@/lib/uploads";
-import { getValidAccessToken } from "@/lib/tokens";
+import { coreEnv } from "@/lib/env";
+import { encryptToToken } from "@/lib/crypto/tokens";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
-import {
-  createRecord,
-  getRecord,
-  type AirtableFieldValue,
-} from "@/lib/airtable/client";
-import {
-  setFilePublicRead,
-  removeFilePermission,
-  driveDownloadUrl,
-} from "@/lib/providers/google/drive";
+import { createRecord, type AirtableFieldValue } from "@/lib/airtable/client";
 import type { AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
+
+// Attachment proxy: files up to this size are streamed to Airtable through our
+// signed /api/airtable/file proxy. Larger files (big videos) keep just the link.
+const ATTACH_MAX_BYTES = 100 * 1024 * 1024;
+// How long the signed attachment URL stays valid for Airtable to fetch it.
+const ATTACH_TOKEN_TTL_MS = 30 * 60 * 1000;
 
 const UPLOAD_FIELDS =
   "id, upload_link_id, user_id, storage_connection_id, provider, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, completed_at, status, batch_id";
@@ -183,18 +181,26 @@ function sourceValue(key: string, uploads: UploadRecordRow[]): string {
   }
 }
 
-// --- Attachment ingestion (share → fetch → revoke) ---------------------------
+// --- Attachments (private signed proxy URLs) ---------------------------------
 
-const ATTACH_POLL_TRIES = 6;
-const ATTACH_POLL_DELAY_MS = 1500;
-
-function isIngested(value: unknown, expected: number): boolean {
-  if (!Array.isArray(value) || value.length < expected) return false;
-  // Airtable populates `size` (and `type`) once it has downloaded the bytes.
-  return value.every((a) => a && typeof a === "object" && typeof (a as { size?: unknown }).size === "number");
+/**
+ * Build Airtable attachment objects for the Drive files in this record. Each
+ * points at our signed /api/airtable/file proxy (not a public Drive share), so
+ * Airtable can fetch every file reliably while it stays valid — no share/revoke
+ * race that previously dropped all-but-one file in multi-file submissions.
+ */
+function buildAttachments(uploads: UploadRecordRow[]): Array<{ url: string; filename: string }> {
+  const appUrl = coreEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const exp = Date.now() + ATTACH_TOKEN_TTL_MS;
+  const out: Array<{ url: string; filename: string }> = [];
+  for (const u of uploads) {
+    if (u.provider !== "google_drive" || !u.provider_file_id) continue;
+    if ((u.file_size_bytes ?? 0) > ATTACH_MAX_BYTES) continue; // too big — link carries it
+    const token = encryptToToken(`${u.id}|${exp}`);
+    out.push({ url: `${appUrl}/api/airtable/file/${token}`, filename: u.original_filename });
+  }
+  return out;
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // --- Build + create one record -----------------------------------------------
 
@@ -235,39 +241,12 @@ async function buildAndCreate(args: {
     if (sv.field && sv.value) fields[sv.field] = sv.value;
   }
 
-  // Opt-in attachments: temporarily share each Drive file, hand Airtable the URL.
-  const shares: Array<{ fileId: string; permissionId: string }> = [];
-  let driveToken: string | null = null;
+  // Opt-in attachments: point Airtable at our signed proxy for each Drive file.
+  // All files in a multi-file submission go into one attachment field at once.
   if (config.attachFiles && config.attachFieldName) {
-    const driveUploads = uploads.filter((u) => u.provider === "google_drive" && u.provider_file_id);
-    if (driveUploads.length > 0) {
-      try {
-        const res = await getValidAccessToken({
-          userId,
-          connectionId: uploads[0].storage_connection_id,
-        });
-        driveToken = res.accessToken;
-      } catch {
-        driveToken = null;
-      }
-      if (driveToken) {
-        const attachments: Array<{ url: string; filename?: string }> = [];
-        for (const u of driveUploads) {
-          try {
-            const { permissionId } = await setFilePublicRead({
-              accessToken: driveToken,
-              fileId: u.provider_file_id!,
-            });
-            shares.push({ fileId: u.provider_file_id!, permissionId });
-            attachments.push({ url: driveDownloadUrl(u.provider_file_id!), filename: u.original_filename });
-          } catch {
-            /* skip this file's attachment; the link field still carries it */
-          }
-        }
-        if (attachments.length > 0) {
-          fields[config.attachFieldName] = attachments;
-        }
-      }
+    const attachments = buildAttachments(uploads);
+    if (attachments.length > 0) {
+      fields[config.attachFieldName] = attachments;
     }
   }
 
@@ -279,38 +258,8 @@ async function buildAndCreate(args: {
       tableId: config.tableId,
       fields,
     });
-
-    // If we shared files, wait for Airtable to copy them, then revoke.
-    if (shares.length > 0 && config.attachFieldName) {
-      for (let i = 0; i < ATTACH_POLL_TRIES; i++) {
-        await sleep(ATTACH_POLL_DELAY_MS);
-        try {
-          const fresh = await getRecord({
-            token,
-            baseId: config.baseId,
-            tableId: config.tableId,
-            recordId: record.id,
-          });
-          if (isIngested(fresh.fields[config.attachFieldName], shares.length)) break;
-        } catch {
-          break;
-        }
-      }
-      if (driveToken) {
-        for (const s of shares) {
-          await removeFilePermission({ accessToken: driveToken, fileId: s.fileId, permissionId: s.permissionId });
-        }
-      }
-    }
-
     result = { status: "sent", target, detail: `Record ${record.id}` };
   } catch (err) {
-    // Revoke any shares even if the create failed.
-    if (driveToken && shares.length > 0) {
-      for (const s of shares) {
-        await removeFilePermission({ accessToken: driveToken, fileId: s.fileId, permissionId: s.permissionId });
-      }
-    }
     result = { status: "failed", target, detail: err instanceof Error ? err.message : "create failed" };
   }
 
