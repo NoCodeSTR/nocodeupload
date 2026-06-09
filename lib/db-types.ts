@@ -163,7 +163,18 @@ export type CustomFieldType =
   | "phone"
   | "email";
 
-/** An owner-defined field on a link (max 3). */
+/**
+ * Conditional visibility: show the field only when the controlling field
+ * (referenced by its id) currently has one of these values. Used for "show
+ * field B when field A = X". A multiselect controller matches if ANY selected
+ * option is in `values`; a checkbox controller uses ["Yes"].
+ */
+export interface FieldCondition {
+  fieldId: string;
+  values: string[];
+}
+
+/** An owner-defined field on a link. */
 export interface CustomFieldDef {
   id: string;
   label: string;
@@ -172,6 +183,7 @@ export interface CustomFieldDef {
   required: boolean; // only meaningful when visible
   type?: CustomFieldType; // defaults to "text" when absent (back-compat)
   options?: string[]; // choices for select / multiselect
+  showWhen?: FieldCondition | null; // optional conditional visibility
 }
 
 // --- Notifications v2 --------------------------------------------------------
@@ -251,6 +263,7 @@ export interface PublicCustomField {
   required: boolean;
   type?: CustomFieldType;
   options?: string[];
+  showWhen?: FieldCondition | null;
 }
 
 export interface UploadRow {

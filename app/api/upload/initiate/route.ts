@@ -25,6 +25,7 @@ import { getValidAccessToken, TokenError } from "@/lib/tokens";
 import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
 import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
+import { isFieldVisible } from "@/lib/conditional";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -146,6 +147,8 @@ export async function POST(request: NextRequest) {
     const type = f.type ?? "text";
     let val: string;
     if (f.visible) {
+      // Conditionally-hidden fields weren't shown — don't require or store them.
+      if (!isFieldVisible(f.showWhen, submitted)) continue;
       const raw = String(submitted[f.id] ?? f.value ?? "").trim();
       val = cleanFieldValue(type, raw, f.options ?? []);
       if (f.required && !val) {

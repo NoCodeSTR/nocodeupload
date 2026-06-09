@@ -25,6 +25,15 @@ export const customFieldSchema = z.object({
     .default("text"),
   // Choices for select / multiselect. Capped to keep the public payload sane.
   options: z.array(z.string().min(1).max(80)).max(20).optional(),
+  // Optional conditional visibility: show only when the controlling field
+  // (by id) holds one of these values.
+  showWhen: z
+    .object({
+      fieldId: z.string().min(1).max(64),
+      values: z.array(z.string().max(200)).max(20).default([]),
+    })
+    .nullable()
+    .optional(),
 });
 export type CustomFieldInput = z.infer<typeof customFieldSchema>;
 

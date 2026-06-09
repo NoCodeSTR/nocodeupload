@@ -15,6 +15,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide-react";
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
 import { prefillKey } from "@/lib/filename";
+import { isFieldVisible } from "@/lib/conditional";
 import type { PublicCustomField } from "@/lib/db-types";
 
 interface PublicUploaderProps {
@@ -310,7 +311,12 @@ export function PublicUploader({
       setFormError("Please enter a valid email.");
       return;
     }
-    const missingCustom = customFields.find((f) => f.required && !(customValues[f.id] ?? "").trim());
+    const missingCustom = customFields.find(
+      (f) =>
+        f.required &&
+        isFieldVisible(f.showWhen, customValues) &&
+        !(customValues[f.id] ?? "").trim(),
+    );
     if (missingCustom) {
       setFormError(`Please fill in "${missingCustom.label}".`);
       return;
@@ -453,8 +459,10 @@ export function PublicUploader({
         </div>
       )}
 
-      {/* Owner-defined visible custom fields */}
-      {customFields.map((f) => {
+      {/* Owner-defined visible custom fields (respecting conditional visibility) */}
+      {customFields
+        .filter((f) => isFieldVisible(f.showWhen, customValues))
+        .map((f) => {
         const type = f.type ?? "text";
         const cur = customValues[f.id] ?? "";
         const setVal = (v: string) =>

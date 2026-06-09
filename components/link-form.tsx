@@ -256,6 +256,45 @@ export function LinkForm({
     );
   }
 
+  // --- Conditional visibility (show a field only when another field = value) ---
+  function isController(c: CustomFieldDef): boolean {
+    return Boolean(c.label.trim()) && (c.type === "select" || c.type === "multiselect" || c.type === "checkbox");
+  }
+  function toggleShowWhen(id: string, on: boolean) {
+    setCustomFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        if (!on) return { ...f, showWhen: null };
+        const ctrl = prev.find((c) => c.id !== id && isController(c));
+        return { ...f, showWhen: { fieldId: ctrl?.id ?? "", values: ctrl?.type === "checkbox" ? ["Yes"] : [] } };
+      }),
+    );
+  }
+  function setShowWhenController(id: string, controllerId: string) {
+    setCustomFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        const ctrl = prev.find((c) => c.id === controllerId);
+        return { ...f, showWhen: { fieldId: controllerId, values: ctrl?.type === "checkbox" ? ["Yes"] : [] } };
+      }),
+    );
+  }
+  function toggleShowWhenValue(id: string, value: string) {
+    setCustomFields((prev) =>
+      prev.map((f) => {
+        if (f.id !== id || !f.showWhen) return f;
+        const has = f.showWhen.values.includes(value);
+        return {
+          ...f,
+          showWhen: {
+            ...f.showWhen,
+            values: has ? f.showWhen.values.filter((v) => v !== value) : [...f.showWhen.values, value],
+          },
+        };
+      }),
+    );
+  }
+
   // --- Routing rules ---------------------------------------------------------
   function addRule() {
     if (rules.length >= 10) return;
@@ -348,6 +387,8 @@ export function LinkForm({
       return;
     }
 
+    const keptFieldIds = new Set(customFields.filter((f) => f.label.trim()).map((f) => f.id));
+
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
@@ -373,7 +414,19 @@ export function LinkForm({
             type === "select" || type === "multiselect"
               ? (f.options ?? []).map((o) => o.trim()).filter(Boolean)
               : undefined;
-          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options };
+          // Keep a conditional rule only if it's on a visible field and points
+          // at a still-present controlling field with at least one value.
+          let showWhen = f.showWhen ?? null;
+          if (
+            showWhen &&
+            (!f.visible ||
+              !showWhen.fieldId ||
+              !keptFieldIds.has(showWhen.fieldId) ||
+              showWhen.values.length === 0)
+          ) {
+            showWhen = null;
+          }
+          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, showWhen };
         }),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
@@ -785,7 +838,14 @@ export function LinkForm({
         description="Up to 50 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
       >
 
-        {customFields.map((f, idx) => (
+        {customFields.map((f, idx) => {
+          const controllers = customFields.filter((c) => c.id !== f.id && isController(c));
+          const controller = f.showWhen ? customFields.find((c) => c.id === f.showWhen!.fieldId) ?? null : null;
+          const controllerOptions =
+            controller && controller.type !== "checkbox"
+              ? (controller.options ?? []).map((o) => o.trim()).filter(Boolean)
+              : [];
+          return (
           <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
             <div className="grid gap-2 sm:grid-cols-2">
               <input
@@ -882,6 +942,69 @@ export function LinkForm({
               </div>
             )}
 
+            {f.visible && (
+              <div className="mt-2 rounded-md bg-ink-50 p-2 dark:bg-ink-900/40">
+                <label className="flex items-center gap-2 text-xs text-ink-600 dark:text-ink-300">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(f.showWhen)}
+                    onChange={(e) => toggleShowWhen(f.id, e.target.checked)}
+                  />
+                  Only show this field conditionally
+                </label>
+                {f.showWhen &&
+                  (controllers.length === 0 ? (
+                    <p className="mt-1 text-xs text-ink-400">
+                      Add a single-select, multi-select, or checkbox field to control this one.
+                    </p>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-ink-500">Show when</span>
+                        <select
+                          className="input w-auto py-1 text-xs"
+                          value={f.showWhen.fieldId}
+                          onChange={(e) => setShowWhenController(f.id, e.target.value)}
+                        >
+                          <option value="">Choose field…</option>
+                          {controllers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.label.trim()}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-ink-500">is</span>
+                      </div>
+                      {controller && controller.type === "checkbox" ? (
+                        <p className="text-xs text-ink-500">checked</p>
+                      ) : controllerOptions.length === 0 ? (
+                        <p className="text-xs text-ink-400">That field has no options yet.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {controllerOptions.map((o) => {
+                            const checked = f.showWhen!.values.includes(o);
+                            return (
+                              <button
+                                type="button"
+                                key={o}
+                                onClick={() => toggleShowWhenValue(f.id, o)}
+                                className={
+                                  checked
+                                    ? "rounded-md border border-brand bg-brand-50 px-2 py-1 text-xs text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                                    : "rounded-md border border-ink-200 px-2 py-1 text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300"
+                                }
+                              >
+                                {o}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            )}
+
             {f.label.trim() && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-400">
                 <span>URL prefill:</span>
@@ -944,7 +1067,8 @@ export function LinkForm({
               </p>
             )}
           </div>
-        ))}
+          );
+        })}
 
         {customFields.length < 50 && (
           <button type="button" onClick={addCustomField} className="btn-secondary text-sm">
