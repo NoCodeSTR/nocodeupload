@@ -9,6 +9,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
+import { findOrCreateSubmissionForUpload } from "@/lib/submissions";
 import type { UploadLinkRow, UploadRow } from "@/lib/db-types";
 
 /**
@@ -30,6 +31,18 @@ export async function createUploadRecord(args: {
   batchSize?: number | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
+
+  // Group this file under its submission (one per batch; one per single file).
+  // Best-effort: a null id just means the file isn't linked yet (column nullable).
+  const submissionId = await findOrCreateSubmissionForUpload({
+    link: args.link,
+    batchId: args.batchId ?? null,
+    uploaderName: args.uploaderName ?? null,
+    uploaderEmail: args.uploaderEmail ?? null,
+    uploaderMessage: args.uploaderMessage ?? null,
+    customData: args.customData ?? {},
+  });
+
   const row = {
     upload_link_id: args.link.id,
     user_id: args.link.user_id,
@@ -47,6 +60,7 @@ export async function createUploadRecord(args: {
     provider: args.provider ?? null,
     batch_id: args.batchId ?? null,
     batch_size: args.batchSize ?? null,
+    submission_id: submissionId,
     status: "uploading",
   };
 

@@ -322,6 +322,42 @@ where l.is_active = true
 grant select on public.upload_links_public to anon, authenticated;
 
 -- -----------------------------------------------------------------------------
+-- submissions — the first-class submission (form answers + 0..N files)
+-- -----------------------------------------------------------------------------
+-- One submission per public submit. A batched multi-file upload shares ONE
+-- submission (unique batch_id). Future-friendly columns (submission_type, tags,
+-- status) are present from day one for the inbox + multi-box forms. Created
+-- here BEFORE uploads because uploads.submission_id references it.
+create table public.submissions (
+  id uuid primary key default gen_random_uuid(),
+  upload_link_id uuid not null references public.upload_links(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  batch_id uuid unique,
+  submission_type text not null default 'upload'
+    check (submission_type in ('upload', 'form', 'media')),
+  uploader_name text,
+  uploader_email text,
+  uploader_message text,
+  custom_data jsonb not null default '{}'::jsonb,
+  tags text[],
+  status text not null default 'new'
+    check (status in ('new', 'in_progress', 'done', 'archived')),
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+create index submissions_link_idx on public.submissions (upload_link_id, created_at desc);
+create index submissions_user_idx on public.submissions (user_id, created_at desc);
+
+alter table public.submissions enable row level security;
+
+create policy "submissions: owner can read"
+  on public.submissions for select
+  using (auth.uid() = user_id);
+create policy "submissions: owner can update"
+  on public.submissions for update
+  using (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------------------
 -- uploads
 -- -----------------------------------------------------------------------------
 create table public.uploads (
@@ -358,6 +394,10 @@ create table public.uploads (
   -- twice. Independent of batch_notified_at (Airtable record mode is decoupled
   -- from notification bundling).
   airtable_recorded_at timestamptz,
+  -- The submission this file belongs to (set on insert; one per batch).
+  submission_id uuid references public.submissions(id) on delete set null,
+  -- Which upload box (block) the file came from — multi-box forms, later.
+  source_block_id text,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),
@@ -369,6 +409,7 @@ create index uploads_user_id_idx on public.uploads (user_id);
 create index uploads_created_at_idx on public.uploads (created_at desc);
 -- Partial index: batch lookups only ever target rows that have a batch_id.
 create index uploads_batch_id_idx on public.uploads (batch_id) where batch_id is not null;
+create index uploads_submission_id_idx on public.uploads (submission_id);
 
 alter table public.uploads enable row level security;
 
@@ -567,6 +608,7 @@ grant select, insert, update, delete on public.storage_connections to authentica
 grant select, insert, update, delete on public.upload_links to authenticated;
 grant select, insert, update on public.profiles to authenticated;
 grant select on public.uploads to authenticated;
+grant select, update on public.submissions to authenticated;
 grant select, insert, update, delete on public.notification_destinations to authenticated;
 grant select on public.notification_deliveries to authenticated;
 grant select, insert, update, delete on public.slack_connections to authenticated;

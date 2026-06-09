@@ -278,8 +278,34 @@ export interface UploadRow {
   batch_notified_at: string | null;
   /** Single-create claim for the Airtable destination (per row or batch-wide). */
   airtable_recorded_at: string | null;
+  /** The submission (one per batch / one per single file) this file belongs to. */
+  submission_id: string | null;
+  /** Which upload box (block) the file came from — multi-box forms (later). */
+  source_block_id: string | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+/**
+ * A submission — one public submit. Groups the form answers + uploader context
+ * and 0..N files (uploads.submission_id). A batched multi-file upload shares one
+ * submission (unique batch_id). submission_type, tags, and status are present
+ * for the inbox + multi-box forms even where lightly used today.
+ */
+export interface SubmissionRow {
+  id: string;
+  upload_link_id: string;
+  user_id: string;
+  batch_id: string | null;
+  submission_type: "upload" | "form" | "media";
+  uploader_name: string | null;
+  uploader_email: string | null;
+  uploader_message: string | null;
+  custom_data: Record<string, string> | null;
+  tags: string[] | null;
+  status: "new" | "in_progress" | "done" | "archived";
   created_at: string;
   completed_at: string | null;
 }

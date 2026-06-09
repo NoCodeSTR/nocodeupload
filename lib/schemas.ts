@@ -155,6 +155,18 @@ export const projectCreateSchema = z.object({
 });
 export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
 
+// --- Submissions -------------------------------------------------------------
+
+export const submissionStatusSchema = z.enum(["new", "in_progress", "done", "archived"]);
+export type SubmissionStatus = z.infer<typeof submissionStatusSchema>;
+
+/** Owner edits to a submission from the inbox (status / tags). */
+export const submissionUpdateSchema = z.object({
+  status: submissionStatusSchema.optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+});
+export type SubmissionUpdateInput = z.infer<typeof submissionUpdateSchema>;
+
 export type UploadLinkCreateInput = z.infer<typeof uploadLinkCreateSchema>;
 
 export const uploadLinkUpdateSchema = uploadLinkCreateSchema.partial();
