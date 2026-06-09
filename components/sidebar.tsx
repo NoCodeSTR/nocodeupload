@@ -6,14 +6,24 @@
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Link2, Settings } from "lucide-react";
+import { Link2, Inbox, Settings } from "lucide-react";
 import clsx from "clsx";
 import { BrandLogo } from "@/components/brand-logo";
 
 const NAV = [
   { href: "/dashboard", label: "Upload Links", icon: Link2 },
+  { href: "/dashboard/submissions", label: "Submissions", icon: Inbox },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+/** Active-state rule that keeps "Upload Links" and "Submissions" distinct even
+ * though both live under /dashboard. */
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") {
+    return pathname === "/dashboard" || pathname.startsWith("/dashboard/links");
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -24,7 +34,7 @@ export function Sidebar() {
       </Link>
       <nav className="flex flex-col gap-1">
         {NAV.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const active = isActive(pathname, item.href);
           const Icon = item.icon;
           return (
             <Link
