@@ -24,7 +24,68 @@ import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
 import type { DestinationSummary } from "@/components/destinations-manager";
-import type { UploadLinkRow, CustomFieldDef, NotificationRule, RuleCondition, AirtableConfig } from "@/lib/db-types";
+import type {
+  UploadLinkRow,
+  CustomFieldDef,
+  NotificationRule,
+  RuleCondition,
+  AirtableConfig,
+  FieldConditionOp,
+} from "@/lib/db-types";
+
+// Airtable-style operators offered per controlling field type.
+type OpChoice = { op: FieldConditionOp; label: string };
+function operatorsForType(type: CustomFieldDef["type"]): OpChoice[] {
+  if (type === "checkbox") {
+    return [
+      { op: "is_filled", label: "is checked" },
+      { op: "is_empty", label: "is unchecked" },
+    ];
+  }
+  if (type === "select" || type === "multiselect") {
+    return [
+      { op: "has_any_of", label: "is any of" },
+      { op: "has_none_of", label: "is none of" },
+      { op: "equals", label: "is exactly" },
+      { op: "not_equals", label: "is not" },
+      { op: "is_filled", label: "is filled in" },
+      { op: "is_empty", label: "is empty" },
+    ];
+  }
+  if (type === "number" || type === "currency") {
+    return [
+      { op: "equals", label: "is exactly" },
+      { op: "not_equals", label: "is not" },
+      { op: "greater_than", label: "greater than" },
+      { op: "less_than", label: "less than" },
+      { op: "is_filled", label: "is filled in" },
+      { op: "is_empty", label: "is empty" },
+    ];
+  }
+  // text / email / phone / default
+  return [
+    { op: "contains", label: "contains" },
+    { op: "not_contains", label: "doesn’t contain" },
+    { op: "equals", label: "is exactly" },
+    { op: "not_equals", label: "is not" },
+    { op: "is_filled", label: "is filled in" },
+    { op: "is_empty", label: "is empty" },
+  ];
+}
+function defaultOpForType(type: CustomFieldDef["type"]): FieldConditionOp {
+  return operatorsForType(type)[0]?.op ?? "is_filled";
+}
+/** What value editor a given op needs. */
+function conditionValueMode(
+  op: FieldConditionOp,
+  controllerType: CustomFieldDef["type"],
+): "none" | "options" | "single-option" | "text" {
+  if (op === "is_filled" || op === "is_empty") return "none";
+  const optionField = controllerType === "select" || controllerType === "multiselect";
+  if (op === "has_any_of" || op === "has_none_of") return "options";
+  if ((op === "equals" || op === "not_equals") && optionField) return "single-option";
+  return "text";
+}
 
 const FILE_TYPE_CHOICES = ["image", "video", "pdf", "audio", "document", "other"];
 
@@ -256,17 +317,21 @@ export function LinkForm({
     );
   }
 
-  // --- Conditional visibility (show a field only when another field = value) ---
-  function isController(c: CustomFieldDef): boolean {
-    return Boolean(c.label.trim()) && (c.type === "select" || c.type === "multiselect" || c.type === "checkbox");
+  // --- Conditional visibility (show a field only when another field matches) ---
+  // Any other labeled field can be a controller.
+  function isController(c: CustomFieldDef, selfId: string): boolean {
+    return c.id !== selfId && Boolean(c.label.trim());
   }
   function toggleShowWhen(id: string, on: boolean) {
     setCustomFields((prev) =>
       prev.map((f) => {
         if (f.id !== id) return f;
         if (!on) return { ...f, showWhen: null };
-        const ctrl = prev.find((c) => c.id !== id && isController(c));
-        return { ...f, showWhen: { fieldId: ctrl?.id ?? "", values: ctrl?.type === "checkbox" ? ["Yes"] : [] } };
+        const ctrl = prev.find((c) => isController(c, id));
+        return {
+          ...f,
+          showWhen: { fieldId: ctrl?.id ?? "", op: defaultOpForType(ctrl?.type), values: [] },
+        };
       }),
     );
   }
@@ -275,10 +340,22 @@ export function LinkForm({
       prev.map((f) => {
         if (f.id !== id) return f;
         const ctrl = prev.find((c) => c.id === controllerId);
-        return { ...f, showWhen: { fieldId: controllerId, values: ctrl?.type === "checkbox" ? ["Yes"] : [] } };
+        return { ...f, showWhen: { fieldId: controllerId, op: defaultOpForType(ctrl?.type), values: [] } };
       }),
     );
   }
+  function setShowWhenOp(id: string, op: FieldConditionOp) {
+    setCustomFields((prev) =>
+      prev.map((f) => (f.id === id && f.showWhen ? { ...f, showWhen: { ...f.showWhen, op, values: [] } } : f)),
+    );
+  }
+  // Single-value ops (text / single-option).
+  function setShowWhenValue(id: string, value: string) {
+    setCustomFields((prev) =>
+      prev.map((f) => (f.id === id && f.showWhen ? { ...f, showWhen: { ...f.showWhen, values: value ? [value] : [] } } : f)),
+    );
+  }
+  // Multi-value ops (has any of / has none of).
   function toggleShowWhenValue(id: string, value: string) {
     setCustomFields((prev) =>
       prev.map((f) => {
@@ -415,16 +492,20 @@ export function LinkForm({
               ? (f.options ?? []).map((o) => o.trim()).filter(Boolean)
               : undefined;
           // Keep a conditional rule only if it's on a visible field and points
-          // at a still-present controlling field with at least one value.
+          // at a still-present controlling field. Value-less operators (is
+          // filled / is empty) don't need a value; the rest do.
           let showWhen = f.showWhen ?? null;
-          if (
-            showWhen &&
-            (!f.visible ||
+          if (showWhen) {
+            const op = showWhen.op ?? "has_any_of";
+            const needsValue = op !== "is_filled" && op !== "is_empty";
+            if (
+              !f.visible ||
               !showWhen.fieldId ||
               !keptFieldIds.has(showWhen.fieldId) ||
-              showWhen.values.length === 0)
-          ) {
-            showWhen = null;
+              (needsValue && showWhen.values.length === 0)
+            ) {
+              showWhen = null;
+            }
           }
           return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, showWhen };
         }),
@@ -839,11 +920,15 @@ export function LinkForm({
       >
 
         {customFields.map((f, idx) => {
-          const controllers = customFields.filter((c) => c.id !== f.id && isController(c));
+          const controllers = customFields.filter((c) => isController(c, f.id));
           const controller = f.showWhen ? customFields.find((c) => c.id === f.showWhen!.fieldId) ?? null : null;
+          const controllerType = controller?.type ?? "text";
+          const conditionOps = operatorsForType(controllerType);
+          const currentOp: FieldConditionOp = f.showWhen?.op ?? conditionOps[0]?.op ?? "is_filled";
+          const conditionMode = conditionValueMode(currentOp, controllerType);
           const controllerOptions =
-            controller && controller.type !== "checkbox"
-              ? (controller.options ?? []).map((o) => o.trim()).filter(Boolean)
+            controllerType === "select" || controllerType === "multiselect"
+              ? (controller?.options ?? []).map((o) => o.trim()).filter(Boolean)
               : [];
           return (
           <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
@@ -955,33 +1040,62 @@ export function LinkForm({
                 {f.showWhen &&
                   (controllers.length === 0 ? (
                     <p className="mt-1 text-xs text-ink-400">
-                      Add a single-select, multi-select, or checkbox field to control this one.
+                      Add another field above to control this one.
                     </p>
                   ) : (
-                    <div className="mt-2 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-ink-500">Show when</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-ink-500">Show when</span>
+                      <select
+                        className="input w-auto py-1 text-xs"
+                        value={f.showWhen.fieldId}
+                        onChange={(e) => setShowWhenController(f.id, e.target.value)}
+                      >
+                        <option value="">Choose field…</option>
+                        {controllers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label.trim()}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="input w-auto py-1 text-xs"
+                        value={currentOp}
+                        onChange={(e) => setShowWhenOp(f.id, e.target.value as FieldConditionOp)}
+                      >
+                        {conditionOps.map((o) => (
+                          <option key={o.op} value={o.op}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      {conditionMode === "text" && (
+                        <input
+                          className="input w-auto py-1 text-xs"
+                          value={f.showWhen.values[0] ?? ""}
+                          onChange={(e) => setShowWhenValue(f.id, e.target.value)}
+                          placeholder="value"
+                          maxLength={200}
+                        />
+                      )}
+                      {conditionMode === "single-option" && (
                         <select
                           className="input w-auto py-1 text-xs"
-                          value={f.showWhen.fieldId}
-                          onChange={(e) => setShowWhenController(f.id, e.target.value)}
+                          value={f.showWhen.values[0] ?? ""}
+                          onChange={(e) => setShowWhenValue(f.id, e.target.value)}
                         >
-                          <option value="">Choose field…</option>
-                          {controllers.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.label.trim()}
+                          <option value="">Choose…</option>
+                          {controllerOptions.map((o) => (
+                            <option key={o} value={o}>
+                              {o}
                             </option>
                           ))}
                         </select>
-                        <span className="text-ink-500">is</span>
-                      </div>
-                      {controller && controller.type === "checkbox" ? (
-                        <p className="text-xs text-ink-500">checked</p>
-                      ) : controllerOptions.length === 0 ? (
-                        <p className="text-xs text-ink-400">That field has no options yet.</p>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {controllerOptions.map((o) => {
+                      )}
+                      {conditionMode === "options" &&
+                        (controllerOptions.length === 0 ? (
+                          <span className="text-ink-400">That field has no options yet.</span>
+                        ) : (
+                          controllerOptions.map((o) => {
                             const checked = f.showWhen!.values.includes(o);
                             return (
                               <button
@@ -990,16 +1104,15 @@ export function LinkForm({
                                 onClick={() => toggleShowWhenValue(f.id, o)}
                                 className={
                                   checked
-                                    ? "rounded-md border border-brand bg-brand-50 px-2 py-1 text-xs text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
-                                    : "rounded-md border border-ink-200 px-2 py-1 text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300"
+                                    ? "rounded-md border border-brand bg-brand-50 px-2 py-1 text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                                    : "rounded-md border border-ink-200 px-2 py-1 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300"
                                 }
                               >
                                 {o}
                               </button>
                             );
-                          })}
-                        </div>
-                      )}
+                          })
+                        ))}
                     </div>
                   ))}
               </div>

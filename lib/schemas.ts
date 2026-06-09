@@ -30,6 +30,20 @@ export const customFieldSchema = z.object({
   showWhen: z
     .object({
       fieldId: z.string().min(1).max(64),
+      op: z
+        .enum([
+          "is_filled",
+          "is_empty",
+          "equals",
+          "not_equals",
+          "contains",
+          "not_contains",
+          "has_any_of",
+          "has_none_of",
+          "greater_than",
+          "less_than",
+        ])
+        .optional(),
       values: z.array(z.string().max(200)).max(20).default([]),
     })
     .nullable()

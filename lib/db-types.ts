@@ -164,13 +164,31 @@ export type CustomFieldType =
   | "email";
 
 /**
+ * Conditional visibility operators (Airtable-style; the editor offers a
+ * type-aware subset per controlling field). `is_filled`/`is_empty` need no
+ * value; `has_any_of`/`has_none_of` use the values list; the rest use values[0].
+ */
+export type FieldConditionOp =
+  | "is_filled"
+  | "is_empty"
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "has_any_of"
+  | "has_none_of"
+  | "greater_than"
+  | "less_than";
+
+/**
  * Conditional visibility: show the field only when the controlling field
- * (referenced by its id) currently has one of these values. Used for "show
- * field B when field A = X". A multiselect controller matches if ANY selected
- * option is in `values`; a checkbox controller uses ["Yes"].
+ * (referenced by its id) satisfies `op` against `values`. Any field type can be
+ * a controller. `op` is optional for back-compat — older rules without it are
+ * treated as `has_any_of` (show when the controller's value is one of values).
  */
 export interface FieldCondition {
   fieldId: string;
+  op?: FieldConditionOp;
   values: string[];
 }
 
