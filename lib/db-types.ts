@@ -59,13 +59,39 @@ export interface StorageConnectionRow {
   last_refreshed_at: string | null;
 }
 
+/**
+ * One upload box on a multi-box link — its own destination + presentation.
+ * Stored (full) in upload_links.upload_boxes; only a safe subset is exposed
+ * publicly (PublicUploadBox).
+ */
+export interface UploadBox {
+  id: string;
+  label: string;
+  instructions?: string | null;
+  destinationType: "drive" | "youtube";
+  connectionId: string;
+  folderId: string | null;
+  folderName: string | null;
+  referenceImageUrl?: string | null;
+  required?: boolean;
+}
+
+/** Public-safe projection of an upload box (no connection/folder ids). */
+export interface PublicUploadBox {
+  id: string;
+  label: string;
+  instructions?: string | null;
+  referenceImageUrl?: string | null;
+  required?: boolean;
+}
+
 export interface UploadLinkRow {
   id: string;
   user_id: string;
   /** Null for form-only links (no storage destination). */
   storage_connection_id: string | null;
-  /** drive | youtube | form (form = no file upload). */
-  destination_type: "drive" | "youtube" | "form";
+  /** drive | youtube | form | multi. */
+  destination_type: "drive" | "youtube" | "form" | "multi";
   slug: string;
   name: string;
   description: string | null;
@@ -99,6 +125,8 @@ export interface UploadLinkRow {
   project_id: string | null;
   /** Optional Airtable destination (record creation alongside Drive). */
   airtable_config: AirtableConfig | null;
+  /** Multi-box uploads (destination_type 'multi'); null otherwise. */
+  upload_boxes: UploadBox[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -353,8 +381,8 @@ export interface UploadLinkPublicRow {
   slug: string;
   name: string;
   description: string | null;
-  /** drive | youtube | form — the public page hides the dropzone for form. */
-  destination_type: "drive" | "youtube" | "form";
+  /** drive | youtube | form | multi — drives how the public page renders. */
+  destination_type: "drive" | "youtube" | "form" | "multi";
   is_active: boolean;
   expires_at: string | null;
   max_file_size_mb: number;
@@ -367,6 +395,8 @@ export interface UploadLinkPublicRow {
   prefill_name: string | null;
   prefill_email: string | null;
   visible_custom_fields: PublicCustomField[];
+  /** Present for multi-box links (destination_type 'multi'); else []. */
+  upload_boxes: PublicUploadBox[];
   branding_logo_url: string | null;
   branding_color: string | null;
   success_message: string | null;

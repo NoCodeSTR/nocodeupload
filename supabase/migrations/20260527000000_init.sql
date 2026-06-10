@@ -185,9 +185,10 @@ create table public.upload_links (
   -- form-only links (no storage destination).
   storage_connection_id uuid
     references public.storage_connections(id) on delete restrict,
-  -- drive | youtube | form. 'form' = collect answers only (no file upload).
+  -- drive | youtube | form | multi. 'form' = answers only (no file upload);
+  -- 'multi' = several upload boxes, each with its own destination (upload_boxes).
   destination_type text not null default 'drive'
-    check (destination_type in ('drive', 'youtube', 'form')),
+    check (destination_type in ('drive', 'youtube', 'form', 'multi')),
 
   slug text not null unique,
   name text not null,
@@ -243,6 +244,11 @@ create table public.upload_links (
   -- Optional grouping into a project (FK constraint added after the projects
   -- table is created, below). Null = unassigned.
   project_id uuid,
+  -- Multi-box uploads (destination_type 'multi'): array of upload boxes, each
+  -- with its own destination — { id, label, instructions, destinationType
+  -- (drive|youtube), connectionId, folderId, folderName, referenceImageUrl,
+  -- required }. Null for single-destination / form links.
+  upload_boxes jsonb,
   -- Optional Airtable destination (Phase A — record creation ALONGSIDE Drive):
   -- { enabled, baseId, baseName, tableId, tableName, recordMode
   --   (per_upload|per_batch), attachFiles, attachFieldName, mapping
@@ -314,6 +320,17 @@ select
     from jsonb_array_elements(l.custom_fields) e
     where coalesce((e->>'visible')::boolean, false) = true
   ), '[]'::jsonb) as visible_custom_fields,
+  -- Upload boxes — safe subset only (never expose connection/folder ids).
+  coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', b->>'id',
+      'label', b->>'label',
+      'instructions', b->>'instructions',
+      'referenceImageUrl', b->>'referenceImageUrl',
+      'required', coalesce((b->>'required')::boolean, false)
+    ))
+    from jsonb_array_elements(coalesce(l.upload_boxes, '[]'::jsonb)) b
+  ), '[]'::jsonb) as upload_boxes,
   -- Effective logo: per-link override, else the owner's account logo.
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color,

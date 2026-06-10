@@ -19,6 +19,7 @@ import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { AirtableConfigEditor } from "@/components/airtable-config-editor";
+import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
@@ -31,6 +32,7 @@ import type {
   RuleCondition,
   AirtableConfig,
   FieldConditionOp,
+  UploadBox,
 } from "@/lib/db-types";
 
 // Airtable-style operators offered per controlling field type.
@@ -154,9 +156,10 @@ export function LinkForm({
   const [connectionId, setConnectionId] = useState(
     initialLink?.storage_connection_id ?? connections[0]?.id ?? "",
   );
-  const [destinationType, setDestinationType] = useState<"drive" | "youtube" | "form">(
+  const [destinationType, setDestinationType] = useState<"drive" | "youtube" | "form" | "multi">(
     initialLink?.destination_type ?? "drive",
   );
+  const [uploadBoxes, setUploadBoxes] = useState<UploadBox[]>(initialLink?.upload_boxes ?? []);
   const [name, setName] = useState(initialLink?.name ?? "");
   const [description, setDescription] = useState(initialLink?.description ?? "");
   const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
@@ -215,18 +218,17 @@ export function LinkForm({
   // no file upload at all (collect answers → submission + Airtable).
   const isYouTube = destinationType === "youtube";
   const isFormOnly = destinationType === "form";
+  const isMulti = destinationType === "multi";
   // Connections that fit the chosen destination (Drive vs YouTube).
   const eligibleConnections = connections.filter((c) =>
     destinationType === "youtube" ? c.provider === "youtube" : c.provider === "google_drive",
   );
-  const hasDrive = connections.some((c) => c.provider === "google_drive");
-  const hasYouTube = connections.some((c) => c.provider === "youtube");
 
   // Switch destination; reset the connection to one that fits (and clear folder).
-  function changeDestination(next: "drive" | "youtube" | "form") {
+  function changeDestination(next: "drive" | "youtube" | "form" | "multi") {
     setDestinationType(next);
     setFolder(null);
-    if (next === "form") {
+    if (next === "form" || next === "multi") {
       setConnectionId("");
     } else {
       const fit = connections.find((c) =>
@@ -234,6 +236,60 @@ export function LinkForm({
       );
       setConnectionId(fit?.id ?? "");
     }
+  }
+
+  // --- Upload boxes (multi-box destination) ---------------------------------
+  function defaultBoxConnection(): { connectionId: string; destinationType: "drive" | "youtube" } {
+    const drive = connections.find((c) => c.provider === "google_drive");
+    const pick = drive ?? connections[0];
+    return {
+      connectionId: pick?.id ?? "",
+      destinationType: pick?.provider === "youtube" ? "youtube" : "drive",
+    };
+  }
+  function addBox() {
+    if (uploadBoxes.length >= 20) return;
+    const d = defaultBoxConnection();
+    setUploadBoxes((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        label: "",
+        instructions: "",
+        destinationType: d.destinationType,
+        connectionId: d.connectionId,
+        folderId: null,
+        folderName: null,
+        referenceImageUrl: null,
+        required: false,
+      },
+    ]);
+  }
+  function updateBox(id: string, patch: Partial<UploadBox>) {
+    setUploadBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  }
+  function removeBox(id: string) {
+    setUploadBoxes((prev) => prev.filter((b) => b.id !== id));
+  }
+  function moveBox(id: string, dir: "up" | "down") {
+    setUploadBoxes((prev) => {
+      const i = prev.findIndex((b) => b.id === id);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  // Choosing a connection sets the box's destination type + clears its folder.
+  function setBoxConnection(id: string, connectionId: string) {
+    const conn = connections.find((c) => c.id === connectionId);
+    updateBox(id, {
+      connectionId,
+      destinationType: conn?.provider === "youtube" ? "youtube" : "drive",
+      folderId: null,
+      folderName: null,
+    });
   }
 
   function addTag(name: string) {
@@ -501,7 +557,33 @@ export function LinkForm({
       storageConnectionId = connectionId;
       folderId = folder.folderId;
       folderName = folder.folderName;
+    } else if (destinationType === "multi") {
+      const labeled = uploadBoxes.filter((b) => b.label.trim());
+      if (labeled.length === 0) {
+        setError("Add at least one upload box.");
+        return;
+      }
+      for (const b of labeled) {
+        if (!b.connectionId) {
+          setError(`Pick a destination account for "${b.label.trim()}".`);
+          return;
+        }
+        if (b.destinationType === "drive" && !b.folderId) {
+          setError(`Choose a folder for "${b.label.trim()}".`);
+          return;
+        }
+      }
     }
+
+    const cleanedBoxes: UploadBox[] = uploadBoxes
+      .filter((b) => b.label.trim())
+      .map((b) => ({
+        ...b,
+        label: b.label.trim(),
+        instructions: b.instructions?.trim() || null,
+        folderName: b.folderName ?? null,
+        referenceImageUrl: b.referenceImageUrl || null,
+      }));
 
     const keptFieldIds = new Set(customFields.filter((f) => f.label.trim()).map((f) => f.id));
 
@@ -516,6 +598,7 @@ export function LinkForm({
       maxFileSizeMb,
       // YouTube only accepts video; form-only has no files (null = any/none).
       allowedMimeTypes: isFormOnly ? null : isYouTube ? ["video/*"] : buildAllowedMimeTypes(),
+      uploadBoxes: isMulti ? cleanedBoxes : null,
       requireName,
       requireEmail,
       showMessageField,
@@ -643,6 +726,7 @@ export function LinkForm({
             {([
               { key: "drive", label: "Google Drive" },
               { key: "youtube", label: "YouTube" },
+              { key: "multi", label: "Multiple upload boxes" },
               { key: "form", label: "Form only (no files)" },
             ] as const).map((opt) => (
               <button
@@ -665,10 +749,16 @@ export function LinkForm({
               notifications if set up). No storage account required.
             </p>
           )}
+          {isMulti && (
+            <p className="mt-1.5 text-xs text-ink-400">
+              Several upload boxes in one form — each box sends to its own destination (a Drive
+              folder or YouTube). Great for “kitchen photos here, walkthrough video there.”
+            </p>
+          )}
         </div>
 
-        {/* Connection picker (Drive / YouTube only) */}
-        {!isFormOnly &&
+        {/* Connection picker (single Drive / YouTube only) */}
+        {!isFormOnly && !isMulti &&
           (eligibleConnections.length === 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
               No {isYouTube ? "YouTube" : "Google Drive"} account connected.{" "}
@@ -708,6 +798,119 @@ export function LinkForm({
               Add the fields you want to collect below. Route them to Airtable and notifications in
               their sections.
             </p>
+          </div>
+        ) : isMulti ? (
+          <div className="space-y-3">
+            {connections.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+                Connect a Google Drive or YouTube account first, then add boxes.
+              </div>
+            ) : (
+              <>
+                {uploadBoxes.map((b, idx) => {
+                  const conn = connections.find((c) => c.id === b.connectionId);
+                  return (
+                    <div key={b.id} className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-ink-500">Box {idx + 1}</span>
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveBox(b.id, "up")}
+                            disabled={idx === 0}
+                            className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                            aria-label="Move box up"
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveBox(b.id, "down")}
+                            disabled={idx === uploadBoxes.length - 1}
+                            className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                            aria-label="Move box down"
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeBox(b.id)}
+                            className="ml-1 text-xs text-red-600 hover:underline dark:text-red-300"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <input
+                        className="input"
+                        value={b.label}
+                        onChange={(e) => updateBox(b.id, { label: e.target.value })}
+                        placeholder="Box label (e.g. Kitchen photos)"
+                        maxLength={80}
+                      />
+                      <input
+                        className="input"
+                        value={b.instructions ?? ""}
+                        onChange={(e) => updateBox(b.id, { instructions: e.target.value })}
+                        placeholder="Instructions (optional) — e.g. Get the whole counter in frame"
+                        maxLength={500}
+                      />
+                      <div>
+                        <label className="label mb-1 block">Destination</label>
+                        <select
+                          className="input"
+                          value={b.connectionId}
+                          onChange={(e) => setBoxConnection(b.id, e.target.value)}
+                        >
+                          {connections.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {providerLabel(c.provider)} — {c.provider_email ?? c.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {b.destinationType === "youtube" ? (
+                        <p className="text-xs text-ink-500">
+                          Videos in this box upload to {conn?.provider_email ?? "your channel"} as
+                          unlisted YouTube videos.
+                        </p>
+                      ) : (
+                        <FolderPicker
+                          key={b.id}
+                          connectionId={b.connectionId}
+                          config={pickerConfig}
+                          onPick={(f) => updateBox(b.id, { folderId: f.folderId, folderName: f.folderName })}
+                          initialFolder={
+                            b.folderId ? { folderId: b.folderId, folderName: b.folderName ?? "Selected folder" } : null
+                          }
+                        />
+                      )}
+                      <ImageUploader
+                        value={b.referenceImageUrl}
+                        onChange={(url) => updateBox(b.id, { referenceImageUrl: url })}
+                      />
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(b.required)}
+                          onChange={(e) => updateBox(b.id, { required: e.target.checked })}
+                        />
+                        Require at least one file in this box
+                      </label>
+                    </div>
+                  );
+                })}
+                {uploadBoxes.length < 20 && (
+                  <button type="button" onClick={addBox} className="btn-secondary text-sm">
+                    + Add upload box
+                  </button>
+                )}
+                <p className="text-xs text-ink-400">
+                  Each box collects files into its own destination. All boxes are submitted together
+                  as one submission.
+                </p>
+              </>
+            )}
           </div>
         ) : isYouTube ? (
           <div className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm dark:border-ink-700 dark:bg-ink-900/40">

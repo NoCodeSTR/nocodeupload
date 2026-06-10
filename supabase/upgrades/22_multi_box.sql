@@ -1,36 +1,24 @@
 -- =============================================================================
--- Upgrade: form-only links — a link can collect form answers with NO file
--- upload (no storage account needed).
+-- Upgrade: multi-box uploads — a link can have several labeled upload boxes,
+-- each routed to its OWN destination (Drive folder or YouTube), with optional
+-- instructions and a "match this" reference photo.
 -- =============================================================================
--- Adds destination_type (drive | youtube | form), backfills it from each link's
--- connection provider, and relaxes the storage/folder NOT NULL constraints so a
--- form-only link (and its file-less "carrier" submission) can omit them.
--- Also re-creates the public view to expose destination_type (keeping the
--- showWhen projection from migration 20). Safe to run once.
+-- upload_boxes jsonb on upload_links: array of { id, label, instructions,
+--   destinationType (drive|youtube), connectionId, folderId, folderName,
+--   referenceImageUrl, required }. destination_type gains 'multi'. The public
+--   view exposes a SAFE subset of boxes (no connection/folder ids).
+-- Safe to run once.
 -- =============================================================================
 
+alter table public.upload_links add column if not exists upload_boxes jsonb;
+
+alter table public.upload_links drop constraint if exists upload_links_destination_type_check;
 alter table public.upload_links
-  add column if not exists destination_type text not null default 'drive'
-    check (destination_type in ('drive', 'youtube', 'form'));
-alter table public.upload_links alter column storage_connection_id drop not null;
-alter table public.upload_links alter column folder_id drop not null;
+  add constraint upload_links_destination_type_check
+  check (destination_type in ('drive', 'youtube', 'form', 'multi'));
 
--- Backfill: existing links that point at a YouTube connection are 'youtube'.
-update public.upload_links l
-set destination_type = 'youtube'
-from public.storage_connections c
-where l.storage_connection_id = c.id
-  and c.provider = 'youtube'
-  and l.destination_type <> 'youtube';
-
--- A form-only submission stores a file-less "carrier" upload row, so uploads
--- must allow null storage/folder too.
-alter table public.uploads alter column storage_connection_id drop not null;
-alter table public.uploads alter column folder_id drop not null;
-
--- DROP + CREATE (not CREATE OR REPLACE): we're inserting destination_type into
--- the middle of the column list, which CREATE OR REPLACE can't do (it only
--- appends). Nothing depends on this view, so dropping it is safe.
+-- Public view: add upload_boxes (safe subset only). DROP + CREATE because we're
+-- adding a column mid-list (CREATE OR REPLACE can't reorder).
 drop view if exists public.upload_links_public;
 create view public.upload_links_public as
 select
@@ -63,6 +51,17 @@ select
     from jsonb_array_elements(l.custom_fields) e
     where coalesce((e->>'visible')::boolean, false) = true
   ), '[]'::jsonb) as visible_custom_fields,
+  -- Upload boxes — safe subset only (never expose connection/folder ids).
+  coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', b->>'id',
+      'label', b->>'label',
+      'instructions', b->>'instructions',
+      'referenceImageUrl', b->>'referenceImageUrl',
+      'required', coalesce((b->>'required')::boolean, false)
+    ))
+    from jsonb_array_elements(coalesce(l.upload_boxes, '[]'::jsonb)) b
+  ), '[]'::jsonb) as upload_boxes,
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color,
   l.success_message,

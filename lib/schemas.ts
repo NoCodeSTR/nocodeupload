@@ -135,16 +135,32 @@ export const airtableConfigSchema = z.object({
 });
 export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;
 
+/** One upload box on a multi-box link (its own destination + presentation). */
+export const uploadBoxSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().min(1, "Box label is required").max(80),
+  instructions: z.string().max(500).optional().nullable(),
+  destinationType: z.enum(["drive", "youtube"]).default("drive"),
+  connectionId: z.string().uuid(),
+  folderId: z.string().max(512).optional().nullable(),
+  folderName: z.string().max(300).optional().nullable(),
+  referenceImageUrl: z.string().url().max(1000).optional().nullable(),
+  required: z.boolean().default(false),
+});
+export type UploadBoxInput = z.infer<typeof uploadBoxSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
   // Where the submission goes. 'form' = no file upload (no storage needed);
-  // storage connection + folder are required only for drive/youtube (enforced
-  // in createLink, not here, so the partial update schema stays simple).
-  destinationType: z.enum(["drive", "youtube", "form"]).default("drive"),
+  // 'multi' = several upload boxes (uploadBoxes), each with its own destination.
+  // Storage connection + folder are required only for single drive/youtube
+  // (enforced in createLink, not here, so the partial update schema stays simple).
+  destinationType: z.enum(["drive", "youtube", "form", "multi"]).default("drive"),
   storageConnectionId: z.string().uuid().optional().nullable(),
   folderId: z.string().max(512).optional().nullable(),
   folderName: z.string().optional().nullable(),
+  uploadBoxes: z.array(uploadBoxSchema).max(20).optional().nullable(),
   isActive: z.boolean().default(true),
   expiresAt: z.string().datetime().optional().nullable(),
   maxFileSizeMb: z.number().int().positive().max(50 * 1024).default(1024),
@@ -220,6 +236,8 @@ export const uploadInitiateSchema = z.object({
   batchSize: z.number().int().positive().max(1000).optional().nullable(),
   // Password the uploader entered, when the link is password-protected.
   password: z.string().max(100).optional().nullable(),
+  // For multi-box links: which upload box this file belongs to.
+  boxId: z.string().max(64).optional().nullable(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;

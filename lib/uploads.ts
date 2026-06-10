@@ -29,6 +29,10 @@ export async function createUploadRecord(args: {
   ipHash?: string | null;
   batchId?: string | null;
   batchSize?: number | null;
+  // Per-box overrides (multi-box links): the destination + which box.
+  storageConnectionId?: string | null;
+  folderId?: string | null;
+  sourceBlockId?: string | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
 
@@ -46,8 +50,9 @@ export async function createUploadRecord(args: {
   const row = {
     upload_link_id: args.link.id,
     user_id: args.link.user_id,
-    storage_connection_id: args.link.storage_connection_id,
-    folder_id: args.link.folder_id,
+    storage_connection_id: args.storageConnectionId ?? args.link.storage_connection_id,
+    folder_id: args.folderId ?? args.link.folder_id,
+    source_block_id: args.sourceBlockId ?? null,
     provider_file_id: null,
     original_filename: args.filename,
     mime_type: args.mimeType,

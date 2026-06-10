@@ -67,6 +67,7 @@ export function UploadCard({
             unlockedPassword={unlockedPassword}
             prefill={prefill}
             formOnly={link.destination_type === "form"}
+            boxes={link.upload_boxes}
           />
         </div>
       </div>

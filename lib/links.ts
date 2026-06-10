@@ -135,10 +135,11 @@ export async function createLink(
   userId: string,
   input: UploadLinkCreateInput,
 ): Promise<UploadLinkRow> {
-  // Form-only links need no storage. For drive/youtube, the chosen connection
-  // must belong to this user (defense in depth — RLS only checks user_id).
+  // Form-only links need no storage; multi-box links self-describe per box
+  // (validated at upload time via getValidAccessToken's ownership check). For a
+  // single drive/youtube link, the chosen connection must belong to this user.
   const destinationType = input.destinationType ?? "drive";
-  if (destinationType !== "form") {
+  if (destinationType !== "form" && destinationType !== "multi") {
     if (!input.storageConnectionId) {
       throw new Error("CONNECTION_NOT_FOUND");
     }
@@ -191,6 +192,7 @@ export async function createLink(
       upload_password: input.uploadPassword?.trim() || null,
       project_id: input.projectId ?? null,
       airtable_config: input.airtableConfig ?? null,
+      upload_boxes: input.uploadBoxes ?? null,
     };
 
     const { data, error } = await supabase
@@ -273,6 +275,7 @@ export async function duplicateLink(args: {
       upload_password: src.upload_password,
       project_id: src.project_id,
       airtable_config: src.airtable_config,
+      upload_boxes: src.upload_boxes,
     };
 
     const { data, error } = await supabase
@@ -366,6 +369,7 @@ export async function updateLink(args: {
   if (i.uploadPassword !== undefined) patch.upload_password = i.uploadPassword?.trim() || null;
   if (i.projectId !== undefined) patch.project_id = i.projectId;
   if (i.airtableConfig !== undefined) patch.airtable_config = i.airtableConfig;
+  if (i.uploadBoxes !== undefined) patch.upload_boxes = i.uploadBoxes;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

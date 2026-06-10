@@ -69,7 +69,7 @@ To get videos to actually publish as **unlisted** (visible to anyone with the
 link, as the product intends), you must pass the **YouTube API Services audit**:
 
 1. Make sure your project's OAuth consent screen is complete (app name, logo,
-   homepage `https://www.nocodeupload.com`, privacy `…/privacy`, terms `…/terms`).
+   homepage `https://nocodeupload.com`, privacy `…/privacy`, terms `…/terms`).
 2. Submit the audit form: **https://support.google.com/youtube/contact/yt_api_form**
    - Describe the use case: *"A SaaS that lets a channel owner collect videos
      from third parties (e.g. short-term-rental guests/cleaners) via a public

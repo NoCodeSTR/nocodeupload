@@ -98,9 +98,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "expired" }, { status: 403 });
   }
   // Form-only links accept no files — they post to /api/upload/form-submit.
-  // (This also narrows the now-nullable storage/folder columns below.)
-  if (link.destination_type === "form" || !link.storage_connection_id || !link.folder_id) {
+  if (link.destination_type === "form") {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // Resolve the destination. Multi-box links pick per box (each box has its own
+  // connection + folder); single links use the link's connection + folder.
+  let resolvedConnectionId: string;
+  let resolvedFolderId: string | null;
+  let resolvedSourceBlockId: string | null = null;
+  if (link.destination_type === "multi") {
+    const boxes = Array.isArray(link.upload_boxes) ? link.upload_boxes : [];
+    const box = input.boxId ? boxes.find((b) => b.id === input.boxId) : undefined;
+    if (!box || !box.connectionId) {
+      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+    }
+    if (box.destinationType === "drive" && !box.folderId) {
+      return NextResponse.json({ error: "provider_unavailable" }, { status: 502 });
+    }
+    resolvedConnectionId = box.connectionId;
+    resolvedFolderId = box.folderId ?? null;
+    resolvedSourceBlockId = box.id;
+  } else {
+    if (!link.storage_connection_id || !link.folder_id) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    resolvedConnectionId = link.storage_connection_id;
+    resolvedFolderId = link.folder_id;
   }
 
   // Optional password gate — the owner-set value must match exactly.
@@ -194,7 +218,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await getValidAccessToken({
       userId: link.user_id,
-      connectionId: link.storage_connection_id,
+      connectionId: resolvedConnectionId,
     });
     accessToken = result.accessToken;
     providerId = result.connection.provider;
@@ -239,7 +263,7 @@ export async function POST(request: NextRequest) {
     const adapter = await getAdapter(providerId);
     session = await adapter.storage.initiateResumableUpload({
       accessToken,
-      folderId: link.folder_id,
+      folderId: resolvedFolderId ?? "",
       filename: finalFilename,
       mimeType: input.mimeType,
       size: input.size,
@@ -268,6 +292,9 @@ export async function POST(request: NextRequest) {
       ipHash,
       batchId: input.batchId ?? null,
       batchSize: input.batchSize ?? null,
+      storageConnectionId: resolvedConnectionId,
+      folderId: resolvedFolderId,
+      sourceBlockId: resolvedSourceBlockId,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

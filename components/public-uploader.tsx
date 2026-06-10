@@ -16,7 +16,7 @@ import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
 import { prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
-import type { PublicCustomField } from "@/lib/db-types";
+import type { PublicCustomField, PublicUploadBox } from "@/lib/db-types";
 
 interface PublicUploaderProps {
   slug: string;
@@ -39,6 +39,8 @@ interface PublicUploaderProps {
   prefill?: Record<string, string>;
   /** Form-only link: collect answers, no file upload (posts to form-submit). */
   formOnly?: boolean;
+  /** Multi-box link: one dropzone per box, each routed to its own destination. */
+  boxes?: PublicUploadBox[];
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -49,6 +51,8 @@ interface FileItem {
   status: FileStatus;
   progress: number; // 0–100
   error?: string;
+  /** Which upload box this file belongs to (multi-box links). */
+  boxId?: string;
 }
 
 // ---- Server-relayed resumable upload (browser → our API → Google) ----------
@@ -161,7 +165,9 @@ export function PublicUploader({
   unlockedPassword = null,
   prefill = {},
   formOnly = false,
+  boxes = [],
 }: PublicUploaderProps) {
+  const multiBox = boxes.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(prefill.name ?? prefillName ?? "");
   const [email, setEmail] = useState(prefill.email ?? prefillEmail ?? "");
@@ -172,6 +178,8 @@ export function PublicUploader({
   );
   const [files, setFiles] = useState<FileItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  // For multi-box: which box's dropzone is being dragged over (highlight).
+  const [dragBoxId, setDragBoxId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   // True once an upload session finishes with at least one success — flips the
@@ -207,7 +215,7 @@ export function PublicUploader({
   }, []);
 
   const addFiles = useCallback(
-    (incoming: FileList | File[]) => {
+    (incoming: FileList | File[], boxId?: string) => {
       const next: FileItem[] = [];
       for (const file of Array.from(incoming)) {
         let status: FileStatus = "queued";
@@ -228,6 +236,7 @@ export function PublicUploader({
           status,
           progress: 0,
           error,
+          boxId,
         });
       }
       setFiles((prev) => [...prev, ...next]);
@@ -269,6 +278,8 @@ export function PublicUploader({
           password: unlockedPassword ?? null,
           // Raw URL prefills so the server can populate hidden fields.
           prefillValues: prefill,
+          // Multi-box: which box this file belongs to (server resolves its dest).
+          boxId: item.boxId ?? null,
         }),
       });
       if (!res.ok) {
@@ -377,6 +388,14 @@ export function PublicUploader({
     if (missingCustom) {
       setFormError(`Please fill in "${missingCustom.label}".`);
       return;
+    }
+    if (multiBox) {
+      for (const box of boxes) {
+        if (box.required && !files.some((f) => f.boxId === box.id && f.status === "queued")) {
+          setFormError(`Add at least one file to "${box.label}".`);
+          return;
+        }
+      }
     }
     const queued = files.filter((f) => f.status === "queued");
     if (queued.length === 0) {
@@ -641,58 +660,98 @@ export function PublicUploader({
         );
       })}
 
-      {/* Drop zone (hidden for form-only links) */}
-      {!formOnly && (
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => inputRef.current?.click()}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
-          dragOver ? "border-current bg-ink-50 dark:bg-ink-900" : "border-ink-300 dark:border-ink-700"
-        }`}
-        style={dragOver ? { color: accent } : undefined}
-      >
-        <Upload className="mb-3 h-8 w-8" style={{ color: accent }} />
-        <p className="font-medium text-ink-700 dark:text-ink-200">Drag &amp; drop files here</p>
-        <p className="mt-1 text-sm text-ink-400">or tap to choose — up to {formatSizeMb(maxFileSizeMb)} per file</p>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }}
-        />
-      </div>
+      {/* Multi-box: one dropzone per box, each routed to its own destination */}
+      {!formOnly && multiBox && (
+        <div className="space-y-5">
+          {boxes.map((box) => {
+            const boxFiles = files.filter((f) => f.boxId === box.id);
+            const over = dragBoxId === box.id;
+            return (
+              <div key={box.id}>
+                <p className="mb-1 text-sm font-medium text-ink-800 dark:text-ink-100">
+                  {box.label}
+                  {box.required && <span className="text-red-500"> *</span>}
+                </p>
+                {box.instructions && <p className="mb-2 text-sm text-ink-500">{box.instructions}</p>}
+                {box.referenceImageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={box.referenceImageUrl}
+                    alt=""
+                    className="mb-2 max-h-44 w-full rounded-lg border border-ink-200 object-contain dark:border-ink-700"
+                  />
+                )}
+                <label
+                  onDragOver={(e) => { e.preventDefault(); setDragBoxId(box.id); }}
+                  onDragLeave={() => setDragBoxId(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragBoxId(null);
+                    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files, box.id);
+                  }}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
+                    over ? "border-current bg-ink-50 dark:bg-ink-900" : "border-ink-300 dark:border-ink-700"
+                  }`}
+                  style={over ? { color: accent } : undefined}
+                >
+                  <Upload className="mb-2 h-6 w-6" style={{ color: accent }} />
+                  <span className="text-sm font-medium text-ink-700 dark:text-ink-200">
+                    Drag &amp; drop or tap to choose
+                  </span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files, box.id); e.target.value = ""; }}
+                  />
+                </label>
+                {boxFiles.length > 0 && (
+                  <ul className="mt-2 space-y-2">
+                    {boxFiles.map((f) => (
+                      <FileRow key={f.id} item={f} accent={accent} />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
-      {/* File list */}
-      {files.length > 0 && (
+      {/* Single drop zone (non-multi, non-form) */}
+      {!formOnly && !multiBox && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
+            dragOver ? "border-current bg-ink-50 dark:bg-ink-900" : "border-ink-300 dark:border-ink-700"
+          }`}
+          style={dragOver ? { color: accent } : undefined}
+        >
+          <Upload className="mb-3 h-8 w-8" style={{ color: accent }} />
+          <p className="font-medium text-ink-700 dark:text-ink-200">Drag &amp; drop files here</p>
+          <p className="mt-1 text-sm text-ink-400">or tap to choose — up to {formatSizeMb(maxFileSizeMb)} per file</p>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }}
+          />
+        </div>
+      )}
+
+      {/* File list (single mode) */}
+      {!multiBox && files.length > 0 && (
         <ul className="space-y-2">
           {files.map((f) => (
-            <li key={f.id} className="rounded-lg border border-ink-200 px-3 py-2 dark:border-ink-700">
-              <div className="flex items-center gap-3">
-                <StatusIcon status={f.status} accent={accent} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{f.file.name}</p>
-                  <p className="text-xs text-ink-400">{formatBytes(f.file.size)}</p>
-                </div>
-                <span className="text-xs text-ink-400">
-                  {f.status === "uploading" ? `${f.progress}%` : f.status === "done" ? "Done" : f.status === "failed" ? "Failed" : "Ready"}
-                </span>
-              </div>
-              {f.status === "uploading" && (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${f.progress}%`, backgroundColor: accent }} />
-                </div>
-              )}
-              {f.status === "failed" && f.error && (
-                <p className="mt-1 text-xs text-red-600 dark:text-red-300">{f.error}</p>
-              )}
-            </li>
+            <FileRow key={f.id} item={f} accent={accent} />
           ))}
         </ul>
       )}
@@ -721,6 +780,37 @@ export function PublicUploader({
               : "Add files to upload"}
       </button>
     </div>
+  );
+}
+
+function FileRow({ item, accent }: { item: FileItem; accent: string }) {
+  return (
+    <li className="rounded-lg border border-ink-200 px-3 py-2 dark:border-ink-700">
+      <div className="flex items-center gap-3">
+        <StatusIcon status={item.status} accent={accent} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{item.file.name}</p>
+          <p className="text-xs text-ink-400">{formatBytes(item.file.size)}</p>
+        </div>
+        <span className="text-xs text-ink-400">
+          {item.status === "uploading"
+            ? `${item.progress}%`
+            : item.status === "done"
+              ? "Done"
+              : item.status === "failed"
+                ? "Failed"
+                : "Ready"}
+        </span>
+      </div>
+      {item.status === "uploading" && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
+          <div className="h-full rounded-full transition-all" style={{ width: `${item.progress}%`, backgroundColor: accent }} />
+        </div>
+      )}
+      {item.status === "failed" && item.error && (
+        <p className="mt-1 text-xs text-red-600 dark:text-red-300">{item.error}</p>
+      )}
+    </li>
   );
 }
 
