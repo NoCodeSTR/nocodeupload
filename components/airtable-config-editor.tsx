@@ -558,6 +558,27 @@ export function AirtableConfigEditor({
                   </span>
                 </span>
               </label>
+
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(value?.updateRecordWhenPresent)}
+                  onChange={(e) => update({ updateRecordWhenPresent: e.target.checked })}
+                />
+                <span>
+                  Update that record on submit (two-way sync)
+                  <span className="block text-xs text-ink-400">
+                    When the link is opened with{" "}
+                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?record=recXXX</code>, the
+                    submission updates that record instead of creating a new one (a submission with no
+                    record id still creates a new record). Mapped columns are overwritten with the new
+                    answers; needs the token&apos;s{" "}
+                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:write</code>{" "}
+                    scope (already required).
+                  </span>
+                </span>
+              </label>
             </div>
           )}
         </div>

@@ -33,6 +33,8 @@ export async function createUploadRecord(args: {
   storageConnectionId?: string | null;
   folderId?: string | null;
   sourceBlockId?: string | null;
+  // Airtable record id this submission targets (two-way sync); null = create.
+  airtableRecordId?: string | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
 
@@ -53,6 +55,7 @@ export async function createUploadRecord(args: {
     storage_connection_id: args.storageConnectionId ?? args.link.storage_connection_id,
     folder_id: args.folderId ?? args.link.folder_id,
     source_block_id: args.sourceBlockId ?? null,
+    airtable_record_id: args.airtableRecordId ?? null,
     provider_file_id: null,
     original_filename: args.filename,
     mime_type: args.mimeType,

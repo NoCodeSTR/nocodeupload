@@ -427,6 +427,9 @@ create table public.uploads (
   submission_id uuid references public.submissions(id) on delete set null,
   -- Which upload box (block) the file came from — multi-box forms, later.
   source_block_id text,
+  -- Airtable record id this submission targets (from ?record=); when the link
+  -- opts into two-way sync, the Airtable step UPDATEs this record. Null = create.
+  airtable_record_id text,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),

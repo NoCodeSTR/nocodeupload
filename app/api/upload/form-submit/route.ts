@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
       uploaderMessage: input.uploaderMessage?.trim() || null,
       customData,
       ipHash,
+      airtableRecordId: input.recordId ?? null,
     });
     carrierUploadId = res.carrierUploadId;
   } catch (err) {

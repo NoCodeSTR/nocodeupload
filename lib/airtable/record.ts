@@ -26,7 +26,7 @@ import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
-import { createRecord, type AirtableFieldValue } from "@/lib/airtable/client";
+import { createRecord, updateRecord, type AirtableFieldValue } from "@/lib/airtable/client";
 import type { AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
 
@@ -35,9 +35,11 @@ import type { NotifyResult } from "@/lib/notifications/types";
 const ATTACH_MAX_BYTES = 100 * 1024 * 1024;
 // How long the signed attachment URL stays valid for Airtable to fetch it.
 const ATTACH_TOKEN_TTL_MS = 30 * 60 * 1000;
+// Airtable record id shape — guard before a two-way-sync update.
+const REC_ID_RE = /^rec[A-Za-z0-9]{6,}$/;
 
 const UPLOAD_FIELDS =
-  "id, upload_link_id, user_id, storage_connection_id, provider, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, completed_at, status, batch_id";
+  "id, upload_link_id, user_id, storage_connection_id, provider, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, completed_at, status, batch_id, airtable_record_id";
 
 interface UploadRecordRow {
   id: string;
@@ -56,6 +58,7 @@ interface UploadRecordRow {
   completed_at: string | null;
   status: string;
   batch_id: string | null;
+  airtable_record_id: string | null;
 }
 
 // --- Config loader -----------------------------------------------------------
@@ -250,17 +253,31 @@ async function buildAndCreate(args: {
     }
   }
 
+  // Two-way sync: when the link opts in and the submission carries a valid
+  // record id, UPDATE that record; otherwise create a new one.
+  const targetRecordId = uploads[0]?.airtable_record_id ?? null;
+  const doUpdate = Boolean(
+    config.updateRecordWhenPresent && targetRecordId && REC_ID_RE.test(targetRecordId),
+  );
+
   let result: NotifyResult;
   try {
-    const record = await createRecord({
-      token,
-      baseId: config.baseId,
-      tableId: config.tableId,
-      fields,
-    });
-    result = { status: "sent", target, detail: `Record ${record.id}` };
+    const record = doUpdate
+      ? await updateRecord({
+          token,
+          baseId: config.baseId,
+          tableId: config.tableId,
+          recordId: targetRecordId as string,
+          fields,
+        })
+      : await createRecord({ token, baseId: config.baseId, tableId: config.tableId, fields });
+    result = { status: "sent", target, detail: `${doUpdate ? "Updated" : "Created"} record ${record.id}` };
   } catch (err) {
-    result = { status: "failed", target, detail: err instanceof Error ? err.message : "create failed" };
+    result = {
+      status: "failed",
+      target,
+      detail: err instanceof Error ? err.message : doUpdate ? "update failed" : "create failed",
+    };
   }
 
   await logDelivery({ userId, uploadLinkId, channel: "airtable", result, uploadId, batchId });

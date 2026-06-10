@@ -172,6 +172,27 @@ export async function createRecord(args: {
   );
 }
 
+/**
+ * Update (PATCH) one record — only the provided fields change; others are left
+ * intact. Used for two-way sync (submission updates an existing record).
+ */
+export async function updateRecord(args: {
+  token: string;
+  baseId: string;
+  tableId: string;
+  recordId: string;
+  fields: Record<string, AirtableFieldValue>;
+}): Promise<AirtableRecord> {
+  return airtableFetch<AirtableRecord>(
+    args.token,
+    `/${encodeURIComponent(args.baseId)}/${encodeURIComponent(args.tableId)}/${encodeURIComponent(args.recordId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ fields: args.fields, typecast: true }),
+    },
+  );
+}
+
 /** Read one record (used to confirm attachment ingestion before revoking shares). */
 export async function getRecord(args: {
   token: string;

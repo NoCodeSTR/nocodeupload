@@ -182,6 +182,11 @@ export interface AirtableConfig {
    * prefills (read-only personalization). Requires data.records:read on the PAT.
    */
   allowRecordPrefill?: boolean;
+  /**
+   * Two-way sync: when true AND the submission carries a recordId (?record=),
+   * UPDATE that record instead of creating a new one. No recordId → create.
+   */
+  updateRecordWhenPresent?: boolean;
 }
 
 /** A user's connected Airtable account (encrypted Personal Access Token). */
@@ -363,6 +368,8 @@ export interface UploadRow {
   submission_id: string | null;
   /** Which upload box (block) the file came from — multi-box forms (later). */
   source_block_id: string | null;
+  /** Airtable record id this submission targets (two-way sync); null = create. */
+  airtable_record_id: string | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;

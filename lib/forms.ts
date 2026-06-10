@@ -22,6 +22,7 @@ export async function createFormSubmission(args: {
   uploaderMessage: string | null;
   customData: Record<string, string>;
   ipHash?: string | null;
+  airtableRecordId?: string | null;
 }): Promise<{ submissionId: string | null; carrierUploadId: string }> {
   const admin = getSupabaseAdmin();
   const now = new Date().toISOString();
@@ -67,6 +68,7 @@ export async function createFormSubmission(args: {
       batch_size: null,
       submission_id: submissionId,
       source_block_id: FORM_CARRIER_BLOCK,
+      airtable_record_id: args.airtableRecordId ?? null,
       status: "complete",
       completed_at: now,
     } as never)

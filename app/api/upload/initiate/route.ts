@@ -305,6 +305,7 @@ export async function POST(request: NextRequest) {
       storageConnectionId: resolvedConnectionId,
       folderId: resolvedFolderId,
       sourceBlockId: resolvedSourceBlockId,
+      airtableRecordId: input.recordId ?? null,
     });
   } catch (err) {
     // eslint-disable-next-line no-console
