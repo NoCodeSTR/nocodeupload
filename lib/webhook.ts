@@ -17,6 +17,9 @@
  * ({ id, url }) deep-links back into NoCodeUpload to the full submission, and an
  * `airtable` object ({ recordId, baseId, tableId, url }) links to the row this
  * submission created/updated (null when the link has no Airtable destination).
+ * For per_batch links the batch payload's `airtable.recordId` is resolved
+ * reliably (the send waits out the record-vs-notification cross-request race);
+ * each `files[].airtableRecordId` carries the per-file record for per_upload.
  *
  * Best-effort and bounded by a timeout — a slow/broken webhook never blocks or
  * fails the upload.
@@ -29,6 +32,7 @@ import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { submissionUrl } from "@/lib/submissions";
 import { airtableRecordUrl } from "@/lib/airtable/url";
+import { awaitBatchAirtableRecordId } from "@/lib/airtable/record";
 import type { StorageProvider, AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
 
@@ -85,6 +89,9 @@ function filePayload(u: UploadShape) {
     providerFileId: u.provider_file_id,
     // The canonical link to open the result — Drive file or YouTube watch URL.
     url: resultUrlFor(u.provider, u.provider_file_id),
+    // The Airtable record this file landed in (per-file for per_upload mode;
+    // the shared submission record for per_batch). Null when no Airtable dest.
+    airtableRecordId: u.airtable_record_id,
     // Back-compat: Drive-only fields (null for YouTube).
     driveFileId: u.provider === "youtube" ? null : u.provider_file_id,
     driveUrl:
@@ -227,6 +234,22 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
   const link = await loadLink(rep.upload_link_id);
   if (!link || !link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
 
+  // For per_batch links the submission has ONE canonical Airtable record. The
+  // record write and the notification can be won by different requests, so the
+  // id may not be persisted yet when this webhook fires. Wait out that race
+  // (keyed off the durable completion signal) so batches are as reliable as
+  // single uploads. Zero wait when the id is already present (common case) or
+  // when the link isn't per_batch / has no Airtable destination.
+  const cfg = link.airtable_config;
+  let batchRecordId = rep.airtable_record_id;
+  if (!batchRecordId && cfg?.enabled && cfg.baseId && cfg.tableId && cfg.recordMode === "per_batch") {
+    batchRecordId = await awaitBatchAirtableRecordId(batchId);
+    // All files in a per_batch submission share the one record — reflect the
+    // resolved id on each row so files[].airtableRecordId stays consistent with
+    // the batch-level airtable object (the in-memory rows predate the wait).
+    if (batchRecordId) for (const u of uploads) u.airtable_record_id = batchRecordId;
+  }
+
   const files = uploads.map(filePayload);
   const uploadedAt =
     uploads.reduce<string | null>((latest, u) => {
@@ -241,8 +264,9 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
     link: { id: link.id, name: link.name, slug: link.slug },
     // Deep-link back into NoCodeUpload to see the full submission.
     submission: submissionPayload(rep),
-    // The Airtable record this batch created/updated (null if none).
-    airtable: airtablePayload(rep.airtable_record_id, link.airtable_config),
+    // The Airtable record this batch created/updated (null if none). For
+    // per_batch this is now reliably resolved even under the cross-request race.
+    airtable: airtablePayload(batchRecordId, cfg),
     // Back-compat: `file` is the first file in the batch.
     file: files[0],
     files,

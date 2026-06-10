@@ -404,3 +404,62 @@ export async function finalizeAirtableBatchFromClient(batchId: string): Promise<
     requireDeclaredComplete: false,
   });
 }
+
+// --- Batch webhook reliability -----------------------------------------------
+
+const RECORD_POLL_INTERVAL_MS = 250;
+// Safety cap, set just above the Airtable API timeout (lib/airtable/client.ts):
+// if the claim-winning request's create call runs long, it logs a delivery row
+// by ~15s, so we'll observe the outcome before this cap in practice.
+const RECORD_WAIT_MAX_MS = 18_000;
+
+/**
+ * Resolve a per_batch submission's Airtable record id reliably for the bundled
+ * webhook, waiting out the cross-request race where one request wins the Airtable
+ * claim while another sends the notification.
+ *
+ * Both the chunk route and the batch-complete route run Airtable BEFORE
+ * notifications, so the request that ends up sending the webhook has already
+ * kicked off (or completed) the record write. When it completed the write itself
+ * the id is present on the first read (zero wait — the common case). Only when a
+ * *peer* request holds the claim do we poll, keying off the durable completion
+ * signal:
+ *   - the record id appearing on a batch row  → success, return it; OR
+ *   - an "airtable" delivery row for the batch → done with no id (failed/skipped),
+ *     so stop waiting and return null.
+ * buildAndCreate persists the id BEFORE logging that delivery row, so observing
+ * the row guarantees the id (if any) is already committed.
+ *
+ * Caller gates this to per_batch + Airtable-enabled links, so a plain return of
+ * null here means "no record for this batch" — never "didn't bother to check".
+ */
+export async function awaitBatchAirtableRecordId(batchId: string): Promise<string | null> {
+  const admin = getSupabaseAdmin();
+  const deadline = Date.now() + RECORD_WAIT_MAX_MS;
+
+  for (;;) {
+    // 1) Success signal — id persisted on any row of the batch. Checked first so
+    //    a freshly-succeeded write (id set, delivery row a beat behind) wins.
+    const { data: idRows } = await admin
+      .from("uploads")
+      .select("airtable_record_id")
+      .eq("batch_id", batchId)
+      .not("airtable_record_id", "is", null)
+      .limit(1);
+    const id = (idRows?.[0] as { airtable_record_id: string | null } | undefined)?.airtable_record_id ?? null;
+    if (id) return id;
+
+    // 2) Done-without-id signal — the Airtable attempt logged a delivery row but
+    //    produced no record (failed/skipped). Nothing more is coming.
+    const { data: delRows } = await admin
+      .from("notification_deliveries")
+      .select("id")
+      .eq("batch_id", batchId)
+      .eq("channel", "airtable")
+      .limit(1);
+    if ((delRows?.length ?? 0) > 0) return null;
+
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, RECORD_POLL_INTERVAL_MS));
+  }
+}
