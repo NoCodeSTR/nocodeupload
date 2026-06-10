@@ -150,6 +150,7 @@ export const uploadBoxSchema = z.object({
   folderName: z.string().max(300).optional().nullable(),
   referenceImageUrl: z.string().url().max(1000).optional().nullable(),
   required: z.boolean().default(false),
+  sectionId: z.string().max(64).optional().nullable(),
 });
 export type UploadBoxInput = z.infer<typeof uploadBoxSchema>;
 

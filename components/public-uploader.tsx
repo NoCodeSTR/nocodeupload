@@ -639,6 +639,67 @@ export function PublicUploader({
     );
   }
 
+  // Render one upload box (multi-box links): reference image, label, dropzone.
+  function renderBox(box: PublicUploadBox) {
+    const boxFiles = files.filter((f) => f.boxId === box.id);
+    const over = dragBoxId === box.id;
+    return (
+      <div key={box.id}>
+        <p className="mb-1 text-sm font-medium text-ink-800 dark:text-ink-100">
+          {box.label}
+          {box.required && <span className="text-red-500"> *</span>}
+        </p>
+        {box.instructions && <p className="mb-2 text-sm text-ink-500">{box.instructions}</p>}
+        {box.referenceImageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={box.referenceImageUrl}
+            alt=""
+            className="mb-2 max-h-44 w-full rounded-lg border border-ink-200 object-contain dark:border-ink-700"
+          />
+        )}
+        <label
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragBoxId(box.id);
+          }}
+          onDragLeave={() => setDragBoxId(null)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragBoxId(null);
+            if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files, box.id);
+          }}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
+            over ? "border-current bg-ink-50 dark:bg-ink-900" : "border-ink-300 dark:border-ink-700"
+          }`}
+          style={over ? { color: accent } : undefined}
+        >
+          <Upload className="mb-2 h-6 w-6" style={{ color: accent }} />
+          <span className="text-sm font-medium text-ink-700 dark:text-ink-200">
+            Drag &amp; drop or tap to choose
+          </span>
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              if (e.target.files?.length) addFiles(e.target.files, box.id);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {boxFiles.length > 0 && (
+          <ul className="mt-2 space-y-2">
+            {boxFiles.map((f) => (
+              <FileRow key={f.id} item={f} accent={accent} />
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {showName && (
@@ -671,13 +732,19 @@ export function PublicUploader({
       {(() => {
         const visibleFields = customFields.filter((f) => isFieldVisible(f.showWhen, customValues));
         const sectionIds = new Set(sections.map((s) => s.id));
-        const ungrouped = visibleFields.filter((f) => !f.sectionId || !sectionIds.has(f.sectionId));
+        const showBoxes = !formOnly;
+        const ungroupedFields = visibleFields.filter((f) => !f.sectionId || !sectionIds.has(f.sectionId));
+        const ungroupedBoxes = showBoxes
+          ? boxes.filter((b) => !b.sectionId || !sectionIds.has(b.sectionId))
+          : [];
         return (
           <>
-            {ungrouped.map((f) => renderField(f))}
+            {ungroupedFields.map((f) => renderField(f))}
+            {ungroupedBoxes.map((b) => renderBox(b))}
             {sections.map((s) => {
+              const secBoxes = showBoxes ? boxes.filter((b) => b.sectionId === s.id) : [];
               const secFields = visibleFields.filter((f) => f.sectionId === s.id);
-              if (secFields.length === 0) return null;
+              if (secBoxes.length === 0 && secFields.length === 0) return null;
               const heading = s.heading?.trim();
               const text = s.text?.trim();
               return (
@@ -688,6 +755,7 @@ export function PublicUploader({
                       {text && <p className="mt-0.5 text-sm text-ink-500">{text}</p>}
                     </div>
                   )}
+                  {secBoxes.map((b) => renderBox(b))}
                   {secFields.map((f) => renderField(f))}
                 </div>
               );
@@ -696,64 +764,7 @@ export function PublicUploader({
         );
       })()}
 
-      {/* Multi-box: one dropzone per box, each routed to its own destination */}
-      {!formOnly && multiBox && (
-        <div className="space-y-5">
-          {boxes.map((box) => {
-            const boxFiles = files.filter((f) => f.boxId === box.id);
-            const over = dragBoxId === box.id;
-            return (
-              <div key={box.id}>
-                <p className="mb-1 text-sm font-medium text-ink-800 dark:text-ink-100">
-                  {box.label}
-                  {box.required && <span className="text-red-500"> *</span>}
-                </p>
-                {box.instructions && <p className="mb-2 text-sm text-ink-500">{box.instructions}</p>}
-                {box.referenceImageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={box.referenceImageUrl}
-                    alt=""
-                    className="mb-2 max-h-44 w-full rounded-lg border border-ink-200 object-contain dark:border-ink-700"
-                  />
-                )}
-                <label
-                  onDragOver={(e) => { e.preventDefault(); setDragBoxId(box.id); }}
-                  onDragLeave={() => setDragBoxId(null)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragBoxId(null);
-                    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files, box.id);
-                  }}
-                  className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
-                    over ? "border-current bg-ink-50 dark:bg-ink-900" : "border-ink-300 dark:border-ink-700"
-                  }`}
-                  style={over ? { color: accent } : undefined}
-                >
-                  <Upload className="mb-2 h-6 w-6" style={{ color: accent }} />
-                  <span className="text-sm font-medium text-ink-700 dark:text-ink-200">
-                    Drag &amp; drop or tap to choose
-                  </span>
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files, box.id); e.target.value = ""; }}
-                  />
-                </label>
-                {boxFiles.length > 0 && (
-                  <ul className="mt-2 space-y-2">
-                    {boxFiles.map((f) => (
-                      <FileRow key={f.id} item={f} accent={accent} />
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* (Multi-box dropzones render inline above, within their sections.) */}
 
       {/* Single drop zone (non-multi, non-form) */}
       {!formOnly && !multiBox && (

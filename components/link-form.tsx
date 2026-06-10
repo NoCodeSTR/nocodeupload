@@ -726,6 +726,7 @@ export function LinkForm({
         instructions: b.instructions?.trim() || null,
         folderName: b.folderName ?? null,
         referenceImageUrl: b.referenceImageUrl || null,
+        sectionId: b.sectionId && sections.some((s) => s.id === b.sectionId) ? b.sectionId : null,
       }));
 
     const keptFieldIds = new Set(customFields.filter((f) => f.label.trim()).map((f) => f.id));
@@ -1059,6 +1060,23 @@ export function LinkForm({
                         />
                         Require at least one file in this box
                       </label>
+                      {sections.length > 0 && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-ink-500">Section</span>
+                          <select
+                            className="input w-auto py-1 text-xs"
+                            value={b.sectionId ?? ""}
+                            onChange={(e) => updateBox(b.id, { sectionId: e.target.value || null })}
+                          >
+                            <option value="">No section</option>
+                            {sections.map((s, i) => (
+                              <option key={s.id} value={s.id}>
+                                {s.heading?.trim() || `Section ${i + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

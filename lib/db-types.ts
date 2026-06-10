@@ -74,6 +74,8 @@ export interface UploadBox {
   folderName: string | null;
   referenceImageUrl?: string | null;
   required?: boolean;
+  /** Optional grouping into a form section (renders inside that section). */
+  sectionId?: string | null;
 }
 
 /**
@@ -94,6 +96,7 @@ export interface PublicUploadBox {
   instructions?: string | null;
   referenceImageUrl?: string | null;
   required?: boolean;
+  sectionId?: string | null;
 }
 
 export interface UploadLinkRow {

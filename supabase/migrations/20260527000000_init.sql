@@ -334,7 +334,8 @@ select
       'label', b->>'label',
       'instructions', b->>'instructions',
       'referenceImageUrl', b->>'referenceImageUrl',
-      'required', coalesce((b->>'required')::boolean, false)
+      'required', coalesce((b->>'required')::boolean, false),
+      'sectionId', b->>'sectionId'
     ))
     from jsonb_array_elements(coalesce(l.upload_boxes, '[]'::jsonb)) b
   ), '[]'::jsonb) as upload_boxes,

@@ -135,9 +135,10 @@ export function AirtableConnection({ connected }: AirtableConnectionProps) {
                   airtable.com/create/tokens
                   <ExternalLink className="h-3 w-3" />
                 </a>{" "}
-                with scopes <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:write</code>{" "}
-                and <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">schema.bases:read</code>, and
-                grant it access to your base.
+                with scopes <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:write</code>,{" "}
+                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">schema.bases:read</code>, and{" "}
+                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:read</code> (for
+                record personalization), and grant it access to your base.
               </p>
             </div>
           )}
