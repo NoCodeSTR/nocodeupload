@@ -14,7 +14,9 @@
  * (length 1 for singles) so automations can branch cleanly. `file` (the first
  * file) is retained for back-compat. Point Slack/Quo automations at
  * `files[].url` (Drive file or YouTube watch URL). A `submission` object
- * ({ id, url }) deep-links back into NoCodeUpload to the full submission.
+ * ({ id, url }) deep-links back into NoCodeUpload to the full submission, and an
+ * `airtable` object ({ recordId, baseId, tableId, url }) links to the row this
+ * submission created/updated (null when the link has no Airtable destination).
  *
  * Best-effort and bounded by a timeout — a slow/broken webhook never blocks or
  * fails the upload.
@@ -26,7 +28,8 @@ import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { submissionUrl } from "@/lib/submissions";
-import type { StorageProvider } from "@/lib/db-types";
+import { airtableRecordUrl } from "@/lib/airtable/url";
+import type { StorageProvider, AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
 
 const TIMEOUT_MS = 10_000;
@@ -40,11 +43,12 @@ function hostOf(url: string): string {
 }
 
 const UPLOAD_COLUMNS =
-  "upload_link_id, submission_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
+  "upload_link_id, submission_id, airtable_record_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
 
 interface UploadShape {
   upload_link_id: string;
   submission_id: string | null;
+  airtable_record_id: string | null;
   provider_file_id: string | null;
   provider: StorageProvider | null;
   original_filename: string;
@@ -66,6 +70,7 @@ interface LinkShape {
   slug: string;
   webhook_url: string | null;
   webhook_secret: string | null;
+  airtable_config: AirtableConfig | null;
 }
 
 /** Per-file payload shape — shared by single and batch deliveries. */
@@ -98,11 +103,23 @@ function submissionPayload(u: UploadShape) {
   return u.submission_id ? { id: u.submission_id, url: submissionUrl(u.submission_id) } : null;
 }
 
+/**
+ * Airtable record payload — the row this submission created or updated, with a
+ * direct airtable.com deep-link. Null unless the submission has a persisted
+ * record id (so automations can branch on whether a record exists).
+ */
+function airtablePayload(recordId: string | null, cfg: AirtableConfig | null) {
+  if (!recordId) return null;
+  const baseId = cfg?.baseId ?? null;
+  const tableId = cfg?.tableId ?? null;
+  return { recordId, baseId, tableId, url: airtableRecordUrl(baseId, tableId, recordId) };
+}
+
 async function loadLink(uploadLinkId: string): Promise<LinkShape | null> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("upload_links")
-    .select("id, name, slug, webhook_url, webhook_secret")
+    .select("id, name, slug, webhook_url, webhook_secret, airtable_config")
     .eq("id", uploadLinkId)
     .maybeSingle();
   return (data ?? null) as LinkShape | null;
@@ -171,6 +188,8 @@ export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult>
     link: { id: link.id, name: link.name, slug: link.slug },
     // Deep-link back into NoCodeUpload to see the full submission.
     submission: submissionPayload(upload),
+    // The Airtable record this submission created/updated (null if none).
+    airtable: airtablePayload(upload.airtable_record_id, link.airtable_config),
     // Present even on per-file sends (bundling off) so automations can still
     // group files uploaded together by batch id.
     batch: upload.batch_id ? { id: upload.batch_id, fileCount: upload.batch_size } : null,
@@ -222,6 +241,8 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
     link: { id: link.id, name: link.name, slug: link.slug },
     // Deep-link back into NoCodeUpload to see the full submission.
     submission: submissionPayload(rep),
+    // The Airtable record this batch created/updated (null if none).
+    airtable: airtablePayload(rep.airtable_record_id, link.airtable_config),
     // Back-compat: `file` is the first file in the batch.
     file: files[0],
     files,

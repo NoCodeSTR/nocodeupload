@@ -13,11 +13,13 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
 import { coreEnv } from "@/lib/env";
+import { airtableRecordUrl } from "@/lib/airtable/url";
 import type {
   UploadLinkRow,
   SubmissionRow,
   StorageProvider,
   NotificationDeliveryRow,
+  AirtableConfig,
 } from "@/lib/db-types";
 import type { SubmissionUpdateInput } from "@/lib/schemas";
 
@@ -124,6 +126,8 @@ export interface SubmissionDetail {
   linkName: string;
   files: SubmissionFileItem[];
   deliveries: NotificationDeliveryRow[];
+  /** The Airtable record this submission created/updated (null if none). */
+  airtable: { recordId: string; url: string | null } | null;
 }
 
 /** Sanitize a search term for a PostgREST or() filter (strip its delimiters). */
@@ -204,25 +208,26 @@ export async function getSubmissionDetail(
   const supabase = createSupabaseServerClient();
   const { data: sData, error } = await supabase
     .from("submissions")
-    .select("*, upload_links(name)")
+    .select("*, upload_links(name, airtable_config)")
     .eq("id", submissionId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(formatPgError("Failed to load submission", error));
   if (!sData) return null;
 
+  type LinkJoin = { name: string; airtable_config: AirtableConfig | null };
   const subRaw = sData as unknown as SubmissionRow & {
-    upload_links: { name: string } | { name: string }[] | null;
+    upload_links: LinkJoin | LinkJoin[] | null;
   };
   const link = Array.isArray(subRaw.upload_links) ? subRaw.upload_links[0] : subRaw.upload_links;
 
   const { data: filesData } = await supabase
     .from("uploads")
-    .select("id, original_filename, mime_type, file_size_bytes, status, provider, provider_file_id, source_block_id, created_at")
+    .select("id, original_filename, mime_type, file_size_bytes, status, provider, provider_file_id, source_block_id, airtable_record_id, created_at")
     .eq("submission_id", submissionId)
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
-  const files = ((filesData ?? []) as Array<{
+  const rawFiles = (filesData ?? []) as Array<{
     id: string;
     original_filename: string;
     mime_type: string | null;
@@ -231,8 +236,10 @@ export async function getSubmissionDetail(
     provider: StorageProvider | null;
     provider_file_id: string | null;
     source_block_id: string | null;
+    airtable_record_id: string | null;
     created_at: string;
-  }>)
+  }>;
+  const files = rawFiles
     .filter((f) => f.source_block_id !== "__form") // hide the form carrier
     .map((f) => ({
     id: f.id,
@@ -244,6 +251,14 @@ export async function getSubmissionDetail(
     providerFileId: f.provider_file_id,
     createdAt: f.created_at,
   }));
+
+  // The Airtable record id is persisted on the upload rows (incl. the form-only
+  // "__form" carrier), so scan the raw set — not the file-filtered list — and use
+  // the link's config to build a direct airtable.com deep-link.
+  const recordId = rawFiles.find((f) => f.airtable_record_id)?.airtable_record_id ?? null;
+  const airtable = recordId
+    ? { recordId, url: airtableRecordUrl(link?.airtable_config?.baseId, link?.airtable_config?.tableId, recordId) }
+    : null;
 
   // Deliveries are keyed by batch_id (batched) or upload_id (single) — gather both.
   const deliveries: NotificationDeliveryRow[] = [];
@@ -280,6 +295,7 @@ export async function getSubmissionDetail(
     linkName: link?.name ?? "Link",
     files,
     deliveries,
+    airtable,
   };
 }
 

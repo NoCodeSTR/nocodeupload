@@ -22,6 +22,11 @@ import "server-only";
 
 const API_BASE = "https://api.airtable.com/v0";
 
+// Fail fast rather than hang. Record creation now runs BEFORE notifications in
+// the upload pipeline, so a stuck Airtable call must never block the webhook/
+// email/SMS fan-out — it surfaces as a logged "failed" delivery instead.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 interface AirtableError {
   error?: { type?: string; message?: string } | string;
 }
@@ -39,15 +44,28 @@ async function airtableFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Airtable request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     let body: AirtableError | null = null;
     try {

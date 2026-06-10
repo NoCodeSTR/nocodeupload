@@ -82,6 +82,16 @@ export async function POST(request: NextRequest) {
       // eslint-disable-next-line no-console
       console.error("[upload/chunk] finalize failed (file is in Drive):", err);
     }
+    // Airtable destination (record alongside Drive) runs FIRST so the created/
+    // updated record id is persisted onto the upload row before notifications
+    // fire — that's what lets the webhook payload carry the Airtable link.
+    // Self-claims so it never double-creates. Best-effort — never blocks success.
+    try {
+      await recordAfterUpload(uploadId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[upload/chunk] airtable record failed (file is safe):", err);
+    }
     // Fire notifications. For a single upload this emails + webhooks now; for a
     // bundled batch it sends once, when the batch's last file lands (the claim
     // dedupes against the client's batch-complete call). Awaited so it runs
@@ -91,14 +101,6 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn("[upload/chunk] notify failed (file is safe):", err);
-    }
-    // Airtable destination (record alongside Drive). Independent of notifications;
-    // self-claims so it never double-creates. Best-effort — never blocks success.
-    try {
-      await recordAfterUpload(uploadId);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[upload/chunk] airtable record failed (file is safe):", err);
     }
     return NextResponse.json({ status: "complete", fileId: result.fileId });
   }

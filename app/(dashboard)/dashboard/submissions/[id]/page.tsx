@@ -5,7 +5,7 @@
  */
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { ArrowLeft, ExternalLink, CheckCircle2, XCircle, Clock, Table2 } from "lucide-react";
 import { Topbar } from "@/components/topbar";
 import { SubmissionStatusControl } from "@/components/submission-status-control";
 import { SubmissionRetryButton } from "@/components/submission-retry-button";
@@ -28,7 +28,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   }
   if (!detail) notFound();
 
-  const { submission, linkName, files, deliveries } = detail;
+  const { submission, linkName, files, deliveries, airtable } = detail;
   const who = submission.uploader_name || submission.uploader_email || "Anonymous";
 
   return (
@@ -123,6 +123,30 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
               </ul>
             )}
           </section>
+
+          {/* Airtable record (when this submission created/updated one) */}
+          {airtable && (
+            <section className="card mb-4">
+              <h3 className="mb-3 font-display text-sm font-semibold">Airtable record</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 px-3 py-2 dark:border-ink-800">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Table2 className="h-4 w-4 flex-shrink-0 text-ink-400" />
+                  <code className="truncate text-xs text-ink-500">{airtable.recordId}</code>
+                </div>
+                {airtable.url && (
+                  <a
+                    href={airtable.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary h-8 text-xs"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    View in Airtable
+                  </a>
+                )}
+              </div>
+            </section>
+          )}
 
           {/* Delivery log */}
           <section className="card">

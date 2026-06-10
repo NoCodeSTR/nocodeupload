@@ -141,18 +141,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
 
-  // Fire notifications + Airtable through the existing pipeline (best-effort).
-  try {
-    await notifyAfterUpload(carrierUploadId);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("[form-submit] notify failed:", err);
-  }
+  // Fire Airtable + notifications through the existing pipeline (best-effort).
+  // Airtable runs FIRST so the created/updated record id is persisted before the
+  // webhook fires and can be carried in its payload.
   try {
     await recordAfterUpload(carrierUploadId);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[form-submit] airtable record failed:", err);
+  }
+  try {
+    await notifyAfterUpload(carrierUploadId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[form-submit] notify failed:", err);
   }
 
   return NextResponse.json({ ok: true });

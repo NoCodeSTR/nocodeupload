@@ -261,6 +261,7 @@ async function buildAndCreate(args: {
   );
 
   let result: NotifyResult;
+  let recordId: string | null = null;
   try {
     const record = doUpdate
       ? await updateRecord({
@@ -271,6 +272,7 @@ async function buildAndCreate(args: {
           fields,
         })
       : await createRecord({ token, baseId: config.baseId, tableId: config.tableId, fields });
+    recordId = record.id ?? null;
     result = { status: "sent", target, detail: `${doUpdate ? "Updated" : "Created"} record ${record.id}` };
   } catch (err) {
     result = {
@@ -278,6 +280,27 @@ async function buildAndCreate(args: {
       target,
       detail: err instanceof Error ? err.message : doUpdate ? "update failed" : "create failed",
     };
+  }
+
+  // Persist the record id back onto the upload row(s) so it's durably available
+  // to the webhook payload and the submission detail page (covers freshly CREATED
+  // records, which previously lived only in the delivery-log detail string).
+  // Isolated from the create/update try above: a DB hiccup here must never flip a
+  // successful Airtable write to "failed" — that would retry and double-create.
+  if (recordId) {
+    try {
+      const admin = getSupabaseAdmin();
+      await admin
+        .from("uploads")
+        .update({ airtable_record_id: recordId } as never)
+        .in(
+          "id",
+          uploads.map((u) => u.id),
+        );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[airtable] failed to persist record id back to uploads (record was written):", err);
+    }
   }
 
   await logDelivery({ userId, uploadLinkId, channel: "airtable", result, uploadId, batchId });

@@ -35,20 +35,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
+  // Airtable per-batch record FIRST (authoritative trigger; deduped by claim) so
+  // the record id is persisted before the bundled notification/webhook fires and
+  // can be included in the webhook payload.
+  try {
+    await finalizeAirtableBatchFromClient(batchId);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[upload/batch-complete] airtable record failed:", err);
+  }
+
   try {
     await finalizeBatchFromClient(batchId);
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("[upload/batch-complete] failed:", err);
     // Still 200 — notifications are best-effort and must never block the UI.
-  }
-
-  // Airtable per-batch record (authoritative trigger; deduped by claim).
-  try {
-    await finalizeAirtableBatchFromClient(batchId);
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn("[upload/batch-complete] airtable record failed:", err);
   }
 
   return NextResponse.json({ ok: true });
