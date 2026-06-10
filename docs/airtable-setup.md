@@ -16,6 +16,9 @@ token is stored encrypted (AES-256-GCM), the same way Google tokens are.
 3. Add these **scopes**:
    - `data.records:write` — create rows (and attach files by URL).
    - `schema.bases:read` — let the link form list your bases, tables, and fields.
+   - `data.records:read` — *(optional)* only needed for **record personalization**
+     (`?record=recXXX` URLs that pull a record's columns into the form). Without
+     it, everything else works; record prefill simply no-ops.
 4. Under **Access**, add the base(s) you want uploads to write into.
 5. Create the token and copy it (it starts with `pat…`). You won't see it again.
 

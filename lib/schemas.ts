@@ -132,6 +132,7 @@ export const airtableConfigSchema = z.object({
   attachFieldName: z.string().max(120).optional().nullable(),
   mapping: z.record(z.string().max(120)).default({}),
   staticValues: z.array(airtableStaticValueSchema).max(20).default([]),
+  allowRecordPrefill: z.boolean().default(false),
 });
 export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;
 
@@ -247,6 +248,8 @@ export const uploadInitiateSchema = z.object({
   password: z.string().max(100).optional().nullable(),
   // For multi-box links: which upload box this file belongs to.
   boxId: z.string().max(64).optional().nullable(),
+  // Airtable record personalization: prefill hidden fields from this record.
+  recordId: z.string().max(40).optional().nullable(),
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;
@@ -260,6 +263,7 @@ export const uploadFormSubmitSchema = z.object({
   customValues: z.record(z.string().max(500)).optional(),
   prefillValues: z.record(z.string().max(500)).optional(),
   password: z.string().max(100).optional().nullable(),
+  recordId: z.string().max(40).optional().nullable(),
 });
 export type UploadFormSubmitInput = z.infer<typeof uploadFormSubmitSchema>;
 

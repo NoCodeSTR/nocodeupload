@@ -176,6 +176,12 @@ export interface AirtableConfig {
   attachFieldName: string | null;
   mapping: Record<string, string>;
   staticValues: AirtableStaticValue[];
+  /**
+   * Opt-in: when true, a ?record=recXXX URL param looks up that record in this
+   * link's base+table and exposes its columns as merge-tag values + field
+   * prefills (read-only personalization). Requires data.records:read on the PAT.
+   */
+  allowRecordPrefill?: boolean;
 }
 
 /** A user's connected Airtable account (encrypted Personal Access Token). */

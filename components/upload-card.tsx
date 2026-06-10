@@ -13,13 +13,16 @@ export function UploadCard({
   showBrandHeader = true,
   unlockedPassword = null,
   prefill = {},
+  recordId = null,
 }: {
   link: UploadLinkPublicRow;
   showBrandHeader?: boolean;
   /** Verified password from the gate, forwarded to initiate (if protected). */
   unlockedPassword?: string | null;
-  /** URL query prefills (lowercased keys). */
+  /** URL query prefills (lowercased keys), merged with any Airtable record values. */
   prefill?: Record<string, string>;
+  /** Airtable record id from the URL (for server-side record personalization). */
+  recordId?: string | null;
 }) {
   const accent = link.branding_color ?? "#2563eb";
 
@@ -93,6 +96,7 @@ export function UploadCard({
             prefill={prefill}
             formOnly={link.destination_type === "form"}
             boxes={link.upload_boxes}
+            recordId={recordId}
           />
         </div>
       </div>

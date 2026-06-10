@@ -533,6 +533,33 @@ export function AirtableConfigEditor({
               )}
             </div>
           )}
+
+          {/* Record personalization */}
+          {selectedTable && (
+            <div className="space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={Boolean(value?.allowRecordPrefill)}
+                  onChange={(e) => update({ allowRecordPrefill: e.target.checked })}
+                />
+                <span>
+                  Personalize from an Airtable record
+                  <span className="block text-xs text-ink-400">
+                    Add{" "}
+                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?record=recXXXXXXXX</code>{" "}
+                    to the link URL — that record&apos;s columns fill merge tags (e.g.{" "}
+                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{Address}}"}</code>) and
+                    prefill any field whose label matches a column (hide those fields to keep them
+                    unchanged). Requires the token&apos;s{" "}
+                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:read</code>{" "}
+                    scope.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -26,6 +26,7 @@ import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
 import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
+import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -172,6 +173,10 @@ export async function POST(request: NextRequest) {
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
   const prefillValues = input.prefillValues ?? {};
+  // Airtable record personalization (authoritative, server-fetched). For hidden
+  // fields the record value wins over a client-sent URL value so an uploader
+  // can't tamper with owner data; falls back to URL prefill, then the default.
+  const recordValues = await getAirtableRecordValues(link, input.recordId);
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;
@@ -184,11 +189,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "missing_custom_field", label: f.label }, { status: 400 });
       }
     } else {
-      const urlRaw = prefillValues[prefillKey(f.label)];
-      val =
-        urlRaw != null && String(urlRaw).trim() !== ""
-          ? cleanFieldValue(type, String(urlRaw).trim(), f.options ?? [])
-          : String(f.value ?? "");
+      const key = prefillKey(f.label);
+      const recRaw = recordValues[key];
+      const urlRaw = prefillValues[key];
+      const raw =
+        recRaw && recRaw.trim()
+          ? recRaw
+          : urlRaw != null && String(urlRaw).trim() !== ""
+            ? String(urlRaw)
+            : "";
+      val = raw ? cleanFieldValue(type, raw.trim(), f.options ?? []) : String(f.value ?? "");
     }
     if (val) customData[f.label] = val;
   }

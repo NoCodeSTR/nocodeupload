@@ -19,6 +19,7 @@ import { createFormSubmission } from "@/lib/forms";
 import { notifyAfterUpload } from "@/lib/batch";
 import { recordAfterUpload } from "@/lib/airtable/record";
 import { isFieldVisible } from "@/lib/conditional";
+import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
 import { cleanFieldValue, isValidEmail } from "@/lib/field-values";
 import { prefillKey } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
@@ -84,6 +85,9 @@ export async function POST(request: NextRequest) {
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
   const prefillValues = input.prefillValues ?? {};
+  // Authoritative Airtable record values (server-fetched); record wins over a
+  // client URL value for hidden fields, then URL prefill, then the default.
+  const recordValues = await getAirtableRecordValues(link, input.recordId);
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;
@@ -95,11 +99,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "missing_custom_field", label: f.label }, { status: 400 });
       }
     } else {
-      const urlRaw = prefillValues[prefillKey(f.label)];
-      val =
-        urlRaw != null && String(urlRaw).trim() !== ""
-          ? cleanFieldValue(type, String(urlRaw).trim(), f.options ?? [])
-          : String(f.value ?? "");
+      const key = prefillKey(f.label);
+      const recRaw = recordValues[key];
+      const urlRaw = prefillValues[key];
+      const raw =
+        recRaw && recRaw.trim()
+          ? recRaw
+          : urlRaw != null && String(urlRaw).trim() !== ""
+            ? String(urlRaw)
+            : "";
+      val = raw ? cleanFieldValue(type, raw.trim(), f.options ?? []) : String(f.value ?? "");
     }
     if (val) customData[f.label] = val;
   }

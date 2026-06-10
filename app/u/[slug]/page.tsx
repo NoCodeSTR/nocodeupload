@@ -9,6 +9,7 @@ import { ShieldCheck } from "lucide-react";
 import { UploadCard } from "@/components/upload-card";
 import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
+import { getAirtableRecordValuesBySlug } from "@/lib/airtable/record-prefill";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,11 @@ function buildPrefill(searchParams: Record<string, string | string[] | undefined
   return out;
 }
 
+function firstStr(v: string | string[] | undefined): string | null {
+  if (v == null) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
 export default async function PublicUploadPage({
   params,
   searchParams,
@@ -30,6 +36,7 @@ export default async function PublicUploadPage({
 }) {
   const link = await getPublicLinkBySlug(params.slug);
   const prefill = buildPrefill(searchParams);
+  const recordId = firstStr(searchParams.record) ?? firstStr(searchParams.recordId);
 
   if (!link) {
     return (
@@ -46,6 +53,13 @@ export default async function PublicUploadPage({
     );
   }
 
+  // Airtable record personalization: if the link opted in and the URL carries a
+  // record id, pull that record's columns as merge/prefill values (URL params
+  // still win). Server-side only — the owner's token never touches the client.
+  const recordValues = recordId ? await getAirtableRecordValuesBySlug(params.slug, recordId) : {};
+  const mergedPrefill =
+    Object.keys(recordValues).length > 0 ? { ...recordValues, ...prefill } : prefill;
+
   return (
     <main className="min-h-screen bg-ink-50 px-4 py-10 dark:bg-ink-950">
       <div className="mx-auto max-w-xl">
@@ -56,10 +70,11 @@ export default async function PublicUploadPage({
             description={link.description}
             accent={link.branding_color ?? "#2563eb"}
             brandingLogoUrl={link.branding_logo_url}
-            prefill={prefill}
+            prefill={mergedPrefill}
+            recordId={recordId}
           />
         ) : (
-          <UploadCard link={link} showBrandHeader prefill={prefill} />
+          <UploadCard link={link} showBrandHeader prefill={mergedPrefill} recordId={recordId} />
         )}
 
         <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-ink-400">

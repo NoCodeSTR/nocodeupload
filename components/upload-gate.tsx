@@ -20,6 +20,7 @@ export function UploadGate({
   brandingLogoUrl,
   showBrandHeader = true,
   prefill = {},
+  recordId = null,
 }: {
   slug: string;
   name: string;
@@ -28,6 +29,7 @@ export function UploadGate({
   brandingLogoUrl: string | null;
   showBrandHeader?: boolean;
   prefill?: Record<string, string>;
+  recordId?: string | null;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,7 @@ export function UploadGate({
         showBrandHeader={showBrandHeader}
         unlockedPassword={password}
         prefill={prefill}
+        recordId={recordId}
       />
     );
   }

@@ -13,6 +13,7 @@
 import { UploadCard } from "@/components/upload-card";
 import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
+import { getAirtableRecordValuesBySlug } from "@/lib/airtable/record-prefill";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,11 @@ function buildPrefill(searchParams: Record<string, string | string[] | undefined
   return out;
 }
 
+function firstStr(v: string | string[] | undefined): string | null {
+  if (v == null) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
 export default async function EmbedUploadPage({
   params,
   searchParams,
@@ -34,6 +40,7 @@ export default async function EmbedUploadPage({
 }) {
   const link = await getPublicLinkBySlug(params.slug);
   const prefill = buildPrefill(searchParams);
+  const recordId = firstStr(searchParams.record) ?? firstStr(searchParams.recordId);
 
   if (!link) {
     return (
@@ -44,6 +51,10 @@ export default async function EmbedUploadPage({
       </main>
     );
   }
+
+  const recordValues = recordId ? await getAirtableRecordValuesBySlug(params.slug, recordId) : {};
+  const mergedPrefill =
+    Object.keys(recordValues).length > 0 ? { ...recordValues, ...prefill } : prefill;
 
   return (
     <main className="bg-white px-4 py-6 dark:bg-ink-950">
@@ -56,10 +67,11 @@ export default async function EmbedUploadPage({
             accent={link.branding_color ?? "#2563eb"}
             brandingLogoUrl={link.branding_logo_url}
             showBrandHeader={false}
-            prefill={prefill}
+            prefill={mergedPrefill}
+            recordId={recordId}
           />
         ) : (
-          <UploadCard link={link} showBrandHeader={false} prefill={prefill} />
+          <UploadCard link={link} showBrandHeader={false} prefill={mergedPrefill} recordId={recordId} />
         )}
         <p className="mt-3 text-center text-xs text-ink-400">
           Powered by{" "}

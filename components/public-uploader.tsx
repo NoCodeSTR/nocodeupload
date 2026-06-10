@@ -41,6 +41,8 @@ interface PublicUploaderProps {
   formOnly?: boolean;
   /** Multi-box link: one dropzone per box, each routed to its own destination. */
   boxes?: PublicUploadBox[];
+  /** Airtable record id from the URL — sent so the server can prefill hidden fields. */
+  recordId?: string | null;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -166,6 +168,7 @@ export function PublicUploader({
   prefill = {},
   formOnly = false,
   boxes = [],
+  recordId = null,
 }: PublicUploaderProps) {
   const multiBox = boxes.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -280,6 +283,8 @@ export function PublicUploader({
           prefillValues: prefill,
           // Multi-box: which box this file belongs to (server resolves its dest).
           boxId: item.boxId ?? null,
+          // Airtable record personalization (server re-fetches authoritatively).
+          recordId: recordId ?? null,
         }),
       });
       if (!res.ok) {
@@ -349,6 +354,7 @@ export function PublicUploader({
           customValues,
           prefillValues: prefill,
           password: unlockedPassword ?? null,
+          recordId: recordId ?? null,
         }),
       });
       if (!res.ok) {
