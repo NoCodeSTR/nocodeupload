@@ -12,7 +12,7 @@
  *   - POST  /api/links            (create)
  *   - PATCH /api/links/[id]        (edit)
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
@@ -155,11 +155,21 @@ export function LinkForm({
 }: LinkFormProps) {
   const router = useRouter();
 
-  const [connectionId, setConnectionId] = useState(
-    initialLink?.storage_connection_id ?? connections[0]?.id ?? "",
-  );
+  const initialDestType = initialLink?.destination_type ?? "drive";
+  // Pick a connection that MATCHES the destination. Drive and YouTube can be the
+  // same Google account (same email), so connections[0] may be the wrong-scope
+  // one — selecting it would make the Drive folder picker request a YouTube
+  // token and 403. For a saved link we keep its stored connection.
+  const initialConnectionId =
+    initialLink?.storage_connection_id ??
+    connections.find((c) =>
+      initialDestType === "youtube" ? c.provider === "youtube" : c.provider === "google_drive",
+    )?.id ??
+    connections[0]?.id ??
+    "";
+  const [connectionId, setConnectionId] = useState(initialConnectionId);
   const [destinationType, setDestinationType] = useState<"drive" | "youtube" | "form" | "multi">(
-    initialLink?.destination_type ?? "drive",
+    initialDestType,
   );
   const [uploadBoxes, setUploadBoxes] = useState<UploadBox[]>(initialLink?.upload_boxes ?? []);
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(initialLink?.content_blocks ?? []);
@@ -226,6 +236,17 @@ export function LinkForm({
   const eligibleConnections = connections.filter((c) =>
     destinationType === "youtube" ? c.provider === "youtube" : c.provider === "google_drive",
   );
+
+  // Keep the selected connection valid for the current destination. Guards the
+  // initial mount and any path that changes destination without re-selecting.
+  useEffect(() => {
+    if (destinationType === "drive" || destinationType === "youtube") {
+      if (!eligibleConnections.some((c) => c.id === connectionId)) {
+        setConnectionId(eligibleConnections[0]?.id ?? "");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destinationType]);
 
   // Switch destination; reset the connection to one that fits (and clear folder).
   function changeDestination(next: "drive" | "youtube" | "form" | "multi") {
@@ -834,7 +855,15 @@ export function LinkForm({
                 ))}
               </select>
             </div>
-          ) : null)}
+          ) : (
+            <div>
+              <span className="label mb-1 block">Connected account</span>
+              <p className="text-sm text-ink-600 dark:text-ink-300">
+                {providerLabel(eligibleConnections[0].provider)} —{" "}
+                {eligibleConnections[0].provider_email ?? "your account"}
+              </p>
+            </div>
+          ))}
 
         {isFormOnly ? (
           <div className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm dark:border-ink-700 dark:bg-ink-900/40">
