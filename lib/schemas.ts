@@ -138,8 +138,12 @@ export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
-  storageConnectionId: z.string().uuid(),
-  folderId: z.string().min(1, "Folder is required"),
+  // Where the submission goes. 'form' = no file upload (no storage needed);
+  // storage connection + folder are required only for drive/youtube (enforced
+  // in createLink, not here, so the partial update schema stays simple).
+  destinationType: z.enum(["drive", "youtube", "form"]).default("drive"),
+  storageConnectionId: z.string().uuid().optional().nullable(),
+  folderId: z.string().max(512).optional().nullable(),
   folderName: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
   expiresAt: z.string().datetime().optional().nullable(),
@@ -219,6 +223,18 @@ export const uploadInitiateSchema = z.object({
 });
 
 export type UploadInitiateInput = z.infer<typeof uploadInitiateSchema>;
+
+/** A form-only submission (no files): the public form posts here. */
+export const uploadFormSubmitSchema = z.object({
+  slug: z.string().min(8).max(64),
+  uploaderName: z.string().max(120).optional().nullable(),
+  uploaderEmail: z.string().max(255).optional().nullable(),
+  uploaderMessage: z.string().max(2000).optional().nullable(),
+  customValues: z.record(z.string().max(500)).optional(),
+  prefillValues: z.record(z.string().max(500)).optional(),
+  password: z.string().max(100).optional().nullable(),
+});
+export type UploadFormSubmitInput = z.infer<typeof uploadFormSubmitSchema>;
 
 /** Verify a link's password before the upload form (and its fields) are shown. */
 export const uploadUnlockSchema = z.object({

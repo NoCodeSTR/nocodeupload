@@ -97,6 +97,11 @@ export async function POST(request: NextRequest) {
   if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
     return NextResponse.json({ error: "expired" }, { status: 403 });
   }
+  // Form-only links accept no files — they post to /api/upload/form-submit.
+  // (This also narrows the now-nullable storage/folder columns below.)
+  if (link.destination_type === "form" || !link.storage_connection_id || !link.folder_id) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
 
   // Optional password gate — the owner-set value must match exactly.
   const requiredPassword = link.upload_password?.trim();

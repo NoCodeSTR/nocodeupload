@@ -66,6 +66,7 @@ export function UploadCard({
             successRedirectUrl={link.success_redirect_url}
             unlockedPassword={unlockedPassword}
             prefill={prefill}
+            formOnly={link.destination_type === "form"}
           />
         </div>
       </div>

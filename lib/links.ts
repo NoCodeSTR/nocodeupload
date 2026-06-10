@@ -135,13 +135,20 @@ export async function createLink(
   userId: string,
   input: UploadLinkCreateInput,
 ): Promise<UploadLinkRow> {
-  // Defense in depth: the chosen connection must belong to this user.
-  const connection = await getConnectionForUser({
-    userId,
-    connectionId: input.storageConnectionId,
-  });
-  if (!connection) {
-    throw new Error("CONNECTION_NOT_FOUND");
+  // Form-only links need no storage. For drive/youtube, the chosen connection
+  // must belong to this user (defense in depth — RLS only checks user_id).
+  const destinationType = input.destinationType ?? "drive";
+  if (destinationType !== "form") {
+    if (!input.storageConnectionId) {
+      throw new Error("CONNECTION_NOT_FOUND");
+    }
+    const connection = await getConnectionForUser({
+      userId,
+      connectionId: input.storageConnectionId,
+    });
+    if (!connection) {
+      throw new Error("CONNECTION_NOT_FOUND");
+    }
   }
 
   const supabase = createSupabaseServerClient();
@@ -150,11 +157,12 @@ export async function createLink(
     const slug = generateSlug();
     const row = {
       user_id: userId,
-      storage_connection_id: input.storageConnectionId,
+      storage_connection_id: input.storageConnectionId ?? null,
+      destination_type: destinationType,
       slug,
       name: input.name,
       description: input.description ?? null,
-      folder_id: input.folderId,
+      folder_id: input.folderId ?? null,
       folder_name: input.folderName ?? null,
       is_active: input.isActive ?? true,
       expires_at: input.expiresAt ?? null,
@@ -232,6 +240,7 @@ export async function duplicateLink(args: {
     const row = {
       user_id: args.userId,
       storage_connection_id: src.storage_connection_id,
+      destination_type: src.destination_type,
       slug,
       name: `Copy of ${src.name}`.slice(0, 120),
       description: src.description,
@@ -322,6 +331,7 @@ export async function updateLink(args: {
   const i = args.input;
   if (i.name !== undefined) patch.name = i.name;
   if (i.description !== undefined) patch.description = i.description;
+  if (i.destinationType !== undefined) patch.destination_type = i.destinationType;
   if (i.storageConnectionId !== undefined) patch.storage_connection_id = i.storageConnectionId;
   if (i.folderId !== undefined) patch.folder_id = i.folderId;
   if (i.folderName !== undefined) patch.folder_name = i.folderName;

@@ -62,12 +62,15 @@ export interface StorageConnectionRow {
 export interface UploadLinkRow {
   id: string;
   user_id: string;
-  storage_connection_id: string;
+  /** Null for form-only links (no storage destination). */
+  storage_connection_id: string | null;
+  /** drive | youtube | form (form = no file upload). */
+  destination_type: "drive" | "youtube" | "form";
   slug: string;
   name: string;
   description: string | null;
-  /** Provider-native folder identifier (opaque to non-adapter code) */
-  folder_id: string;
+  /** Provider-native folder identifier; null for YouTube/form-only. */
+  folder_id: string | null;
   folder_name: string | null;
   is_active: boolean;
   expires_at: string | null;
@@ -288,8 +291,8 @@ export interface UploadRow {
   id: string;
   upload_link_id: string;
   user_id: string;
-  storage_connection_id: string;
-  folder_id: string;
+  storage_connection_id: string | null;
+  folder_id: string | null;
   /** Provider-native file identifier (Drive fileId, Dropbox path/id, etc.) */
   provider_file_id: string | null;
   original_filename: string;
@@ -350,6 +353,8 @@ export interface UploadLinkPublicRow {
   slug: string;
   name: string;
   description: string | null;
+  /** drive | youtube | form — the public page hides the dropzone for form. */
+  destination_type: "drive" | "youtube" | "form";
   is_active: boolean;
   expires_at: string | null;
   max_file_size_mb: number;

@@ -154,6 +154,9 @@ export function LinkForm({
   const [connectionId, setConnectionId] = useState(
     initialLink?.storage_connection_id ?? connections[0]?.id ?? "",
   );
+  const [destinationType, setDestinationType] = useState<"drive" | "youtube" | "form">(
+    initialLink?.destination_type ?? "drive",
+  );
   const [name, setName] = useState(initialLink?.name ?? "");
   const [description, setDescription] = useState(initialLink?.description ?? "");
   const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
@@ -163,7 +166,9 @@ export function LinkForm({
   const [tags, setTags] = useState<string[]>(initialTags);
   const [tagInput, setTagInput] = useState("");
   const [folder, setFolder] = useState<{ folderId: string; folderName: string } | null>(
-    initialLink ? { folderId: initialLink.folder_id, folderName: initialLink.folder_name ?? "Selected folder" } : null,
+    initialLink && initialLink.folder_id
+      ? { folderId: initialLink.folder_id, folderName: initialLink.folder_name ?? "Selected folder" }
+      : null,
   );
   const [maxFileSizeMb, setMaxFileSizeMb] = useState(initialLink?.max_file_size_mb ?? 1024);
   const [typePresets, setTypePresets] = useState<Set<string>>(
@@ -206,9 +211,30 @@ export function LinkForm({
   const [error, setError] = useState<string | null>(null);
 
   const selectedConnection = connections.find((c) => c.id === connectionId);
-  // YouTube links behave differently: no folder, video-only, and the
-  // filename/description templates drive the video's title + description.
-  const isYouTube = selectedConnection?.provider === "youtube";
+  // Destination drives behavior: YouTube = no folder, video-only; Form only =
+  // no file upload at all (collect answers → submission + Airtable).
+  const isYouTube = destinationType === "youtube";
+  const isFormOnly = destinationType === "form";
+  // Connections that fit the chosen destination (Drive vs YouTube).
+  const eligibleConnections = connections.filter((c) =>
+    destinationType === "youtube" ? c.provider === "youtube" : c.provider === "google_drive",
+  );
+  const hasDrive = connections.some((c) => c.provider === "google_drive");
+  const hasYouTube = connections.some((c) => c.provider === "youtube");
+
+  // Switch destination; reset the connection to one that fits (and clear folder).
+  function changeDestination(next: "drive" | "youtube" | "form") {
+    setDestinationType(next);
+    setFolder(null);
+    if (next === "form") {
+      setConnectionId("");
+    } else {
+      const fit = connections.find((c) =>
+        next === "youtube" ? c.provider === "youtube" : c.provider === "google_drive",
+      );
+      setConnectionId(fit?.id ?? "");
+    }
+  }
 
   function addTag(name: string) {
     const n = name.trim();
@@ -446,22 +472,35 @@ export function LinkForm({
     e.preventDefault();
     setError(null);
 
-    if (!connectionId) {
-      setError("Pick a connected account.");
-      return;
-    }
     if (!name.trim()) {
       setError("Give your link a name.");
       return;
     }
-    // YouTube has no folder — videos go to the channel — so we substitute a
-    // sentinel. Drive/other providers still require an explicitly picked folder.
-    const effectiveFolder = isYouTube
-      ? { folderId: YOUTUBE_FOLDER_SENTINEL, folderName: "YouTube channel (unlisted)" }
-      : folder;
-    if (!effectiveFolder) {
-      setError("Choose a destination folder.");
-      return;
+
+    // Resolve the destination. Form-only links need no storage at all.
+    let storageConnectionId: string | null = null;
+    let folderId: string | null = null;
+    let folderName: string | null = null;
+    if (destinationType === "youtube") {
+      if (!connectionId) {
+        setError("Pick a connected YouTube account.");
+        return;
+      }
+      storageConnectionId = connectionId;
+      folderId = YOUTUBE_FOLDER_SENTINEL;
+      folderName = "YouTube channel (unlisted)";
+    } else if (destinationType === "drive") {
+      if (!connectionId) {
+        setError("Pick a connected Google Drive account.");
+        return;
+      }
+      if (!folder) {
+        setError("Choose a destination folder.");
+        return;
+      }
+      storageConnectionId = connectionId;
+      folderId = folder.folderId;
+      folderName = folder.folderName;
     }
 
     const keptFieldIds = new Set(customFields.filter((f) => f.label.trim()).map((f) => f.id));
@@ -469,13 +508,14 @@ export function LinkForm({
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
-      storageConnectionId: connectionId,
-      folderId: effectiveFolder.folderId,
-      folderName: effectiveFolder.folderName,
+      destinationType,
+      storageConnectionId,
+      folderId,
+      folderName,
       isActive: initialLink?.is_active ?? true,
       maxFileSizeMb,
-      // YouTube only accepts video, regardless of the type toggles.
-      allowedMimeTypes: isYouTube ? ["video/*"] : buildAllowedMimeTypes(),
+      // YouTube only accepts video; form-only has no files (null = any/none).
+      allowedMimeTypes: isFormOnly ? null : isYouTube ? ["video/*"] : buildAllowedMimeTypes(),
       requireName,
       requireEmail,
       showMessageField,
@@ -595,30 +635,81 @@ export function LinkForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {/* Destination */}
-      <CollapsibleSection title="Destination" description="Where uploaded files will land." defaultOpen>
+      <CollapsibleSection title="Destination" description="Where each submission goes." defaultOpen>
 
-        {connections.length > 1 && (
-          <div>
-            <label className="label mb-1" htmlFor="connection">Connected account</label>
-            <select
-              id="connection"
-              className="input"
-              value={connectionId}
-              onChange={(e) => {
-                setConnectionId(e.target.value);
-                setFolder(null); // folder belongs to the previous account
-              }}
-            >
-              {connections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {providerLabel(c.provider)} — {c.provider_email ?? c.id}
-                </option>
-              ))}
-            </select>
+        <div>
+          <span className="label mb-1 block">Destination</span>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { key: "drive", label: "Google Drive" },
+              { key: "youtube", label: "YouTube" },
+              { key: "form", label: "Form only (no files)" },
+            ] as const).map((opt) => (
+              <button
+                type="button"
+                key={opt.key}
+                onClick={() => changeDestination(opt.key)}
+                className={
+                  destinationType === opt.key
+                    ? "rounded-lg border border-brand bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                    : "rounded-lg border border-ink-200 px-3 py-1.5 text-sm text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-        )}
+          {isFormOnly && (
+            <p className="mt-1.5 text-xs text-ink-400">
+              Collect form answers with no file upload — straight to a submission (and Airtable /
+              notifications if set up). No storage account required.
+            </p>
+          )}
+        </div>
 
-        {isYouTube ? (
+        {/* Connection picker (Drive / YouTube only) */}
+        {!isFormOnly &&
+          (eligibleConnections.length === 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+              No {isYouTube ? "YouTube" : "Google Drive"} account connected.{" "}
+              <a
+                href={isYouTube ? "/api/google/connect?target=youtube" : "/api/google/connect"}
+                className="font-medium underline"
+              >
+                Connect one
+              </a>{" "}
+              or pick <strong>Form only</strong>.
+            </div>
+          ) : eligibleConnections.length > 1 ? (
+            <div>
+              <label className="label mb-1" htmlFor="connection">Connected account</label>
+              <select
+                id="connection"
+                className="input"
+                value={connectionId}
+                onChange={(e) => {
+                  setConnectionId(e.target.value);
+                  setFolder(null);
+                }}
+              >
+                {eligibleConnections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {providerLabel(c.provider)} — {c.provider_email ?? c.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null)}
+
+        {isFormOnly ? (
+          <div className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm dark:border-ink-700 dark:bg-ink-900/40">
+            <p className="font-medium text-ink-800 dark:text-ink-100">Form only — no file upload</p>
+            <p className="mt-1 text-ink-500">
+              Add the fields you want to collect below. Route them to Airtable and notifications in
+              their sections.
+            </p>
+          </div>
+        ) : isYouTube ? (
           <div className="rounded-lg border border-ink-200 bg-ink-50 p-3 text-sm dark:border-ink-700 dark:bg-ink-900/40">
             <p className="font-medium text-ink-800 dark:text-ink-100">
               Videos upload to your YouTube channel
@@ -640,7 +731,7 @@ export function LinkForm({
                 initialFolder={folder}
               />
             ) : (
-              <p className="text-sm text-ink-500">Select a connected account first.</p>
+              <p className="text-sm text-ink-500">Connect a Google Drive account first.</p>
             )}
             {selectedConnection && (
               <p className="mt-2 text-xs text-ink-400">
@@ -787,23 +878,29 @@ export function LinkForm({
       </CollapsibleSection>
 
       {/* Upload rules */}
-      <CollapsibleSection title="Upload rules" description="Control what visitors can send." defaultOpen>
+      <CollapsibleSection
+        title={isFormOnly ? "Form rules" : "Upload rules"}
+        description={isFormOnly ? "Control access to this form." : "Control what visitors can send."}
+        defaultOpen
+      >
 
-        <div>
-          <label className="label mb-1" htmlFor="maxsize">Max file size</label>
-          <select
-            id="maxsize"
-            className="input"
-            value={maxFileSizeMb}
-            onChange={(e) => setMaxFileSizeMb(Number(e.target.value))}
-          >
-            {SIZE_OPTIONS.map((o) => (
-              <option key={o.mb} value={o.mb}>{o.label}</option>
-            ))}
-          </select>
-        </div>
+        {!isFormOnly && (
+          <div>
+            <label className="label mb-1" htmlFor="maxsize">Max file size</label>
+            <select
+              id="maxsize"
+              className="input"
+              value={maxFileSizeMb}
+              onChange={(e) => setMaxFileSizeMb(Number(e.target.value))}
+            >
+              {SIZE_OPTIONS.map((o) => (
+                <option key={o.mb} value={o.mb}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
-        {isYouTube ? (
+        {isFormOnly ? null : isYouTube ? (
           <div>
             <span className="label mb-1 block">Allowed file types</span>
             <span className="inline-flex items-center rounded-lg border border-brand bg-brand-50 px-3 py-1.5 text-sm font-medium text-brand-700 dark:bg-brand-900/40 dark:text-brand-100">

@@ -152,12 +152,18 @@ export async function listSubmissions(
   >;
   if (rows.length === 0) return [];
 
-  // File counts in one query (avoid N+1).
+  // File counts in one query (avoid N+1). Exclude form-only "carrier" rows
+  // (source_block_id '__form'), which exist only to drive the pipeline.
   const ids = rows.map((r) => r.id);
   const counts = new Map<string, number>();
-  const { data: ups } = await supabase.from("uploads").select("submission_id").in("submission_id", ids);
-  for (const u of (ups ?? []) as Array<{ submission_id: string | null }>) {
-    if (u.submission_id) counts.set(u.submission_id, (counts.get(u.submission_id) ?? 0) + 1);
+  const { data: ups } = await supabase
+    .from("uploads")
+    .select("submission_id, source_block_id")
+    .in("submission_id", ids);
+  for (const u of (ups ?? []) as Array<{ submission_id: string | null; source_block_id: string | null }>) {
+    if (u.submission_id && u.source_block_id !== "__form") {
+      counts.set(u.submission_id, (counts.get(u.submission_id) ?? 0) + 1);
+    }
   }
 
   return rows.map((r) => {
@@ -200,7 +206,7 @@ export async function getSubmissionDetail(
 
   const { data: filesData } = await supabase
     .from("uploads")
-    .select("id, original_filename, mime_type, file_size_bytes, status, provider, provider_file_id, created_at")
+    .select("id, original_filename, mime_type, file_size_bytes, status, provider, provider_file_id, source_block_id, created_at")
     .eq("submission_id", submissionId)
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
@@ -212,8 +218,11 @@ export async function getSubmissionDetail(
     status: "uploading" | "complete" | "failed";
     provider: StorageProvider | null;
     provider_file_id: string | null;
+    source_block_id: string | null;
     created_at: string;
-  }>).map((f) => ({
+  }>)
+    .filter((f) => f.source_block_id !== "__form") // hide the form carrier
+    .map((f) => ({
     id: f.id,
     originalFilename: f.original_filename,
     mimeType: f.mime_type,

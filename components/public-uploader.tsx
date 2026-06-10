@@ -37,6 +37,8 @@ interface PublicUploaderProps {
   unlockedPassword?: string | null;
   /** URL query prefills (lowercased keys), used to seed fields. */
   prefill?: Record<string, string>;
+  /** Form-only link: collect answers, no file upload (posts to form-submit). */
+  formOnly?: boolean;
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -158,6 +160,7 @@ export function PublicUploader({
   successRedirectUrl = null,
   unlockedPassword = null,
   prefill = {},
+  formOnly = false,
 }: PublicUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(prefill.name ?? prefillName ?? "");
@@ -301,7 +304,61 @@ export function PublicUploader({
     return true;
   }
 
+  // Shared field validation (name/email/visible-required customs). Returns an
+  // error message or null.
+  function validateFields(): string | null {
+    if (showName && requireName && !name.trim()) return "Please enter your name.";
+    if (showEmail && requireEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return "Please enter a valid email.";
+    }
+    const missing = customFields.find(
+      (f) => f.required && isFieldVisible(f.showWhen, customValues) && !(customValues[f.id] ?? "").trim(),
+    );
+    return missing ? `Please fill in "${missing.label}".` : null;
+  }
+
+  // Form-only links: no files — POST the answers to /api/upload/form-submit.
+  async function handleFormSubmit() {
+    setFormError(null);
+    const err = validateFields();
+    if (err) {
+      setFormError(err);
+      return;
+    }
+    setUploading(true);
+    try {
+      const res = await fetch("/api/upload/form-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          uploaderName: name.trim() || null,
+          uploaderEmail: email.trim() || null,
+          uploaderMessage: message.trim() || null,
+          customValues,
+          prefillValues: prefill,
+          password: unlockedPassword ?? null,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(humanizeInitiateError(body.error, maxFileSizeMb));
+      }
+      setUploading(false);
+      setSessionDone(true);
+      if (redirectUrl) {
+        window.setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 900);
+      }
+    } catch (e) {
+      setUploading(false);
+      setFormError(e instanceof Error ? e.message : "Couldn't submit the form.");
+    }
+  }
+
   async function handleUpload() {
+    if (formOnly) return handleFormSubmit();
     setFormError(null);
     if (showName && requireName && !name.trim()) {
       setFormError("Please enter your name.");
@@ -398,13 +455,18 @@ export function PublicUploader({
         </div>
         <div>
           <h2 className="font-display text-xl font-bold">
-            {doneCount} {doneCount === 1 ? "file" : "files"} uploaded
+            {formOnly
+              ? "Response received"
+              : `${doneCount} ${doneCount === 1 ? "file" : "files"} uploaded`}
           </h2>
           <p className="mt-1 text-ink-500">
-            {successMessage?.trim() || "Thank you! Your upload was received."}
+            {successMessage?.trim() ||
+              (formOnly
+                ? "Thank you! Your response was received."
+                : "Thank you! Your upload was received.")}
           </p>
         </div>
-        {failedCount > 0 && (
+        {!formOnly && failedCount > 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-300">
             {failedCount} {failedCount === 1 ? "file" : "files"} didn&apos;t go through.
           </p>
@@ -415,7 +477,7 @@ export function PublicUploader({
           className="btn w-full text-white"
           style={{ backgroundColor: accent }}
         >
-          Upload more files
+          {formOnly ? "Submit another response" : "Upload more files"}
         </button>
         <p className="text-xs text-ink-400">
           Powered by{" "}
@@ -579,7 +641,8 @@ export function PublicUploader({
         );
       })}
 
-      {/* Drop zone */}
+      {/* Drop zone (hidden for form-only links) */}
+      {!formOnly && (
       <div
         role="button"
         tabIndex={0}
@@ -604,6 +667,7 @@ export function PublicUploader({
           onChange={(e) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }}
         />
       </div>
+      )}
 
       {/* File list */}
       {files.length > 0 && (
@@ -642,11 +706,19 @@ export function PublicUploader({
       <button
         type="button"
         onClick={handleUpload}
-        disabled={uploading || queuedCount === 0}
+        disabled={formOnly ? uploading : uploading || queuedCount === 0}
         className="btn w-full text-white"
         style={{ backgroundColor: accent }}
       >
-        {uploading ? "Uploading…" : queuedCount > 0 ? `Upload ${queuedCount} ${queuedCount === 1 ? "file" : "files"}` : "Add files to upload"}
+        {formOnly
+          ? uploading
+            ? "Submitting…"
+            : "Submit"
+          : uploading
+            ? "Uploading…"
+            : queuedCount > 0
+              ? `Upload ${queuedCount} ${queuedCount === 1 ? "file" : "files"}`
+              : "Add files to upload"}
       </button>
     </div>
   );

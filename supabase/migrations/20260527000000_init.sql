@@ -181,9 +181,13 @@ create table public.upload_links (
   user_id uuid not null references public.profiles(id) on delete cascade,
 
   -- Which connected provider account this link delivers to. Restrict delete
-  -- so we don't orphan in-flight uploads when a user disconnects.
-  storage_connection_id uuid not null
+  -- so we don't orphan in-flight uploads when a user disconnects. Null for
+  -- form-only links (no storage destination).
+  storage_connection_id uuid
     references public.storage_connections(id) on delete restrict,
+  -- drive | youtube | form. 'form' = collect answers only (no file upload).
+  destination_type text not null default 'drive'
+    check (destination_type in ('drive', 'youtube', 'form')),
 
   slug text not null unique,
   name text not null,
@@ -191,8 +195,9 @@ create table public.upload_links (
 
   -- The provider's folder ID. Opaque to the rest of the app — what counts as
   -- a "folder" varies per provider (Drive folderId, Dropbox path, Box folder
-  -- ID, OneDrive driveItem ID). The adapter knows how to interpret it.
-  folder_id text not null,
+  -- ID, OneDrive driveItem ID). The adapter knows how to interpret it. Null for
+  -- YouTube (channel) and form-only links.
+  folder_id text,
   folder_name text,
 
   is_active boolean not null default true,
@@ -284,6 +289,7 @@ select
   l.slug,
   l.name,
   l.description,
+  l.destination_type,
   l.is_active,
   l.expires_at,
   l.max_file_size_mb,
@@ -365,10 +371,11 @@ create table public.uploads (
   id uuid primary key default gen_random_uuid(),
   upload_link_id uuid not null references public.upload_links(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  storage_connection_id uuid not null
+  -- Null for file-less form-only "carrier" rows.
+  storage_connection_id uuid
     references public.storage_connections(id) on delete restrict,
 
-  folder_id text not null,
+  folder_id text,
 
   -- The provider's stable identifier for the uploaded file. Provider-specific
   -- shape (Drive fileId, Dropbox file path/id, Box file ID, OneDrive driveItemId).
