@@ -36,6 +36,7 @@ import type {
   FieldConditionOp,
   UploadBox,
   ContentBlock,
+  FormSection,
 } from "@/lib/db-types";
 
 // Airtable-style operators offered per controlling field type.
@@ -174,6 +175,7 @@ export function LinkForm({
   );
   const [uploadBoxes, setUploadBoxes] = useState<UploadBox[]>(initialLink?.upload_boxes ?? []);
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(initialLink?.content_blocks ?? []);
+  const [sections, setSections] = useState<FormSection[]>(initialLink?.sections ?? []);
   const [name, setName] = useState(initialLink?.name ?? "");
   const [description, setDescription] = useState(initialLink?.description ?? "");
   const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
@@ -345,6 +347,29 @@ export function LinkForm({
     setContentBlocks((prev) =>
       prev.map((b) => (b.id === id ? { ...b, text: (b.text ?? "") + token } : b)),
     );
+  }
+
+  // --- Sections (group fields under a heading + text) -----------------------
+  function addSection() {
+    if (sections.length >= 30) return;
+    setSections((prev) => [...prev, { id: crypto.randomUUID(), heading: "", text: "" }]);
+  }
+  function updateSection(id: string, patch: Partial<FormSection>) {
+    setSections((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+  function removeSection(id: string) {
+    setSections((prev) => prev.filter((s) => s.id !== id));
+    setCustomFields((prev) => prev.map((f) => (f.sectionId === id ? { ...f, sectionId: null } : f)));
+  }
+  function moveSection(id: string, dir: "up" | "down") {
+    setSections((prev) => {
+      const i = prev.findIndex((s) => s.id === id);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
   }
   // Import fields from an Airtable table: create matching custom fields AND wire
   // the write-back (this link will send answers back to that table's columns).
@@ -704,6 +729,7 @@ export function LinkForm({
       }));
 
     const keptFieldIds = new Set(customFields.filter((f) => f.label.trim()).map((f) => f.id));
+    const keptSectionIds = new Set(sections.map((s) => s.id));
 
     const payload = {
       name: name.trim(),
@@ -751,8 +777,15 @@ export function LinkForm({
               showWhen = null;
             }
           }
-          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, showWhen };
+          let sectionId = f.sectionId ?? null;
+          if (sectionId && !keptSectionIds.has(sectionId)) sectionId = null;
+          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, showWhen, sectionId };
         }),
+      sections: sections.map((s) => ({
+        id: s.id,
+        heading: s.heading?.trim() || undefined,
+        text: s.text?.trim() || undefined,
+      })),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
       webhookUrl: webhookUrl.trim() || null,
@@ -1459,6 +1492,70 @@ export function LinkForm({
         </p>
       </CollapsibleSection>
 
+      {/* Sections */}
+      <CollapsibleSection
+        title="Sections"
+        badge="Pro"
+        description="Group your fields under headings. Define sections here, then set each field's Section in Custom fields below."
+      >
+        {sections.map((s, idx) => (
+          <div key={s.id} className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-ink-500">Section {idx + 1}</span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => moveSection(s.id, "up")}
+                  disabled={idx === 0}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move section up"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveSection(s.id, "down")}
+                  disabled={idx === sections.length - 1}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move section down"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeSection(s.id)}
+                  className="ml-1 text-xs text-red-600 hover:underline dark:text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            <input
+              className="input font-medium"
+              value={s.heading ?? ""}
+              onChange={(e) => updateSection(s.id, { heading: e.target.value })}
+              placeholder="Section heading (e.g. Property details)"
+              maxLength={200}
+            />
+            <textarea
+              className="input min-h-[56px] text-sm"
+              value={s.text ?? ""}
+              onChange={(e) => updateSection(s.id, { text: e.target.value })}
+              placeholder="Optional intro text for this section"
+              maxLength={2000}
+            />
+          </div>
+        ))}
+        {sections.length < 30 && (
+          <button type="button" onClick={addSection} className="btn-secondary text-sm">
+            + Add section
+          </button>
+        )}
+        <p className="text-xs text-ink-400">
+          Fields with no section appear first, then each section in order (empty sections are hidden).
+        </p>
+      </CollapsibleSection>
+
       {/* Custom fields */}
       <CollapsibleSection
         title="Custom fields"
@@ -1577,6 +1674,24 @@ export function LinkForm({
                   }
                   maxLength={500}
                 />
+              </div>
+            )}
+
+            {sections.length > 0 && (
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className="text-ink-500">Section</span>
+                <select
+                  className="input w-auto py-1 text-xs"
+                  value={f.sectionId ?? ""}
+                  onChange={(e) => updateCustomField(f.id, { sectionId: e.target.value || null })}
+                >
+                  <option value="">No section</option>
+                  {sections.map((s, i) => (
+                    <option key={s.id} value={s.id}>
+                      {s.heading?.trim() || `Section ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 

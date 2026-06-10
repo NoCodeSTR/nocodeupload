@@ -97,6 +97,7 @@ export function UploadCard({
             formOnly={link.destination_type === "form"}
             boxes={link.upload_boxes}
             recordId={recordId}
+            sections={link.sections}
           />
         </div>
       </div>

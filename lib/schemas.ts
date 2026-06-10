@@ -25,6 +25,8 @@ export const customFieldSchema = z.object({
     .default("text"),
   // Choices for select / multiselect. Capped to keep the public payload sane.
   options: z.array(z.string().min(1).max(80)).max(20).optional(),
+  // Optional grouping into a form section.
+  sectionId: z.string().max(64).optional().nullable(),
   // Optional conditional visibility: show only when the controlling field
   // (by id) holds one of these values.
   showWhen: z
@@ -159,6 +161,14 @@ export const contentBlockSchema = z.object({
 });
 export type ContentBlockInput = z.infer<typeof contentBlockSchema>;
 
+/** A form section — groups fields under a heading + intro text. */
+export const formSectionSchema = z.object({
+  id: z.string().min(1).max(64),
+  heading: z.string().max(200).optional().nullable(),
+  text: z.string().max(2000).optional().nullable(),
+});
+export type FormSectionInput = z.infer<typeof formSectionSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
@@ -172,6 +182,7 @@ export const uploadLinkCreateSchema = z.object({
   folderName: z.string().optional().nullable(),
   uploadBoxes: z.array(uploadBoxSchema).max(20).optional().nullable(),
   contentBlocks: z.array(contentBlockSchema).max(30).optional().nullable(),
+  sections: z.array(formSectionSchema).max(30).optional().nullable(),
   isActive: z.boolean().default(true),
   expiresAt: z.string().datetime().optional().nullable(),
   maxFileSizeMb: z.number().int().positive().max(50 * 1024).default(1024),

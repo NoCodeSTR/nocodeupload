@@ -16,7 +16,7 @@ import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
 import { prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
-import type { PublicCustomField, PublicUploadBox } from "@/lib/db-types";
+import type { PublicCustomField, PublicUploadBox, FormSection } from "@/lib/db-types";
 
 interface PublicUploaderProps {
   slug: string;
@@ -43,6 +43,8 @@ interface PublicUploaderProps {
   boxes?: PublicUploadBox[];
   /** Airtable record id from the URL — sent so the server can prefill hidden fields. */
   recordId?: string | null;
+  /** Form sections (heading + text) that group the custom fields. */
+  sections?: FormSection[];
 }
 
 type FileStatus = "queued" | "uploading" | "done" | "failed";
@@ -169,6 +171,7 @@ export function PublicUploader({
   formOnly = false,
   boxes = [],
   recordId = null,
+  sections = [],
 }: PublicUploaderProps) {
   const multiBox = boxes.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -519,6 +522,123 @@ export function PublicUploader({
     );
   }
 
+  // Render one custom field (used both ungrouped and inside sections).
+  function renderField(f: PublicCustomField) {
+    const type = f.type ?? "text";
+    const cur = customValues[f.id] ?? "";
+    const setVal = (v: string) => setCustomValues((prev) => ({ ...prev, [f.id]: v }));
+
+    if (type === "checkbox") {
+      return (
+        <div key={f.id}>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={cur === "Yes"}
+              disabled={uploading}
+              onChange={(e) => setVal(e.target.checked ? "Yes" : "")}
+            />
+            {f.label} {f.required && <span className="text-red-500">*</span>}
+          </label>
+        </div>
+      );
+    }
+
+    return (
+      <div key={f.id}>
+        <label className="label mb-1" htmlFor={`cf-${f.id}`}>
+          {f.label} {f.required && <span className="text-red-500">*</span>}
+        </label>
+
+        {type === "select" ? (
+          <select
+            id={`cf-${f.id}`}
+            className="input"
+            value={cur}
+            disabled={uploading}
+            onChange={(e) => setVal(e.target.value)}
+          >
+            <option value="">Select…</option>
+            {(f.options ?? []).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        ) : type === "multiselect" ? (
+          <div className="flex flex-wrap gap-2">
+            {(f.options ?? []).map((o) => {
+              const selected = cur
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const checked = selected.includes(o);
+              return (
+                <label
+                  key={o}
+                  className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    checked
+                      ? "border-current bg-ink-50 dark:bg-ink-900"
+                      : "border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
+                  }`}
+                  style={checked ? { color: accent } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={checked}
+                    disabled={uploading}
+                    onChange={(e) => {
+                      const set = new Set(selected);
+                      if (e.target.checked) set.add(o);
+                      else set.delete(o);
+                      setVal(Array.from(set).join(", "));
+                    }}
+                  />
+                  {o}
+                </label>
+              );
+            })}
+          </div>
+        ) : type === "currency" ? (
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400">
+              $
+            </span>
+            <input
+              id={`cf-${f.id}`}
+              className="input pl-7"
+              inputMode="decimal"
+              value={cur}
+              onChange={(e) => setVal(e.target.value)}
+              disabled={uploading}
+              placeholder="0.00"
+            />
+          </div>
+        ) : (
+          <input
+            id={`cf-${f.id}`}
+            className="input"
+            type={type === "email" ? "email" : type === "phone" ? "tel" : "text"}
+            inputMode={type === "number" ? "decimal" : undefined}
+            value={cur}
+            onChange={(e) => setVal(e.target.value)}
+            disabled={uploading}
+            placeholder={
+              type === "email"
+                ? "name@example.com"
+                : type === "phone"
+                  ? "(555) 555-5555"
+                  : type === "number"
+                    ? "0"
+                    : undefined
+            }
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {showName && (
@@ -546,125 +666,35 @@ export function PublicUploader({
         </div>
       )}
 
-      {/* Owner-defined visible custom fields (respecting conditional visibility) */}
-      {customFields
-        .filter((f) => isFieldVisible(f.showWhen, customValues))
-        .map((f) => {
-        const type = f.type ?? "text";
-        const cur = customValues[f.id] ?? "";
-        const setVal = (v: string) =>
-          setCustomValues((prev) => ({ ...prev, [f.id]: v }));
-
-        if (type === "checkbox") {
-          return (
-            <div key={f.id}>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={cur === "Yes"}
-                  disabled={uploading}
-                  onChange={(e) => setVal(e.target.checked ? "Yes" : "")}
-                />
-                {f.label} {f.required && <span className="text-red-500">*</span>}
-              </label>
-            </div>
-          );
-        }
-
+      {/* Owner-defined fields, respecting conditional visibility + sections.
+          Ungrouped fields first, then each non-empty section (heading + text). */}
+      {(() => {
+        const visibleFields = customFields.filter((f) => isFieldVisible(f.showWhen, customValues));
+        const sectionIds = new Set(sections.map((s) => s.id));
+        const ungrouped = visibleFields.filter((f) => !f.sectionId || !sectionIds.has(f.sectionId));
         return (
-          <div key={f.id}>
-            <label className="label mb-1" htmlFor={`cf-${f.id}`}>
-              {f.label} {f.required && <span className="text-red-500">*</span>}
-            </label>
-
-            {type === "select" ? (
-              <select
-                id={`cf-${f.id}`}
-                className="input"
-                value={cur}
-                disabled={uploading}
-                onChange={(e) => setVal(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {(f.options ?? []).map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            ) : type === "multiselect" ? (
-              <div className="flex flex-wrap gap-2">
-                {(f.options ?? []).map((o) => {
-                  const selected = cur
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean);
-                  const checked = selected.includes(o);
-                  return (
-                    <label
-                      key={o}
-                      className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                        checked
-                          ? "border-current bg-ink-50 dark:bg-ink-900"
-                          : "border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
-                      }`}
-                      style={checked ? { color: accent } : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={checked}
-                        disabled={uploading}
-                        onChange={(e) => {
-                          const set = new Set(selected);
-                          if (e.target.checked) set.add(o);
-                          else set.delete(o);
-                          setVal(Array.from(set).join(", "));
-                        }}
-                      />
-                      {o}
-                    </label>
-                  );
-                })}
-              </div>
-            ) : type === "currency" ? (
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400">
-                  $
-                </span>
-                <input
-                  id={`cf-${f.id}`}
-                  className="input pl-7"
-                  inputMode="decimal"
-                  value={cur}
-                  onChange={(e) => setVal(e.target.value)}
-                  disabled={uploading}
-                  placeholder="0.00"
-                />
-              </div>
-            ) : (
-              <input
-                id={`cf-${f.id}`}
-                className="input"
-                type={type === "email" ? "email" : type === "phone" ? "tel" : "text"}
-                inputMode={type === "number" ? "decimal" : undefined}
-                value={cur}
-                onChange={(e) => setVal(e.target.value)}
-                disabled={uploading}
-                placeholder={
-                  type === "email"
-                    ? "name@example.com"
-                    : type === "phone"
-                      ? "(555) 555-5555"
-                      : type === "number"
-                        ? "0"
-                        : undefined
-                }
-              />
-            )}
-          </div>
+          <>
+            {ungrouped.map((f) => renderField(f))}
+            {sections.map((s) => {
+              const secFields = visibleFields.filter((f) => f.sectionId === s.id);
+              if (secFields.length === 0) return null;
+              const heading = s.heading?.trim();
+              const text = s.text?.trim();
+              return (
+                <div key={s.id} className="space-y-4">
+                  {(heading || text) && (
+                    <div className="border-t border-ink-200 pt-4 dark:border-ink-700">
+                      {heading && <h3 className="font-display text-base font-semibold">{heading}</h3>}
+                      {text && <p className="mt-0.5 text-sm text-ink-500">{text}</p>}
+                    </div>
+                  )}
+                  {secFields.map((f) => renderField(f))}
+                </div>
+              );
+            })}
+          </>
         );
-      })}
+      })()}
 
       {/* Multi-box: one dropzone per box, each routed to its own destination */}
       {!formOnly && multiBox && (

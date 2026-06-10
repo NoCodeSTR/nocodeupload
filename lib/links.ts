@@ -194,6 +194,7 @@ export async function createLink(
       airtable_config: input.airtableConfig ?? null,
       upload_boxes: input.uploadBoxes ?? null,
       content_blocks: input.contentBlocks ?? null,
+      sections: input.sections ?? null,
     };
 
     const { data, error } = await supabase
@@ -278,6 +279,7 @@ export async function duplicateLink(args: {
       airtable_config: src.airtable_config,
       upload_boxes: src.upload_boxes,
       content_blocks: src.content_blocks,
+      sections: src.sections,
     };
 
     const { data, error } = await supabase
@@ -373,6 +375,7 @@ export async function updateLink(args: {
   if (i.airtableConfig !== undefined) patch.airtable_config = i.airtableConfig;
   if (i.uploadBoxes !== undefined) patch.upload_boxes = i.uploadBoxes;
   if (i.contentBlocks !== undefined) patch.content_blocks = i.contentBlocks;
+  if (i.sections !== undefined) patch.sections = i.sections;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

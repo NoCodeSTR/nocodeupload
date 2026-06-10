@@ -252,6 +252,9 @@ create table public.upload_links (
   -- Ordered presentational blocks shown atop the public form: array of
   -- { id, type (heading|text|divider), text }. Support merge tags ({{key}}).
   content_blocks jsonb,
+  -- Ordered form sections: array of { id, heading, text }. Custom fields carry
+  -- an optional sectionId (inside custom_fields) to group under a section.
+  sections jsonb,
   -- Optional Airtable destination (Phase A — record creation ALONGSIDE Drive):
   -- { enabled, baseId, baseName, tableId, tableName, recordMode
   --   (per_upload|per_batch), attachFiles, attachFieldName, mapping
@@ -318,7 +321,8 @@ select
       'required', coalesce((e->>'required')::boolean, false),
       'type', coalesce(e->>'type', 'text'),
       'options', coalesce(e->'options', '[]'::jsonb),
-      'showWhen', e->'showWhen'
+      'showWhen', e->'showWhen',
+      'sectionId', e->>'sectionId'
     ))
     from jsonb_array_elements(l.custom_fields) e
     where coalesce((e->>'visible')::boolean, false) = true
@@ -335,6 +339,7 @@ select
     from jsonb_array_elements(coalesce(l.upload_boxes, '[]'::jsonb)) b
   ), '[]'::jsonb) as upload_boxes,
   coalesce(l.content_blocks, '[]'::jsonb) as content_blocks,
+  coalesce(l.sections, '[]'::jsonb) as sections,
   -- Effective logo: per-link override, else the owner's account logo.
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color,

@@ -140,6 +140,8 @@ export interface UploadLinkRow {
   upload_boxes: UploadBox[] | null;
   /** Ordered presentational blocks shown atop the public form. */
   content_blocks: ContentBlock[] | null;
+  /** Ordered form sections that group fields under a heading + text. */
+  sections: FormSection[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -247,6 +249,13 @@ export interface FieldCondition {
   values: string[];
 }
 
+/** A form section — groups fields under a heading + intro text. */
+export interface FormSection {
+  id: string;
+  heading?: string;
+  text?: string;
+}
+
 /** An owner-defined field on a link. */
 export interface CustomFieldDef {
   id: string;
@@ -257,6 +266,7 @@ export interface CustomFieldDef {
   type?: CustomFieldType; // defaults to "text" when absent (back-compat)
   options?: string[]; // choices for select / multiselect
   showWhen?: FieldCondition | null; // optional conditional visibility
+  sectionId?: string | null; // optional grouping into a form section
 }
 
 // --- Notifications v2 --------------------------------------------------------
@@ -337,6 +347,7 @@ export interface PublicCustomField {
   type?: CustomFieldType;
   options?: string[];
   showWhen?: FieldCondition | null;
+  sectionId?: string | null;
 }
 
 export interface UploadRow {
@@ -425,6 +436,8 @@ export interface UploadLinkPublicRow {
   upload_boxes: PublicUploadBox[];
   /** Presentational blocks rendered atop the public form (merge tags applied). */
   content_blocks: ContentBlock[];
+  /** Form sections that group fields (heading + text). */
+  sections: FormSection[];
   branding_logo_url: string | null;
   branding_color: string | null;
   success_message: string | null;
