@@ -19,6 +19,7 @@ import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { AirtableConfigEditor } from "@/components/airtable-config-editor";
+import { AirtableImport, type ImportedAirtableField } from "@/components/airtable-import";
 import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import { renderMergeTags } from "@/lib/merge-tags";
@@ -345,6 +346,60 @@ export function LinkForm({
       prev.map((b) => (b.id === id ? { ...b, text: (b.text ?? "") + token } : b)),
     );
   }
+  // Import fields from an Airtable table: create matching custom fields AND wire
+  // the write-back (this link will send answers back to that table's columns).
+  function importAirtableFields(result: {
+    baseId: string;
+    baseName: string;
+    tableId: string;
+    tableName: string;
+    fields: ImportedAirtableField[];
+  }) {
+    const existing = new Set(customFields.map((f) => f.label.trim().toLowerCase()));
+    const added: CustomFieldDef[] = result.fields
+      .filter((f) => f.label.trim() && !existing.has(f.label.trim().toLowerCase()))
+      .map((f) => ({
+        id: crypto.randomUUID(),
+        label: f.label.trim(),
+        value: "",
+        visible: true,
+        required: false,
+        type: f.type,
+        options: f.options,
+      }));
+    if (added.length) setCustomFields((prev) => [...prev, ...added]);
+
+    setAirtableConfig((prev) => {
+      const baseCfg: AirtableConfig = prev ?? {
+        enabled: true,
+        baseId: "",
+        baseName: "",
+        tableId: "",
+        tableName: "",
+        recordMode: "per_upload",
+        attachFiles: false,
+        attachFieldName: null,
+        mapping: {},
+        staticValues: [],
+      };
+      // Switching tables invalidates the old table's field-name mappings.
+      const tableChanged = baseCfg.tableId !== result.tableId;
+      const mapping: Record<string, string> = tableChanged ? {} : { ...baseCfg.mapping };
+      for (const f of result.fields) mapping[`field:${f.label.trim()}`] = f.label.trim();
+      return {
+        ...baseCfg,
+        enabled: true,
+        baseId: result.baseId,
+        baseName: result.baseName,
+        tableId: result.tableId,
+        tableName: result.tableName,
+        mapping,
+        attachFieldName: tableChanged ? null : baseCfg.attachFieldName,
+        staticValues: tableChanged ? [] : baseCfg.staticValues,
+      };
+    });
+  }
+
   // Sample values for the builder preview (real values come from URL prefills).
   const mergeSample: Record<string, string> = {
     name: prefillName || "Jane",
@@ -1410,6 +1465,12 @@ export function LinkForm({
         badge="Pro"
         description="Up to 50 of your own fields. Hidden + prefilled values get attached to every upload and flow into your webhook — perfect for tagging a cleaner's Airtable record ID, phone, etc."
       >
+
+        {airtableConnected && (
+          <div className="border-b border-ink-100 pb-3 dark:border-ink-800">
+            <AirtableImport onImport={importAirtableFields} />
+          </div>
+        )}
 
         {customFields.map((f, idx) => {
           const controllers = customFields.filter((c) => isController(c, f.id));

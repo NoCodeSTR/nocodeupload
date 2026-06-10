@@ -100,6 +100,8 @@ export interface AirtableField {
   id: string;
   name: string;
   type: string;
+  /** Choice names for singleSelect / multipleSelects (for field import). */
+  options?: string[];
 }
 
 export interface AirtableTable {
@@ -111,12 +113,27 @@ export interface AirtableTable {
 /** List tables (with their fields) in a base. */
 export async function listTables(token: string, baseId: string): Promise<AirtableTable[]> {
   const data = await airtableFetch<{
-    tables?: Array<{ id: string; name: string; fields?: Array<{ id: string; name: string; type: string }> }>;
+    tables?: Array<{
+      id: string;
+      name: string;
+      fields?: Array<{
+        id: string;
+        name: string;
+        type: string;
+        options?: { choices?: Array<{ name?: string }> };
+      }>;
+    }>;
   }>(token, `/meta/bases/${encodeURIComponent(baseId)}/tables`);
   return (data.tables ?? []).map((t) => ({
     id: t.id,
     name: t.name,
-    fields: (t.fields ?? []).map((f) => ({ id: f.id, name: f.name, type: f.type })),
+    fields: (t.fields ?? []).map((f) => {
+      const choices = f.options?.choices;
+      const opts = Array.isArray(choices)
+        ? choices.map((c) => c.name).filter((n): n is string => Boolean(n))
+        : undefined;
+      return { id: f.id, name: f.name, type: f.type, ...(opts && opts.length ? { options: opts } : {}) };
+    }),
   }));
 }
 
