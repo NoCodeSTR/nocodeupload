@@ -193,6 +193,7 @@ export async function createLink(
       project_id: input.projectId ?? null,
       airtable_config: input.airtableConfig ?? null,
       upload_boxes: input.uploadBoxes ?? null,
+      content_blocks: input.contentBlocks ?? null,
     };
 
     const { data, error } = await supabase
@@ -276,6 +277,7 @@ export async function duplicateLink(args: {
       project_id: src.project_id,
       airtable_config: src.airtable_config,
       upload_boxes: src.upload_boxes,
+      content_blocks: src.content_blocks,
     };
 
     const { data, error } = await supabase
@@ -370,6 +372,7 @@ export async function updateLink(args: {
   if (i.projectId !== undefined) patch.project_id = i.projectId;
   if (i.airtableConfig !== undefined) patch.airtable_config = i.airtableConfig;
   if (i.uploadBoxes !== undefined) patch.upload_boxes = i.uploadBoxes;
+  if (i.contentBlocks !== undefined) patch.content_blocks = i.contentBlocks;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase

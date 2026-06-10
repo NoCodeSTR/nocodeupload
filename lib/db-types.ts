@@ -76,6 +76,17 @@ export interface UploadBox {
   required?: boolean;
 }
 
+/**
+ * A presentational block shown atop the public form. heading/text support merge
+ * tags ({{key}}); divider is a horizontal rule. Stored in content_blocks and
+ * exposed publicly as-is (presentational, safe).
+ */
+export interface ContentBlock {
+  id: string;
+  type: "heading" | "text" | "divider";
+  text?: string;
+}
+
 /** Public-safe projection of an upload box (no connection/folder ids). */
 export interface PublicUploadBox {
   id: string;
@@ -127,6 +138,8 @@ export interface UploadLinkRow {
   airtable_config: AirtableConfig | null;
   /** Multi-box uploads (destination_type 'multi'); null otherwise. */
   upload_boxes: UploadBox[] | null;
+  /** Ordered presentational blocks shown atop the public form. */
+  content_blocks: ContentBlock[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -397,6 +410,8 @@ export interface UploadLinkPublicRow {
   visible_custom_fields: PublicCustomField[];
   /** Present for multi-box links (destination_type 'multi'); else []. */
   upload_boxes: PublicUploadBox[];
+  /** Presentational blocks rendered atop the public form (merge tags applied). */
+  content_blocks: ContentBlock[];
   branding_logo_url: string | null;
   branding_color: string | null;
   success_message: string | null;

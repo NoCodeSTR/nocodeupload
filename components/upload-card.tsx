@@ -5,6 +5,7 @@
  */
 import { Upload } from "lucide-react";
 import { PublicUploader } from "@/components/public-uploader";
+import { renderMergeTags } from "@/lib/merge-tags";
 import type { UploadLinkPublicRow } from "@/lib/db-types";
 
 export function UploadCard({
@@ -47,6 +48,30 @@ export function UploadCard({
 
         <h1 className="font-display text-2xl font-bold">{link.name}</h1>
         {link.description && <p className="mt-2 text-ink-500">{link.description}</p>}
+
+        {link.content_blocks.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {link.content_blocks.map((b) => {
+              if (b.type === "divider") {
+                return <hr key={b.id} className="border-ink-200 dark:border-ink-700" />;
+              }
+              const text = renderMergeTags(b.text ?? "", prefill);
+              if (!text.trim()) return null;
+              if (b.type === "heading") {
+                return (
+                  <h2 key={b.id} className="font-display text-lg font-semibold text-ink-900 dark:text-ink-50">
+                    {text}
+                  </h2>
+                );
+              }
+              return (
+                <p key={b.id} className="whitespace-pre-wrap text-ink-600 dark:text-ink-300">
+                  {text}
+                </p>
+              );
+            })}
+          </div>
+        )}
 
         <div className="mt-6">
           <PublicUploader

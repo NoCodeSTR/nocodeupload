@@ -21,6 +21,7 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { AirtableConfigEditor } from "@/components/airtable-config-editor";
 import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
+import { renderMergeTags } from "@/lib/merge-tags";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
@@ -33,6 +34,7 @@ import type {
   AirtableConfig,
   FieldConditionOp,
   UploadBox,
+  ContentBlock,
 } from "@/lib/db-types";
 
 // Airtable-style operators offered per controlling field type.
@@ -160,6 +162,7 @@ export function LinkForm({
     initialLink?.destination_type ?? "drive",
   );
   const [uploadBoxes, setUploadBoxes] = useState<UploadBox[]>(initialLink?.upload_boxes ?? []);
+  const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(initialLink?.content_blocks ?? []);
   const [name, setName] = useState(initialLink?.name ?? "");
   const [description, setDescription] = useState(initialLink?.description ?? "");
   const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
@@ -291,6 +294,45 @@ export function LinkForm({
       folderName: null,
     });
   }
+
+  // --- Content blocks (heading / text / divider, with merge tags) -----------
+  function addContentBlock(type: ContentBlock["type"]) {
+    if (contentBlocks.length >= 30) return;
+    setContentBlocks((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), type, text: type === "divider" ? undefined : "" },
+    ]);
+  }
+  function updateContentBlock(id: string, text: string) {
+    setContentBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
+  }
+  function removeContentBlock(id: string) {
+    setContentBlocks((prev) => prev.filter((b) => b.id !== id));
+  }
+  function moveContentBlock(id: string, dir: "up" | "down") {
+    setContentBlocks((prev) => {
+      const i = prev.findIndex((b) => b.id === id);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  function insertContentToken(id: string, token: string) {
+    setContentBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, text: (b.text ?? "") + token } : b)),
+    );
+  }
+  // Sample values for the builder preview (real values come from URL prefills).
+  const mergeSample: Record<string, string> = {
+    name: prefillName || "Jane",
+    email: prefillEmail || "jane@example.com",
+    message: "Sample message",
+    ...Object.fromEntries(
+      customFields.filter((f) => f.label.trim()).map((f) => [f.label.trim(), f.value.trim() || "sample"]),
+    ),
+  };
 
   function addTag(name: string) {
     const n = name.trim();
@@ -599,6 +641,9 @@ export function LinkForm({
       // YouTube only accepts video; form-only has no files (null = any/none).
       allowedMimeTypes: isFormOnly ? null : isYouTube ? ["video/*"] : buildAllowedMimeTypes(),
       uploadBoxes: isMulti ? cleanedBoxes : null,
+      contentBlocks: contentBlocks
+        .filter((b) => b.type === "divider" || (b.text ?? "").trim())
+        .map((b) => ({ ...b, text: b.text?.trim() || undefined })),
       requireName,
       requireEmail,
       showMessageField,
@@ -1210,6 +1255,124 @@ export function LinkForm({
             </label>
           </div>
         </div>
+      </CollapsibleSection>
+
+      {/* Form intro & content blocks */}
+      <CollapsibleSection
+        title="Form intro & content"
+        badge="Pro"
+        description="Headings, text, and dividers shown at the top of your public form. Use {{merge tags}} to personalize from the link's URL — e.g. Hey {{first_name}}!"
+      >
+        {contentBlocks.map((b, idx) => (
+          <div key={b.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-ink-400">{b.type}</span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => moveContentBlock(b.id, "up")}
+                  disabled={idx === 0}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move up"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveContentBlock(b.id, "down")}
+                  disabled={idx === contentBlocks.length - 1}
+                  className="rounded p-1 text-ink-400 enabled:hover:bg-ink-100 disabled:opacity-30 dark:enabled:hover:bg-ink-800"
+                  aria-label="Move down"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeContentBlock(b.id)}
+                  className="ml-1 text-xs text-red-600 hover:underline dark:text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            {b.type === "divider" ? (
+              <hr className="border-ink-200 dark:border-ink-700" />
+            ) : (
+              <>
+                {b.type === "heading" ? (
+                  <input
+                    className="input font-medium"
+                    value={b.text ?? ""}
+                    onChange={(e) => updateContentBlock(b.id, e.target.value)}
+                    placeholder="Heading — e.g. Welcome, {{first_name}}!"
+                    maxLength={200}
+                  />
+                ) : (
+                  <textarea
+                    className="input min-h-[72px]"
+                    value={b.text ?? ""}
+                    onChange={(e) => updateContentBlock(b.id, e.target.value)}
+                    placeholder="Text — e.g. Please upload your checkout photos for {{property}} before {{checkout_date}}."
+                    maxLength={2000}
+                  />
+                )}
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {["{{name}}", "{{email}}", "{{message}}"].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => insertContentToken(b.id, t)}
+                      className="rounded-md border border-ink-200 px-2 py-1 font-mono text-xs text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                  {customFields
+                    .filter((f) => f.label.trim())
+                    .map((f) => {
+                      const tok = `{{${f.label.trim()}}}`;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => insertContentToken(b.id, tok)}
+                          className="rounded-md border border-brand-200 bg-brand-50 px-2 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
+                        >
+                          {tok}
+                        </button>
+                      );
+                    })}
+                </div>
+                {(b.text ?? "").trim() && (
+                  <p className="mt-1.5 text-xs text-ink-500">
+                    Preview:{" "}
+                    <span className={b.type === "heading" ? "font-semibold text-ink-800 dark:text-ink-100" : ""}>
+                      {renderMergeTags(b.text ?? "", mergeSample)}
+                    </span>
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => addContentBlock("heading")} className="btn-secondary text-sm">
+            + Heading
+          </button>
+          <button type="button" onClick={() => addContentBlock("text")} className="btn-secondary text-sm">
+            + Text
+          </button>
+          <button type="button" onClick={() => addContentBlock("divider")} className="btn-secondary text-sm">
+            + Divider
+          </button>
+        </div>
+        <p className="text-xs text-ink-400">
+          Merge tags pull from the link&apos;s URL — share{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?first_name=John</code> and{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{first_name}}"}</code> becomes
+          &ldquo;John.&rdquo; Add a fallback with{" "}
+          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{first_name|there}}"}</code>.
+        </p>
       </CollapsibleSection>
 
       {/* Custom fields */}

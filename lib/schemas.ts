@@ -149,6 +149,14 @@ export const uploadBoxSchema = z.object({
 });
 export type UploadBoxInput = z.infer<typeof uploadBoxSchema>;
 
+/** A presentational content block (heading / text / divider) atop the form. */
+export const contentBlockSchema = z.object({
+  id: z.string().min(1).max(64),
+  type: z.enum(["heading", "text", "divider"]),
+  text: z.string().max(2000).optional().nullable(),
+});
+export type ContentBlockInput = z.infer<typeof contentBlockSchema>;
+
 export const uploadLinkCreateSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   description: z.string().max(2000).optional().nullable(),
@@ -161,6 +169,7 @@ export const uploadLinkCreateSchema = z.object({
   folderId: z.string().max(512).optional().nullable(),
   folderName: z.string().optional().nullable(),
   uploadBoxes: z.array(uploadBoxSchema).max(20).optional().nullable(),
+  contentBlocks: z.array(contentBlockSchema).max(30).optional().nullable(),
   isActive: z.boolean().default(true),
   expiresAt: z.string().datetime().optional().nullable(),
   maxFileSizeMb: z.number().int().positive().max(50 * 1024).default(1024),

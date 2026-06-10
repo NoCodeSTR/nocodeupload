@@ -249,6 +249,9 @@ create table public.upload_links (
   -- (drive|youtube), connectionId, folderId, folderName, referenceImageUrl,
   -- required }. Null for single-destination / form links.
   upload_boxes jsonb,
+  -- Ordered presentational blocks shown atop the public form: array of
+  -- { id, type (heading|text|divider), text }. Support merge tags ({{key}}).
+  content_blocks jsonb,
   -- Optional Airtable destination (Phase A — record creation ALONGSIDE Drive):
   -- { enabled, baseId, baseName, tableId, tableName, recordMode
   --   (per_upload|per_batch), attachFiles, attachFieldName, mapping
@@ -331,6 +334,7 @@ select
     ))
     from jsonb_array_elements(coalesce(l.upload_boxes, '[]'::jsonb)) b
   ), '[]'::jsonb) as upload_boxes,
+  coalesce(l.content_blocks, '[]'::jsonb) as content_blocks,
   -- Effective logo: per-link override, else the owner's account logo.
   coalesce(l.branding_logo_url, p.logo_url) as branding_logo_url,
   l.branding_color,
