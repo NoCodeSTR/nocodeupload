@@ -13,7 +13,8 @@
  * Every payload carries `uploadType` ("single" | "batch") and a `files` array
  * (length 1 for singles) so automations can branch cleanly. `file` (the first
  * file) is retained for back-compat. Point Slack/Quo automations at
- * `files[].url` (Drive file or YouTube watch URL).
+ * `files[].url` (Drive file or YouTube watch URL). A `submission` object
+ * ({ id, url }) deep-links back into NoCodeUpload to the full submission.
  *
  * Best-effort and bounded by a timeout — a slow/broken webhook never blocks or
  * fails the upload.
@@ -24,6 +25,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
+import { submissionUrl } from "@/lib/submissions";
 import type { StorageProvider } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
 
@@ -38,10 +40,11 @@ function hostOf(url: string): string {
 }
 
 const UPLOAD_COLUMNS =
-  "upload_link_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
+  "upload_link_id, submission_id, provider_file_id, provider, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, batch_id, batch_size, status, completed_at";
 
 interface UploadShape {
   upload_link_id: string;
+  submission_id: string | null;
   provider_file_id: string | null;
   provider: StorageProvider | null;
   original_filename: string;
@@ -84,6 +87,15 @@ function filePayload(u: UploadShape) {
         ? `https://drive.google.com/file/d/${u.provider_file_id}/view`
         : null,
   };
+}
+
+/**
+ * Submission deep-link — back into NoCodeUpload to see the full submission (every
+ * file, every answer, and the links it produced). Null on legacy rows with no
+ * submission_id.
+ */
+function submissionPayload(u: UploadShape) {
+  return u.submission_id ? { id: u.submission_id, url: submissionUrl(u.submission_id) } : null;
 }
 
 async function loadLink(uploadLinkId: string): Promise<LinkShape | null> {
@@ -157,6 +169,8 @@ export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult>
     uploadType: "single",
     uploadId,
     link: { id: link.id, name: link.name, slug: link.slug },
+    // Deep-link back into NoCodeUpload to see the full submission.
+    submission: submissionPayload(upload),
     // Present even on per-file sends (bundling off) so automations can still
     // group files uploaded together by batch id.
     batch: upload.batch_id ? { id: upload.batch_id, fileCount: upload.batch_size } : null,
@@ -206,6 +220,8 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
     uploadType: "batch",
     batch: { id: batchId, fileCount: files.length },
     link: { id: link.id, name: link.name, slug: link.slug },
+    // Deep-link back into NoCodeUpload to see the full submission.
+    submission: submissionPayload(rep),
     // Back-compat: `file` is the first file in the batch.
     file: files[0],
     files,

@@ -846,6 +846,7 @@ export function LinkForm({
     uploaderEmail: prefillEmail || "jane@example.com",
     uploaderMessage: "Water damage under the kitchen sink",
     resultUrl: "https://drive.google.com/file/d/EXAMPLE/view",
+    submissionUrl: "https://nocodeupload.com/dashboard/submissions/example",
     count: 3,
     customData: Object.fromEntries(
       customFields
@@ -2228,7 +2229,7 @@ export function LinkForm({
                   maxLength={1000}
                 />
                 <div className="flex flex-wrap gap-1.5">
-                  {["{name}", "{message}", "{link}", "{date}", "{count}"].map((t) => (
+                  {["{name}", "{message}", "{link}", "{submission}", "{date}", "{count}"].map((t) => (
                     <button
                       key={t}
                       type="button"

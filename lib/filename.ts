@@ -11,6 +11,7 @@
  *   {message}   → uploader's message / notes
  *   {original}  → original filename without extension
  *   {link}      → result URL (Drive file / YouTube watch) — readable renderer only
+ *   {submission}→ NoCodeUpload submission page URL — readable renderer only
  *   {count}     → number of files in the batch — readable renderer only
  *   {field:Label} → a custom field's value, matched by label (case-insensitive)
  *
@@ -61,6 +62,8 @@ export interface FilenameContext {
   date?: Date;
   /** Result URL (Drive/YouTube) — for the {link} token in notification messages. */
   resultUrl?: string | null;
+  /** NoCodeUpload submission page URL — for the {submission} token. */
+  submissionUrl?: string | null;
   /** Number of files in a batch — for the {count} token. */
   count?: number;
 }
@@ -128,6 +131,7 @@ export function renderText(template: string | null | undefined, ctx: FilenameCon
     message: (ctx.uploaderMessage ?? "").trim(),
     original: base,
     link: (ctx.resultUrl ?? "").trim(),
+    submission: (ctx.submissionUrl ?? "").trim(),
     count: ctx.count != null ? String(ctx.count) : "",
   };
 

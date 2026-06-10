@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { Shield, Zap, Folder, Camera, Video } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
+import { getUser } from "@/lib/auth";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await getUser();
+
   return (
     <main className="min-h-screen">
       {/* Header */}
@@ -11,13 +14,31 @@ export default function HomePage() {
           <Link href="/">
             <BrandLogo />
           </Link>
-          <nav className="flex items-center gap-2">
-            <Link href="/login" className="btn-ghost">
-              Log in
-            </Link>
-            <Link href="/signup" className="btn-primary">
-              Get started
-            </Link>
+          <nav className="flex items-center gap-3">
+            {user ? (
+              <>
+                {user.email && (
+                  <span
+                    className="hidden max-w-[200px] truncate text-sm text-ink-500 sm:inline"
+                    title={user.email}
+                  >
+                    {user.email}
+                  </span>
+                )}
+                <Link href="/dashboard" className="btn-primary">
+                  Dashboard
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="btn-ghost">
+                  Log in
+                </Link>
+                <Link href="/signup" className="btn-primary">
+                  Get started
+                </Link>
+              </>
+            )}
           </nav>
         </div>
       </header>
@@ -38,9 +59,15 @@ export default function HomePage() {
           chaos.
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
-          <Link href="/signup" className="btn-primary px-6 py-3 text-base">
-            Create your first link
-          </Link>
+          {user ? (
+            <Link href="/dashboard" className="btn-primary px-6 py-3 text-base">
+              Go to your dashboard
+            </Link>
+          ) : (
+            <Link href="/signup" className="btn-primary px-6 py-3 text-base">
+              Create your first link
+            </Link>
+          )}
           <Link href="#how-it-works" className="btn-secondary px-6 py-3 text-base">
             How it works
           </Link>

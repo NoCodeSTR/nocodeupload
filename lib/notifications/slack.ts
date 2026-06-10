@@ -11,12 +11,13 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
 import { renderText } from "@/lib/filename";
+import { submissionUrl } from "@/lib/submissions";
 import { postChatMessage } from "@/lib/slack";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { StorageProvider } from "@/lib/db-types";
 
 const SELECT =
-  "provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data, upload_link_id";
+  "provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data, upload_link_id, submission_id";
 
 interface Row {
   provider: StorageProvider | null;
@@ -28,6 +29,7 @@ interface Row {
   uploader_message: string | null;
   custom_data: Record<string, string> | null;
   upload_link_id: string;
+  submission_id: string | null;
 }
 
 export interface SlackTarget {
@@ -65,6 +67,7 @@ function renderMessage(template: string, u: Row, resultUrl: string | null, count
     uploaderMessage: u.uploader_message,
     customData: u.custom_data ?? {},
     resultUrl,
+    submissionUrl: u.submission_id ? submissionUrl(u.submission_id) : null,
     count,
     date: new Date(),
   });
@@ -98,7 +101,11 @@ export async function sendSlackForUpload(
     if (fields.length) blocks.push({ type: "section", fields });
     if (u.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(u.uploader_message)}` } });
   }
-  if (url) blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: label }, url }] });
+  const subUrl = u.submission_id ? submissionUrl(u.submission_id) : null;
+  const actionEls: unknown[] = [];
+  if (url) actionEls.push({ type: "button", text: { type: "plain_text", text: label }, url });
+  if (subUrl) actionEls.push({ type: "button", text: { type: "plain_text", text: "View submission" }, url: subUrl });
+  if (actionEls.length) blocks.push({ type: "actions", elements: actionEls });
 
   const res = await postChatMessage(target.token, target.channelId, `${mention}New upload: ${name}`, blocks);
   return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };
@@ -142,6 +149,9 @@ export async function sendSlackForBatch(
     if (rep.uploader_message) blocks.push({ type: "section", text: { type: "mrkdwn", text: `> ${esc(rep.uploader_message)}` } });
   }
   blocks.push({ type: "section", text: { type: "mrkdwn", text: fileLines.join("\n") } });
+
+  const subUrl = rep.submission_id ? submissionUrl(rep.submission_id) : null;
+  if (subUrl) blocks.push({ type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "View submission" }, url: subUrl }] });
 
   const res = await postChatMessage(target.token, target.channelId, `${mention}${uploads.length} files uploaded to ${name}`, blocks);
   return res.ok ? { status: "sent" } : { status: "failed", detail: res.detail };

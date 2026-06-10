@@ -12,6 +12,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
+import { coreEnv } from "@/lib/env";
 import type {
   UploadLinkRow,
   SubmissionRow,
@@ -19,6 +20,17 @@ import type {
   NotificationDeliveryRow,
 } from "@/lib/db-types";
 import type { SubmissionUpdateInput } from "@/lib/schemas";
+
+/**
+ * Canonical owner-facing URL for a submission's detail page in the dashboard.
+ * Used by the {submission} notification token and the notification deep-links
+ * (email/Slack/Quo/webhook) so recipients can jump back into NoCodeUpload to see
+ * the full submission — every file, every answer, and the links it produced.
+ */
+export function submissionUrl(id: string): string {
+  const base = coreEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  return `${base}/dashboard/submissions/${id}`;
+}
 
 /**
  * Find-or-create the submission an incoming upload belongs to.

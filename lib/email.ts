@@ -14,6 +14,7 @@ import { coreEnv, features } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
+import { submissionUrl } from "@/lib/submissions";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { StorageProvider } from "@/lib/db-types";
 
@@ -34,6 +35,7 @@ function row(label: string, value: string): string {
 
 interface UploadEmailRow {
   upload_link_id: string;
+  submission_id: string | null;
   provider: StorageProvider | null;
   provider_file_id: string | null;
   original_filename: string;
@@ -59,7 +61,7 @@ interface EmailContent {
 }
 
 const UPLOAD_SELECT =
-  "upload_link_id, provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data";
+  "upload_link_id, submission_id, provider, provider_file_id, original_filename, mime_type, uploader_name, uploader_email, uploader_message, custom_data";
 
 // --- Low-level send ----------------------------------------------------------
 
@@ -135,17 +137,23 @@ function renderSingle(upload: UploadEmailRow, link: LinkEmailRow, logo: string |
   rows.push(row("File", escapeHtml(upload.original_filename)));
   rows.push(row("Type", fileCategory(upload.mime_type)));
 
+  const subUrl = upload.submission_id ? submissionUrl(upload.submission_id) : null;
+  const buttons = [
+    resultUrl
+      ? `<a href="${resultUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;margin:0 8px 8px 0">${resultLabel}</a>`
+      : "",
+    subUrl
+      ? `<a href="${subUrl}" style="display:inline-block;border:1px solid ${accent};color:${accent};text-decoration:none;padding:9px 17px;border-radius:8px;font-weight:600;font-size:14px;margin:0 8px 8px 0">View full submission</a>`
+      : "",
+  ].join("");
+
   const html = `
   <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#18181b">
     ${logo ? `<div style="text-align:center;margin-bottom:16px"><img src="${logo}" alt="" style="max-height:48px;max-width:200px;object-fit:contain"/></div>` : ""}
     <h1 style="font-size:18px;margin:0 0 4px">New upload received</h1>
     <p style="color:#71717a;margin:0 0 20px">Someone just uploaded to <strong>${escapeHtml(link.name)}</strong>.</p>
     <table style="width:100%;border-collapse:collapse;font-size:14px">${rows.join("")}</table>
-    ${
-      resultUrl
-        ? `<div style="margin-top:24px"><a href="${resultUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">${resultLabel}</a></div>`
-        : ""
-    }
+    ${buttons ? `<div style="margin-top:24px">${buttons}</div>` : ""}
     <p style="margin-top:28px;color:#a1a1aa;font-size:12px">
       <a href="${appUrl}/dashboard" style="color:#a1a1aa">Manage your upload links</a>
     </p>
@@ -186,6 +194,8 @@ function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string
     })
     .join("");
 
+  const subUrl = rep.submission_id ? submissionUrl(rep.submission_id) : null;
+
   const html = `
   <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#18181b">
     ${logo ? `<div style="text-align:center;margin-bottom:16px"><img src="${logo}" alt="" style="max-height:48px;max-width:200px;object-fit:contain"/></div>` : ""}
@@ -193,6 +203,11 @@ function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string
     <p style="color:#71717a;margin:0 0 20px">Someone uploaded ${count} files to <strong>${escapeHtml(link.name)}</strong> in one go.</p>
     ${metaRows.length ? `<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">${metaRows.join("")}</table>` : ""}
     <table style="width:100%;border-collapse:collapse;font-size:14px">${fileRows}</table>
+    ${
+      subUrl
+        ? `<div style="margin-top:24px"><a href="${subUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px">View full submission</a></div>`
+        : ""
+    }
     <p style="margin-top:28px;color:#a1a1aa;font-size:12px">
       <a href="${appUrl}/dashboard" style="color:#a1a1aa">Manage your upload links</a>
     </p>
