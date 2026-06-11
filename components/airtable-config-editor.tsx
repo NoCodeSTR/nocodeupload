@@ -245,16 +245,7 @@ export function AirtableConfigEditor({
   }
   function pickSourceTable(id: string, tableId: string) {
     const t = tables.find((x) => x.id === tableId);
-    // Field names belong to the table — switching tables clears the field pick.
-    updateSource(id, { tableId, tableName: t?.name ?? "", fields: [] });
-  }
-  function toggleSourceField(id: string, fieldName: string) {
-    const src = recordSources.find((s) => s.id === id);
-    if (!src) return;
-    const fields = src.fields.includes(fieldName)
-      ? src.fields.filter((f) => f !== fieldName)
-      : [...src.fields, fieldName];
-    updateSource(id, { fields });
+    updateSource(id, { tableId, tableName: t?.name ?? "" });
   }
 
   const selectedTable = useMemo(
@@ -327,16 +318,18 @@ export function AirtableConfigEditor({
       .filter((f) => f.label.trim())
       .map((f) => ({ key: customFieldSourceKey(f.label.trim()), label: f.label.trim(), hint: "Custom field" })),
     // Record sources: link the referenced record into a linked field, and copy
-    // any pulled field's value into a destination field.
+    // ANY of the connected table's fields into a destination field (the builder
+    // shows the full schema; the record is fetched server-side at write time).
     ...recordSources.flatMap((src) => {
       const aliasKey = prefillKey(src.alias || "");
       if (!aliasKey || !src.tableId) return [];
       const name = src.alias.trim() || src.tableName || "source";
+      const srcTable = tables.find((t) => t.id === src.tableId);
       return [
         { key: recordSourceLinkKey(aliasKey), label: `${name} (record link)`, hint: "Linked record" },
-        ...src.fields.map((f) => ({
-          key: recordSourceValueKey(aliasKey, f),
-          label: `${name} · ${f}`,
+        ...(srcTable?.fields ?? []).map((f) => ({
+          key: recordSourceValueKey(aliasKey, f.name),
+          label: `${name} · ${f.name}`,
           hint: "Pulled value",
         })),
       ];
@@ -648,19 +641,43 @@ export function AirtableConfigEditor({
           {value?.baseId && (
             <div className="space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
               <span className="label block">
-                Pull data from other tables <span className="font-normal text-ink-400">(optional)</span>
+                Connected tables <span className="font-normal text-ink-400">(optional)</span>
               </span>
               <p className="text-xs text-ink-400">
-                Reference records from other tables in this base by adding their id to the link URL
+                Connect other tables in this base, then point the link URL at a record from each
                 (e.g. <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?cleaner=recXXX</code>).
-                Their fields are pulled in live and become merge tags like{" "}
-                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{cleaner.Name}}"}</code> you
-                can use in headings &amp; text — no waiting for the new row&apos;s lookups to fill in.
+                <strong className="font-medium"> Every field</strong> of a connected record is then
+                available — live in headings &amp; text as{" "}
+                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{cleaner.Name}}"}</code>{" "}
+                and in the field mapping below — no waiting for the new row&apos;s lookups.
               </p>
+
+              {/* Summary: which tables are connected & available right now. */}
+              {recordSources.some((s) => s.tableId && s.alias.trim()) && (
+                <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-xs dark:border-ink-700 dark:bg-ink-900/40">
+                  <span className="font-medium text-ink-600 dark:text-ink-300">Available now:</span>
+                  <ul className="mt-1 space-y-0.5">
+                    {recordSources
+                      .filter((s) => s.tableId && s.alias.trim())
+                      .map((s) => (
+                        <li key={s.id} className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-ink-700 dark:text-ink-200">
+                            {(value?.baseName || "Base") + " — " + (s.tableName || "table")}
+                          </span>
+                          <code className="rounded bg-ink-100 px-1 text-ink-500 dark:bg-ink-900">
+                            {`?${prefillKey(s.alias)}=recXXX`}
+                          </code>
+                          <span className="text-ink-400">→ {`{{${prefillKey(s.alias)}.Field}}`}</span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
 
               {recordSources.map((src) => {
                 const srcTable = tables.find((t) => t.id === src.tableId) ?? null;
                 const aliasKey = prefillKey(src.alias || "");
+                const previewFields = (srcTable?.fields ?? []).slice(0, 8);
                 return (
                   <div
                     key={src.id}
@@ -691,38 +708,6 @@ export function AirtableConfigEditor({
                       </div>
                     </div>
 
-                    {srcTable ? (
-                      <div>
-                        <label className="label mb-1 block text-xs">
-                          Fields to pull{" "}
-                          <span className="font-normal text-ink-400">
-                            (only these leave Airtable)
-                          </span>
-                        </label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {srcTable.fields.map((f) => {
-                            const on = src.fields.includes(f.name);
-                            return (
-                              <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => toggleSourceField(src.id, f.name)}
-                                className={`rounded-md border px-2 py-1 text-xs ${
-                                  on
-                                    ? "border-brand bg-brand-50 text-brand-700 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
-                                    : "border-ink-200 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
-                                }`}
-                              >
-                                {f.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-ink-400">Choose a table to pick fields.</p>
-                    )}
-
                     <label className="flex items-start gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -740,20 +725,23 @@ export function AirtableConfigEditor({
                       </span>
                     </label>
 
-                    {aliasKey && src.fields.length > 0 && (
+                    {aliasKey && srcTable && (
                       <div className="rounded-md bg-ink-50 px-2 py-1.5 text-xs text-ink-500 dark:bg-ink-900/40">
                         <span className="block">
                           Link URL:{" "}
                           <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{`?${aliasKey}=recXXXXXXXX`}</code>
                         </span>
                         <span className="mt-1 block">
-                          Tokens:{" "}
-                          {src.fields.map((f) => (
+                          Use any field as a tag —{" "}
+                          {previewFields.map((f) => (
                             <code
-                              key={f}
+                              key={f.id}
                               className="mr-1 rounded bg-ink-100 px-1 dark:bg-ink-900"
-                            >{`{{${aliasKey}.${f}}}`}</code>
+                            >{`{{${aliasKey}.${f.name}}}`}</code>
                           ))}
+                          {(srcTable.fields.length > previewFields.length) && (
+                            <span>…and {srcTable.fields.length - previewFields.length} more</span>
+                          )}
                         </span>
                       </div>
                     )}
@@ -774,7 +762,7 @@ export function AirtableConfigEditor({
                 onClick={addSource}
                 className="text-xs font-medium text-brand hover:underline"
               >
-                + Add a table to pull from
+                + Connect a table
               </button>
             </div>
           )}

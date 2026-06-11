@@ -98,15 +98,55 @@ export async function getAirtableRecordValuesBySlug(
 }
 
 /**
- * Multi-table record sources: for each declared source on the link, read its
- * recordId from the URL (by the source's alias key) and pull ONLY the declared
- * fields, returned under namespaced keys `${aliasKey}.${fieldKey}` so they line
- * up with {{alias.Field}} merge tags (renderMergeTags normalizes both sides via
- * prefillKey). All sources share the link's base.
+ * Scan a link's rendered copy for {{alias.Field}} merge tags and collect, per
+ * source alias, the set of referenced field keys. This is what lets the owner
+ * use ANY field of a connected table without pre-selecting it, while only the
+ * fields actually referenced ever leave Airtable for the browser. Scans the
+ * surfaces that render merge tags: content blocks, section heading/text, and
+ * custom-field defaults.
+ */
+function collectReferencedSourceFields(
+  link: UploadLinkRow,
+  aliasKeys: Set<string>,
+): Map<string, Set<string>> {
+  const refs = new Map<string, Set<string>>();
+  const strings: string[] = [];
+  for (const b of link.content_blocks ?? []) if (b?.text) strings.push(b.text);
+  for (const s of link.sections ?? []) {
+    if (s?.heading) strings.push(s.heading);
+    if (s?.text) strings.push(s.text);
+  }
+  for (const f of link.custom_fields ?? []) if (f?.value) strings.push(f.value);
+
+  const tagRe = /\{\{([^}]+)\}\}/g;
+  for (const str of strings) {
+    let m: RegExpExecArray | null;
+    while ((m = tagRe.exec(str))) {
+      const inner = m[1].split("|")[0].trim(); // drop |fallback
+      const dot = inner.indexOf(".");
+      if (dot === -1) continue;
+      const aliasKey = prefillKey(inner.slice(0, dot));
+      const fieldKey = prefillKey(inner.slice(dot + 1));
+      if (!aliasKey || !fieldKey || !aliasKeys.has(aliasKey)) continue;
+      if (!refs.has(aliasKey)) refs.set(aliasKey, new Set());
+      refs.get(aliasKey)!.add(fieldKey);
+    }
+  }
+  return refs;
+}
+
+/**
+ * Multi-table record sources: for each connected source, read its recordId from
+ * the URL (by the source's alias key) and surface its fields under namespaced
+ * keys `${aliasKey}.${fieldKey}` so they line up with {{alias.Field}} merge tags
+ * (renderMergeTags normalizes both sides via prefillKey). All sources share the
+ * link's base.
  *
- * Security: only fields the owner explicitly selected are fetched and surfaced
- * (they ride to the browser as merge values), so a source with no selected
- * fields pulls nothing. Uses the owner's token; fails closed per source.
+ * Exposure model: the full record is fetched server-side with the owner's token,
+ * but only fields the owner actually REFERENCES in the form's copy ship to the
+ * browser — so connecting a table makes every field usable, yet an unreferenced
+ * column never lands in the page source. (Mapping/writeback fetches its own copy
+ * server-side, so it can use any field regardless.) Fails closed per source.
  *
  * `params` is the raw query map; record ids are matched by the alias's prefill
  * key, e.g. alias "cleaner" → ?cleaner=recXXX.
@@ -125,6 +165,11 @@ export async function getAirtableSourceValuesBySlug(
   const sources = cfg?.recordSources ?? [];
   if (!link || !cfg?.enabled || !cfg.baseId || sources.length === 0) return {};
 
+  // Which source fields does the form's copy actually reference? Only those ship.
+  const aliasKeys = new Set(sources.map((s) => prefillKey(s.alias || "")).filter(Boolean));
+  const referenced = collectReferencedSourceFields(link, aliasKeys);
+  if (referenced.size === 0) return {};
+
   // Normalize the URL params once: prefillKey(paramName) → first string value.
   const normParams: Record<string, string> = {};
   for (const [k, v] of Object.entries(params ?? {})) {
@@ -138,17 +183,19 @@ export async function getAirtableSourceValuesBySlug(
   const out: Record<string, string> = {};
   await Promise.all(
     sources.map(async (src) => {
-      const allowed = new Set((src.fields ?? []).filter(Boolean));
-      if (!src.tableId || !src.alias || allowed.size === 0) return;
+      if (!src.tableId || !src.alias) return;
       const aliasKey = prefillKey(src.alias);
+      const wanted = referenced.get(aliasKey);
+      if (!wanted || wanted.size === 0) return; // nothing referenced → no fetch
       const recordId = normParams[aliasKey];
       if (!recordId || !REC_ID_RE.test(recordId)) return;
       try {
         const rec = await getRecord({ token, baseId: cfg.baseId, tableId: src.tableId, recordId });
         for (const [field, value] of Object.entries(rec.fields ?? {})) {
-          if (!allowed.has(field)) continue; // only owner-declared fields leave Airtable
+          const fieldKey = prefillKey(field);
+          if (!wanted.has(fieldKey)) continue; // only referenced fields leave Airtable
           const s = toStr(value);
-          if (s) out[`${aliasKey}.${prefillKey(field)}`] = s;
+          if (s) out[`${aliasKey}.${fieldKey}`] = s;
         }
       } catch {
         /* fail closed — a missing record / scope never blocks the page */
