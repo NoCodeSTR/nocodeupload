@@ -149,6 +149,14 @@ export const airtableConfigSchema = z.object({
   attachFiles: z.boolean().default(false),
   attachFieldName: z.string().max(120).optional().nullable(),
   mapping: z.record(z.string().max(120)).default({}),
+  // Destination-oriented mappings (supersedes `mapping`). Intentionally NOT
+  // defaulted: undefined = legacy config (fall back to `mapping`); [] = a config
+  // saved with the new editor that has no mappings. 50 to comfortably cover a
+  // destination table's fields.
+  fieldMappings: z
+    .array(z.object({ field: z.string().min(1).max(120), source: z.string().min(1).max(160) }))
+    .max(50)
+    .optional(),
   staticValues: z.array(airtableStaticValueSchema).max(20).default([]),
   allowRecordPrefill: z.boolean().default(false),
   updateRecordWhenPresent: z.boolean().default(false),

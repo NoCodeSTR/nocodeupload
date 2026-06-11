@@ -1593,6 +1593,24 @@ export function LinkForm({
                         </button>
                       );
                     })}
+                  {/* Connected-table tokens: {{alias.FieldName}}. Field names live
+                      in Airtable → Connected tables; this seeds the namespace. */}
+                  {(airtableConfig?.recordSources ?? [])
+                    .filter((s) => s.alias.trim())
+                    .map((s) => {
+                      const ak = prefillKey(s.alias);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => insertContentToken(b.id, `{{${ak}.}}`)}
+                          title={`Connected table — add the field name, e.g. {{${ak}.Name}}`}
+                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
+                        >
+                          {`{{${ak}.…}}`}
+                        </button>
+                      );
+                    })}
                 </div>
                 {(b.text ?? "").trim() && (
                   <p className="mt-1.5 text-xs text-ink-500">

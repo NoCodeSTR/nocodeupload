@@ -42,7 +42,28 @@ export function customFieldSourceKey(label: string): string {
 // on the first colon after the prefix is unambiguous; the field name is the
 // remainder (it may itself contain colons).
 import { prefillKey } from "@/lib/filename";
-import type { RecordSource } from "@/lib/db-types";
+import type { RecordSource, AirtableFieldMapping } from "@/lib/db-types";
+
+/**
+ * Canonical, destination-oriented field mappings for a config. Prefers the new
+ * `fieldMappings` (destination field → value source); when it's undefined (a
+ * legacy config), converts the old `mapping` (source key → destination field).
+ * An explicit empty `fieldMappings` array means "saved with the new editor, no
+ * mappings" and is NOT overridden by legacy data.
+ */
+export function getFieldMappings(cfg: {
+  fieldMappings?: AirtableFieldMapping[];
+  mapping?: Record<string, string>;
+}): AirtableFieldMapping[] {
+  if (cfg.fieldMappings !== undefined) {
+    return cfg.fieldMappings.filter((m) => m.field && m.source);
+  }
+  const out: AirtableFieldMapping[] = [];
+  for (const [source, field] of Object.entries(cfg.mapping ?? {})) {
+    if (source && field) out.push({ field, source });
+  }
+  return out;
+}
 
 const REF_REC_ID_RE = /^rec[A-Za-z0-9]{6,}$/;
 

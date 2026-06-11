@@ -27,7 +27,7 @@ import { resultUrlFor } from "@/lib/result-url";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
 import { createRecord, updateRecord, getRecord, type AirtableFieldValue } from "@/lib/airtable/client";
-import { parseRecordSourceKey } from "@/lib/airtable/sources";
+import { parseRecordSourceKey, getFieldMappings } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
 import type { AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
@@ -263,56 +263,54 @@ async function buildAndCreate(args: {
     return;
   }
 
-  // Mapped + static fields (plain strings; Airtable typecasts on create).
+  // Destination-oriented mapping: each entry fills ONE field on the destination
+  // table from a value source. Built-ins / custom fields resolve to a string;
+  // record sources link the referenced record into a linked field (ref:<alias>)
+  // or copy a pulled value (ref:<alias>:<Field>) fetched live with the owner
+  // token (authoritative). Source records are fetched at most once each.
   const fields: Record<string, AirtableFieldValue> = {};
-  for (const [srcKey, fieldName] of Object.entries(config.mapping ?? {})) {
-    if (!fieldName) continue;
-    const v = sourceValue(srcKey, uploads);
-    if (v && v.trim() !== "") fields[fieldName] = v;
-  }
-  for (const sv of config.staticValues ?? []) {
-    if (sv.field && sv.value) fields[sv.field] = sv.value;
-  }
-
-  // Record sources: link the referenced record into a linked field (ref:<alias>)
-  // and/or copy a pulled value into a field (ref:<alias>:<Field>). The record
-  // ids were persisted per submission at submit; values are fetched live here
-  // with the owner token (authoritative). Each source record is fetched once.
   const sourceRecordIds = uploads[0]?.source_record_ids ?? {};
   const sourceDefs = config.recordSources ?? [];
-  if (sourceDefs.length > 0 && Object.keys(sourceRecordIds).length > 0) {
-    const recCache = new Map<string, Record<string, unknown> | null>();
-    const loadSourceFields = async (aliasKey: string): Promise<Record<string, unknown> | null> => {
-      if (recCache.has(aliasKey)) return recCache.get(aliasKey) ?? null;
-      const def = sourceDefs.find((s) => prefillKey(s.alias) === aliasKey);
-      const recId = sourceRecordIds[aliasKey];
-      if (!def?.tableId || !recId || !REC_ID_RE.test(recId)) {
-        recCache.set(aliasKey, null);
-        return null;
-      }
-      try {
-        const rec = await getRecord({ token, baseId: config.baseId, tableId: def.tableId, recordId: recId });
-        recCache.set(aliasKey, rec.fields ?? {});
-        return rec.fields ?? {};
-      } catch {
-        recCache.set(aliasKey, null);
-        return null;
-      }
-    };
-    for (const [srcKey, fieldName] of Object.entries(config.mapping ?? {})) {
-      if (!fieldName) continue;
-      const ref = parseRecordSourceKey(srcKey);
-      if (!ref) continue;
+  const recCache = new Map<string, Record<string, unknown> | null>();
+  const loadSourceFields = async (aliasKey: string): Promise<Record<string, unknown> | null> => {
+    if (recCache.has(aliasKey)) return recCache.get(aliasKey) ?? null;
+    const def = sourceDefs.find((s) => prefillKey(s.alias) === aliasKey);
+    const recId = sourceRecordIds[aliasKey];
+    if (!def?.tableId || !recId || !REC_ID_RE.test(recId)) {
+      recCache.set(aliasKey, null);
+      return null;
+    }
+    try {
+      const rec = await getRecord({ token, baseId: config.baseId, tableId: def.tableId, recordId: recId });
+      recCache.set(aliasKey, rec.fields ?? {});
+      return rec.fields ?? {};
+    } catch {
+      recCache.set(aliasKey, null);
+      return null;
+    }
+  };
+
+  for (const { field: destField, source: srcKey } of getFieldMappings(config)) {
+    if (!destField || !srcKey) continue;
+    const ref = parseRecordSourceKey(srcKey);
+    if (ref) {
       const recId = sourceRecordIds[ref.aliasKey];
       if (!recId || !REC_ID_RE.test(recId)) continue;
       if (ref.field == null) {
-        fields[fieldName] = [recId]; // linked-record field takes [recordId]
+        fields[destField] = [recId]; // linked-record field takes [recordId]
       } else {
         const recFields = await loadSourceFields(ref.aliasKey);
         const v = cellToStr(recFields?.[ref.field]);
-        if (v && v.trim() !== "") fields[fieldName] = v;
+        if (v && v.trim() !== "") fields[destField] = v;
       }
+    } else {
+      const v = sourceValue(srcKey, uploads);
+      if (v && v.trim() !== "") fields[destField] = v;
     }
+  }
+
+  for (const sv of config.staticValues ?? []) {
+    if (sv.field && sv.value) fields[sv.field] = sv.value;
   }
 
   // Opt-in attachments: point Airtable at our signed proxy for each Drive file.

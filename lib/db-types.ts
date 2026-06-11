@@ -158,6 +158,19 @@ export interface AirtableStaticValue {
 }
 
 /**
+ * One destination-oriented mapping: the Airtable field on the DESTINATION table
+ * to fill (`field`) and the value `source` to fill it from (a source key — a
+ * built-in like "link", a "field:<Label>", or a record source "ref:<alias>" /
+ * "ref:<alias>:<Field>"). Destination-oriented so the builder shows only the
+ * destination table's fields as the things that can be filled, while the value
+ * can come from any connected table. Supersedes the legacy `mapping` map.
+ */
+export interface AirtableFieldMapping {
+  field: string;
+  source: string;
+}
+
+/**
  * A "record source" — another table in the SAME base whose record is referenced
  * by id (from the link URL via the alias, or a picker) so its fields can be
  * pulled LIVE and used as namespaced merge tags ({{alias.Field}}), and later
@@ -193,9 +206,12 @@ export interface RecordSource {
  *   attachFiles   when true, also copy the file(s) into an Airtable attachment
  *                 field (attachFieldName) via a temporary Drive share. Off by
  *                 default — link mode just writes the file's URL.
- *   mapping       our source key → the Airtable field NAME to write it into.
- *                 Built-in keys: link, filename, filetype, size, name, email,
- *                 message, date, count. Custom fields use "field:<Label>".
+ *   mapping       LEGACY source key → destination field NAME map (read-only
+ *                 fallback). New configs use `fieldMappings` (destination-
+ *                 oriented). Built-in keys: link, filename, filetype, size,
+ *                 name, email, message, date, count. Custom: "field:<Label>".
+ *   fieldMappings destination-oriented mappings (see AirtableFieldMapping) — the
+ *                 destination field to fill + the value source to fill it from.
  *   staticValues  constant field=value pairs written on every record.
  */
 export interface AirtableConfig {
@@ -208,6 +224,8 @@ export interface AirtableConfig {
   attachFiles: boolean;
   attachFieldName: string | null;
   mapping: Record<string, string>;
+  /** Destination-oriented field mappings (supersedes `mapping`). */
+  fieldMappings?: AirtableFieldMapping[];
   staticValues: AirtableStaticValue[];
   /**
    * Opt-in: when true, a ?record=recXXX URL param looks up that record in this

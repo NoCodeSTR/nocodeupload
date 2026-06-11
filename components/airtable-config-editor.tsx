@@ -20,6 +20,7 @@ import {
   customFieldSourceKey,
   recordSourceLinkKey,
   recordSourceValueKey,
+  getFieldMappings,
 } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
 import type { AirtableConfig, CustomFieldDef, RecordSource } from "@/lib/db-types";
@@ -193,15 +194,18 @@ export function AirtableConfigEditor({
 
   function pickTable(tableId: string) {
     const t = tables.find((x) => x.id === tableId);
-    // Field names belong to the table — changing tables clears the mapping.
-    update({ tableId, tableName: t?.name ?? "", mapping: {}, attachFieldName: null });
+    // Field names belong to the table — changing tables clears the mappings.
+    update({ tableId, tableName: t?.name ?? "", mapping: {}, fieldMappings: [], attachFieldName: null });
   }
 
-  function setMapping(sourceKey: string, fieldName: string) {
-    const m = { ...(value?.mapping ?? {}) };
-    if (fieldName) m[sourceKey] = fieldName;
-    else delete m[sourceKey];
-    update({ mapping: m });
+  // Destination-oriented: each destination field is filled from one value source.
+  function fieldMappingFor(destField: string): string {
+    return getFieldMappings(value ?? { mapping: {} }).find((m) => m.field === destField)?.source ?? "";
+  }
+  function setFieldMapping(destField: string, sourceKey: string) {
+    const next = getFieldMappings(value ?? { mapping: {} }).filter((m) => m.field !== destField);
+    if (sourceKey) next.push({ field: destField, source: sourceKey });
+    update({ fieldMappings: next });
   }
 
   function addStatic() {
@@ -336,6 +340,14 @@ export function AirtableConfigEditor({
     }),
   ];
 
+  // The value sources offered for each destination field (upload context, custom
+  // fields, and every field of every connected table).
+  const valueSourceOptions: SelectOption[] = sources.map((s) => ({
+    value: s.key,
+    label: s.label,
+    hint: s.hint,
+  }));
+
   return (
     <div className="space-y-4">
       <label className="flex items-center gap-2 text-sm font-medium">
@@ -431,11 +443,12 @@ export function AirtableConfigEditor({
             </div>
           </div>
 
-          {/* Field mapping */}
+          {/* Field mapping — destination-oriented: fill each field of the
+              destination table from any available value source. */}
           {selectedTable ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="label">Map upload data → Airtable fields</span>
+                <span className="label">Fill {selectedTable.name} fields</span>
                 <button
                   type="button"
                   onClick={() => value?.baseId && void loadTables(value.baseId)}
@@ -446,27 +459,35 @@ export function AirtableConfigEditor({
                   Refresh fields
                 </button>
               </div>
+              <p className="text-xs text-ink-400">
+                These are the fields on <strong>{selectedTable.name}</strong> — the only table the
+                record is written to. Fill each from any value: the upload, a custom field, or any
+                field of a connected table.
+              </p>
               <div className="space-y-1.5">
-                {sources.map((s) => {
-                  const mapped = value?.mapping?.[s.key];
-                  const warn = mappingWarning(s.key, mapped);
+                {mappingFields.length === 0 && (
+                  <p className="text-xs text-ink-400">This table has no writable fields.</p>
+                )}
+                {mappingFields.map((destField) => {
+                  const selected = fieldMappingFor(destField.name);
+                  const warn = mappingWarning(selected, destField.name);
                   return (
-                    <div key={s.key} className="space-y-0.5">
+                    <div key={destField.id} className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <div className="min-w-[9rem] flex-1">
-                          <span className="text-ink-700 dark:text-ink-200">{s.label}</span>
-                          {s.hint && <span className="ml-1 text-xs text-ink-400">({s.hint})</span>}
+                          <span className="text-ink-700 dark:text-ink-200">{destField.name}</span>
+                          <span className="ml-1 text-xs text-ink-400">({prettyType(destField.type)})</span>
                         </div>
-                        <span className="text-ink-400">→</span>
+                        <span className="text-ink-400">←</span>
                         <SearchableSelect
                           className="w-auto min-w-[11rem] flex-1"
-                          value={mapped ?? ""}
-                          onChange={(v) => setMapping(s.key, v)}
-                          options={mappingOptions}
-                          emptyOptionLabel="Don't sync"
-                          placeholder="Don't sync"
-                          searchPlaceholder="Search fields…"
-                          ariaLabel={`Field for ${s.label}`}
+                          value={selected}
+                          onChange={(v) => setFieldMapping(destField.name, v)}
+                          options={valueSourceOptions}
+                          emptyOptionLabel="Leave blank"
+                          placeholder="Leave blank"
+                          searchPlaceholder="Search values…"
+                          ariaLabel={`Value for ${destField.name}`}
                         />
                       </div>
                       {warn && (
@@ -480,8 +501,8 @@ export function AirtableConfigEditor({
                 })}
               </div>
               <p className="text-xs text-ink-400">
-                Only the rows you map are written. Computed fields (formulas, rollups, etc.) and
-                attachment fields are hidden here — Airtable can&apos;t accept a plain value for those.
+                Only fields you fill are written. Computed fields (formulas, rollups, etc.) and
+                attachment fields aren&apos;t shown — Airtable can&apos;t accept a plain value for those.
               </p>
             </div>
           ) : (
