@@ -13,7 +13,7 @@
 import { UploadCard } from "@/components/upload-card";
 import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
-import { getAirtableRecordValuesBySlug } from "@/lib/airtable/record-prefill";
+import { getAirtableRecordValuesBySlug, getAirtableSourceValuesBySlug } from "@/lib/airtable/record-prefill";
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +52,11 @@ export default async function EmbedUploadPage({
     );
   }
 
-  const recordValues = recordId ? await getAirtableRecordValuesBySlug(params.slug, recordId) : {};
-  const mergedPrefill =
-    Object.keys(recordValues).length > 0 ? { ...recordValues, ...prefill } : prefill;
+  const [recordValues, sourceValues] = await Promise.all([
+    recordId ? getAirtableRecordValuesBySlug(params.slug, recordId) : Promise.resolve({}),
+    getAirtableSourceValuesBySlug(params.slug, searchParams),
+  ]);
+  const mergedPrefill = { ...recordValues, ...sourceValues, ...prefill };
 
   return (
     <main className="bg-white px-4 py-6 dark:bg-ink-950">

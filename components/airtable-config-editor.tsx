@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Table2, AlertCircle, RefreshCw } from "lucide-react";
 import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
 import { AIRTABLE_BUILTIN_SOURCES, customFieldSourceKey } from "@/lib/airtable/sources";
-import type { AirtableConfig, CustomFieldDef } from "@/lib/db-types";
+import { prefillKey } from "@/lib/filename";
+import type { AirtableConfig, CustomFieldDef, RecordSource } from "@/lib/db-types";
 
 interface ApiBase {
   id: string;
@@ -208,6 +209,47 @@ export function AirtableConfigEditor({
   }
   function removeStatic(idx: number) {
     update({ staticValues: (value?.staticValues ?? []).filter((_, i) => i !== idx) });
+  }
+
+  // --- Record sources (pull data from other tables in the same base) ---------
+  const recordSources = value?.recordSources ?? [];
+  function patchSources(next: RecordSource[]) {
+    update({ recordSources: next });
+  }
+  function addSource() {
+    patchSources([
+      ...recordSources,
+      {
+        id: crypto.randomUUID(),
+        alias: "",
+        label: "",
+        tableId: "",
+        tableName: "",
+        fields: [],
+        visible: false,
+        required: false,
+        instructions: null,
+      },
+    ]);
+  }
+  function updateSource(id: string, patch: Partial<RecordSource>) {
+    patchSources(recordSources.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+  }
+  function removeSource(id: string) {
+    patchSources(recordSources.filter((s) => s.id !== id));
+  }
+  function pickSourceTable(id: string, tableId: string) {
+    const t = tables.find((x) => x.id === tableId);
+    // Field names belong to the table — switching tables clears the field pick.
+    updateSource(id, { tableId, tableName: t?.name ?? "", fields: [] });
+  }
+  function toggleSourceField(id: string, fieldName: string) {
+    const src = recordSources.find((s) => s.id === id);
+    if (!src) return;
+    const fields = src.fields.includes(fieldName)
+      ? src.fields.filter((f) => f !== fieldName)
+      : [...src.fields, fieldName];
+    updateSource(id, { fields });
   }
 
   const selectedTable = useMemo(
@@ -579,6 +621,141 @@ export function AirtableConfigEditor({
                   </span>
                 </span>
               </label>
+            </div>
+          )}
+
+          {/* Record sources — pull live data from other tables in this base */}
+          {value?.baseId && (
+            <div className="space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
+              <span className="label block">
+                Pull data from other tables <span className="font-normal text-ink-400">(optional)</span>
+              </span>
+              <p className="text-xs text-ink-400">
+                Reference records from other tables in this base by adding their id to the link URL
+                (e.g. <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?cleaner=recXXX</code>).
+                Their fields are pulled in live and become merge tags like{" "}
+                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"{{cleaner.Name}}"}</code> you
+                can use in headings &amp; text — no waiting for the new row&apos;s lookups to fill in.
+              </p>
+
+              {recordSources.map((src) => {
+                const srcTable = tables.find((t) => t.id === src.tableId) ?? null;
+                const aliasKey = prefillKey(src.alias || "");
+                return (
+                  <div
+                    key={src.id}
+                    className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700"
+                  >
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="label mb-1 block text-xs">Table</label>
+                        <SearchableSelect
+                          value={src.tableId}
+                          onChange={(v) => pickSourceTable(src.id, v)}
+                          options={tableOptions}
+                          loading={loadingTables}
+                          placeholder="Choose a table…"
+                          searchPlaceholder="Search tables…"
+                          ariaLabel="Source table"
+                        />
+                      </div>
+                      <div>
+                        <label className="label mb-1 block text-xs">Alias (URL key)</label>
+                        <input
+                          className="input"
+                          value={src.alias}
+                          onChange={(e) => updateSource(src.id, { alias: e.target.value })}
+                          placeholder="e.g. cleaner"
+                          maxLength={60}
+                        />
+                      </div>
+                    </div>
+
+                    {srcTable ? (
+                      <div>
+                        <label className="label mb-1 block text-xs">
+                          Fields to pull{" "}
+                          <span className="font-normal text-ink-400">
+                            (only these leave Airtable)
+                          </span>
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {srcTable.fields.map((f) => {
+                            const on = src.fields.includes(f.name);
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => toggleSourceField(src.id, f.name)}
+                                className={`rounded-md border px-2 py-1 text-xs ${
+                                  on
+                                    ? "border-brand bg-brand-50 text-brand-700 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
+                                    : "border-ink-200 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-900"
+                                }`}
+                              >
+                                {f.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-ink-400">Choose a table to pick fields.</p>
+                    )}
+
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={src.visible}
+                        onChange={(e) => updateSource(src.id, { visible: e.target.checked })}
+                      />
+                      <span>
+                        Let the uploader pick this record
+                        <span className="block text-xs text-ink-400">
+                          Off = prefilled from the link URL (hidden from the uploader). On = the
+                          uploader searches and selects it — coming in a later update; URL prefill works
+                          today.
+                        </span>
+                      </span>
+                    </label>
+
+                    {aliasKey && src.fields.length > 0 && (
+                      <div className="rounded-md bg-ink-50 px-2 py-1.5 text-xs text-ink-500 dark:bg-ink-900/40">
+                        <span className="block">
+                          Link URL:{" "}
+                          <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{`?${aliasKey}=recXXXXXXXX`}</code>
+                        </span>
+                        <span className="mt-1 block">
+                          Tokens:{" "}
+                          {src.fields.map((f) => (
+                            <code
+                              key={f}
+                              className="mr-1 rounded bg-ink-100 px-1 dark:bg-ink-900"
+                            >{`{{${aliasKey}.${f}}}`}</code>
+                          ))}
+                        </span>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => removeSource(src.id)}
+                      className="text-xs text-red-600 hover:underline dark:text-red-300"
+                    >
+                      Remove source
+                    </button>
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={addSource}
+                className="text-xs font-medium text-brand hover:underline"
+              >
+                + Add a table to pull from
+              </button>
             </div>
           )}
         </div>

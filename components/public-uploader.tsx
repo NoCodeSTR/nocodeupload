@@ -15,6 +15,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { Upload, CheckCircle2, XCircle, Loader2, File as FileIcon } from "lucide-react";
 import { mimeAllowed, formatBytes, formatSizeMb } from "@/lib/upload-validation";
 import { prefillKey } from "@/lib/filename";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { isFieldVisible } from "@/lib/conditional";
 import type { PublicCustomField, PublicUploadBox, FormSection } from "@/lib/db-types";
 
@@ -745,8 +746,10 @@ export function PublicUploader({
               const secBoxes = showBoxes ? boxes.filter((b) => b.sectionId === s.id) : [];
               const secFields = visibleFields.filter((f) => f.sectionId === s.id);
               if (secBoxes.length === 0 && secFields.length === 0) return null;
-              const heading = s.heading?.trim();
-              const text = s.text?.trim();
+              // Merge tags ({{name}}, {{cleaner.Phone}}, …) resolve against the
+              // prefill map, which now includes pulled record-source values.
+              const heading = renderMergeTags(s.heading?.trim() ?? "", prefill);
+              const text = renderMergeTags(s.text?.trim() ?? "", prefill);
               return (
                 <div key={s.id} className="space-y-4">
                   {(heading || text) && (

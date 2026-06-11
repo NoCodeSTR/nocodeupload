@@ -158,6 +158,34 @@ export interface AirtableStaticValue {
 }
 
 /**
+ * A "record source" — another table in the SAME base whose record is referenced
+ * by id (from the link URL via the alias, or a picker) so its fields can be
+ * pulled LIVE and used as namespaced merge tags ({{alias.Field}}), and later
+ * (Phase 2) prefilled into fields / mapped into the destination row. Generalizes
+ * single-record personalization to several tables in one form, which solves the
+ * "destination lookups are blank until submit" problem.
+ *
+ *   alias    URL key + merge namespace (e.g. "cleaner" → ?cleaner=recXXX,
+ *            {{cleaner.Name}}). Normalized to its prefill-key form for matching.
+ *   fields   the field NAMES to pull from the source record. Only these leave
+ *            Airtable (the values are shipped to the browser for merge tags), so
+ *            an empty list pulls nothing.
+ *   visible  false = prefilled from the link URL (hidden, owner-controlled);
+ *            true  = the uploader picks the record (Phase 3 type-to-search).
+ */
+export interface RecordSource {
+  id: string;
+  alias: string;
+  label: string;
+  tableId: string;
+  tableName: string;
+  fields: string[];
+  visible: boolean;
+  required?: boolean;
+  instructions?: string | null;
+}
+
+/**
  * Per-link Airtable destination config (stored in upload_links.airtable_config).
  *
  *   recordMode    "per_upload" → one record per file; "per_batch" → one record
@@ -192,6 +220,12 @@ export interface AirtableConfig {
    * UPDATE that record instead of creating a new one. No recordId → create.
    */
   updateRecordWhenPresent?: boolean;
+  /**
+   * Record sources — other tables in the same base pulled in by id so their
+   * fields are available live as namespaced merge tags ({{alias.Field}}). See
+   * RecordSource. Empty/undefined = none.
+   */
+  recordSources?: RecordSource[];
 }
 
 /** A user's connected Airtable account (encrypted Personal Access Token). */

@@ -96,3 +96,64 @@ export async function getAirtableRecordValuesBySlug(
   if (!link) return {};
   return getAirtableRecordValues(link, recordId);
 }
+
+/**
+ * Multi-table record sources: for each declared source on the link, read its
+ * recordId from the URL (by the source's alias key) and pull ONLY the declared
+ * fields, returned under namespaced keys `${aliasKey}.${fieldKey}` so they line
+ * up with {{alias.Field}} merge tags (renderMergeTags normalizes both sides via
+ * prefillKey). All sources share the link's base.
+ *
+ * Security: only fields the owner explicitly selected are fetched and surfaced
+ * (they ride to the browser as merge values), so a source with no selected
+ * fields pulls nothing. Uses the owner's token; fails closed per source.
+ *
+ * `params` is the raw query map; record ids are matched by the alias's prefill
+ * key, e.g. alias "cleaner" → ?cleaner=recXXX.
+ */
+export async function getAirtableSourceValuesBySlug(
+  slug: string,
+  params: Record<string, string | string[] | undefined>,
+): Promise<Record<string, string>> {
+  let link: UploadLinkRow | null;
+  try {
+    link = await getLinkBySlugAdmin(slug);
+  } catch {
+    return {};
+  }
+  const cfg = link?.airtable_config;
+  const sources = cfg?.recordSources ?? [];
+  if (!link || !cfg?.enabled || !cfg.baseId || sources.length === 0) return {};
+
+  // Normalize the URL params once: prefillKey(paramName) → first string value.
+  const normParams: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val != null && val !== "") normParams[prefillKey(k)] = String(val);
+  }
+
+  const token = await getAirtableToken(link.user_id, { admin: true });
+  if (!token) return {};
+
+  const out: Record<string, string> = {};
+  await Promise.all(
+    sources.map(async (src) => {
+      const allowed = new Set((src.fields ?? []).filter(Boolean));
+      if (!src.tableId || !src.alias || allowed.size === 0) return;
+      const aliasKey = prefillKey(src.alias);
+      const recordId = normParams[aliasKey];
+      if (!recordId || !REC_ID_RE.test(recordId)) return;
+      try {
+        const rec = await getRecord({ token, baseId: cfg.baseId, tableId: src.tableId, recordId });
+        for (const [field, value] of Object.entries(rec.fields ?? {})) {
+          if (!allowed.has(field)) continue; // only owner-declared fields leave Airtable
+          const s = toStr(value);
+          if (s) out[`${aliasKey}.${prefillKey(field)}`] = s;
+        }
+      } catch {
+        /* fail closed — a missing record / scope never blocks the page */
+      }
+    }),
+  );
+  return out;
+}

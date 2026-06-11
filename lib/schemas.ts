@@ -119,6 +119,22 @@ const airtableStaticValueSchema = z.object({
 });
 
 /**
+ * A record source — another table in the same base, referenced by id (URL alias
+ * or picker) so its fields can be pulled live as {{alias.Field}} merge tags.
+ */
+const recordSourceSchema = z.object({
+  id: z.string().min(1).max(64),
+  alias: z.string().min(1, "Give the source a short alias").max(60),
+  label: z.string().max(80).default(""),
+  tableId: z.string().min(1, "Pick a table for the source").max(60),
+  tableName: z.string().max(200).default(""),
+  fields: z.array(z.string().max(120)).max(50).default([]),
+  visible: z.boolean().default(false),
+  required: z.boolean().default(false),
+  instructions: z.string().max(500).optional().nullable(),
+});
+
+/**
  * Per-link Airtable config. `mapping` keys are our source keys (link, filename,
  * filetype, size, name, email, message, date, count, or "field:<Label>"); values
  * are the destination Airtable field names. Pruned client-side before save.
@@ -136,6 +152,7 @@ export const airtableConfigSchema = z.object({
   staticValues: z.array(airtableStaticValueSchema).max(20).default([]),
   allowRecordPrefill: z.boolean().default(false),
   updateRecordWhenPresent: z.boolean().default(false),
+  recordSources: z.array(recordSourceSchema).max(10).default([]),
 });
 export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;
 

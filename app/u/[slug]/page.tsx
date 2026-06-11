@@ -9,7 +9,7 @@ import { ShieldCheck } from "lucide-react";
 import { UploadCard } from "@/components/upload-card";
 import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
-import { getAirtableRecordValuesBySlug } from "@/lib/airtable/record-prefill";
+import { getAirtableRecordValuesBySlug, getAirtableSourceValuesBySlug } from "@/lib/airtable/record-prefill";
 
 export const dynamic = "force-dynamic";
 
@@ -53,12 +53,14 @@ export default async function PublicUploadPage({
     );
   }
 
-  // Airtable record personalization: if the link opted in and the URL carries a
-  // record id, pull that record's columns as merge/prefill values (URL params
-  // still win). Server-side only — the owner's token never touches the client.
-  const recordValues = recordId ? await getAirtableRecordValuesBySlug(params.slug, recordId) : {};
-  const mergedPrefill =
-    Object.keys(recordValues).length > 0 ? { ...recordValues, ...prefill } : prefill;
+  // Airtable personalization (server-side only — the owner's token never touches
+  // the client): the single ?record= record's columns, PLUS any multi-table
+  // record sources (?alias=recXXX each). URL params still win over both.
+  const [recordValues, sourceValues] = await Promise.all([
+    recordId ? getAirtableRecordValuesBySlug(params.slug, recordId) : Promise.resolve({}),
+    getAirtableSourceValuesBySlug(params.slug, searchParams),
+  ]);
+  const mergedPrefill = { ...recordValues, ...sourceValues, ...prefill };
 
   return (
     <main className="min-h-screen bg-ink-50 px-4 py-10 dark:bg-ink-950">

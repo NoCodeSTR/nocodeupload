@@ -12,7 +12,7 @@
  *   - POST  /api/links            (create)
  *   - PATCH /api/links/[id]        (edit)
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
@@ -23,6 +23,7 @@ import { AirtableImport, type ImportedAirtableField } from "@/components/airtabl
 import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import { renderMergeTags } from "@/lib/merge-tags";
+import { uploadLinkCreateSchema } from "@/lib/schemas";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
@@ -100,6 +101,82 @@ const FILE_TYPE_CHOICES = ["image", "video", "pdf", "audio", "document", "other"
 // pipeline passes it through to the (folder-ignoring) YouTube adapter, so we
 // store a harmless placeholder.
 const YOUTUBE_FOLDER_SENTINEL = "youtube";
+
+// --- Validation messaging ----------------------------------------------------
+// Map a zod issue (from the shared uploadLinkCreateSchema) to a human, field-
+// named message so the owner knows EXACTLY what to fix — not just "some fields
+// are invalid". Nested array paths (customFields/uploadBoxes/…) resolve to the
+// offending item by its label, and the offending custom-field ids are returned
+// so their rows can be highlighted inline.
+const LINK_FIELD_LABELS: Record<string, string> = {
+  name: "Link name",
+  description: "Description",
+  successRedirectUrl: "Redirect URL",
+  successMessage: "Success message",
+  webhookUrl: "Webhook URL",
+  brandingColor: "Brand color",
+  brandingLogoUrl: "Logo URL",
+  expiresAt: "Expiry date",
+  prefillEmail: "Prefill email",
+  prefillName: "Prefill name",
+  filenameTemplate: "Filename template",
+  descriptionTemplate: "Video description template",
+  maxFileSizeMb: "Max file size",
+  uploadPassword: "Upload password",
+};
+
+type FormIssue = { path: (string | number)[]; message: string };
+
+function friendlyIssueMessage(message: string): string {
+  if (/invalid url/i.test(message)) return "must be a full URL, including https://";
+  if (/invalid email/i.test(message)) return "must be a valid email address";
+  if (/invalid datetime/i.test(message)) return "isn't a valid date";
+  return message;
+}
+
+interface DescribedIssues {
+  messages: string[];
+  fieldIds: Set<string>;
+}
+
+function describeLinkIssues(
+  issues: FormIssue[],
+  payload: {
+    customFields?: Array<{ id: string; label: string }>;
+    uploadBoxes?: Array<{ label: string }> | null;
+  },
+): DescribedIssues {
+  const messages = new Set<string>();
+  const fieldIds = new Set<string>();
+
+  for (const issue of issues) {
+    const [head, idx] = issue.path;
+    let label: string;
+
+    if (head === "customFields" && typeof idx === "number") {
+      const cf = payload.customFields?.[idx];
+      if (cf?.id) fieldIds.add(cf.id);
+      label = `Custom field “${cf?.label?.trim() || `#${idx + 1}`}”`;
+    } else if (head === "uploadBoxes" && typeof idx === "number") {
+      const box = payload.uploadBoxes?.[idx];
+      label = `Upload box “${box?.label?.trim() || `#${idx + 1}`}”`;
+    } else if (head === "sections" && typeof idx === "number") {
+      label = `Section #${idx + 1}`;
+    } else if (head === "notificationRules" && typeof idx === "number") {
+      label = `Notification rule #${idx + 1}`;
+    } else if (head === "airtableConfig") {
+      label = "Airtable mapping";
+    } else if (typeof head === "string") {
+      label = LINK_FIELD_LABELS[head] ?? head;
+    } else {
+      label = "Form";
+    }
+
+    messages.add(`${label}: ${friendlyIssueMessage(issue.message)}`);
+  }
+
+  return { messages: Array.from(messages), fieldIds };
+}
 
 interface LinkFormProps {
   mode: "create" | "edit";
@@ -228,6 +305,11 @@ export function LinkForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Specific, field-named validation problems (from the shared schema) + the set
+  // of custom-field ids to highlight inline. Surfaced together in the banner.
+  const [issues, setIssues] = useState<string[]>([]);
+  const [invalidFieldIds, setInvalidFieldIds] = useState<Set<string>>(new Set());
+  const errorBannerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedConnection = connections.find((c) => c.id === connectionId);
   // Destination drives behavior: YouTube = no folder, video-only; Form only =
@@ -496,6 +578,13 @@ export function LinkForm({
   }
   function updateCustomField(id: string, patch: Partial<CustomFieldDef>) {
     setCustomFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+    // Editing a flagged field clears its highlight so the cue tracks reality.
+    setInvalidFieldIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
   function removeCustomField(id: string) {
     setCustomFields((prev) => prev.filter((f) => f.id !== id));
@@ -667,12 +756,25 @@ export function LinkForm({
     return null;
   }
 
+  function flagIssues(messages: string[], fieldIds: Set<string> = new Set()) {
+    setError(null);
+    setIssues(messages);
+    setInvalidFieldIds(fieldIds);
+    // Bring the summary into view — the form is long and the banner sits at the
+    // bottom, so a failed save otherwise looks like nothing happened.
+    requestAnimationFrame(() => {
+      errorBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setIssues([]);
+    setInvalidFieldIds(new Set());
 
     if (!name.trim()) {
-      setError("Give your link a name.");
+      flagIssues(["Link name: give your link a name."]);
       return;
     }
 
@@ -817,6 +919,19 @@ export function LinkForm({
           ? airtableConfig
           : null,
     };
+
+    // Pre-validate against the SAME schema the server enforces, so the owner
+    // gets instant, specific feedback (which field, and why) instead of a
+    // round-trip that comes back as a generic "some fields are invalid".
+    const check = uploadLinkCreateSchema.safeParse(payload);
+    if (!check.success) {
+      const { messages, fieldIds } = describeLinkIssues(check.error.issues, payload);
+      flagIssues(
+        messages.length ? messages : ["Some fields need attention — please review the form above."],
+        fieldIds,
+      );
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -1599,8 +1714,21 @@ export function LinkForm({
             controllerType === "select" || controllerType === "multiselect"
               ? (controller?.options ?? []).map((o) => o.trim()).filter(Boolean)
               : [];
+          const fieldInvalid = invalidFieldIds.has(f.id);
           return (
-          <div key={f.id} className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+          <div
+            key={f.id}
+            className={`rounded-lg border p-3 ${
+              fieldInvalid
+                ? "border-red-300 ring-1 ring-red-300 dark:border-red-800 dark:ring-red-800"
+                : "border-ink-200 dark:border-ink-700"
+            }`}
+          >
+            {fieldInvalid && (
+              <p className="mb-2 text-xs font-medium text-red-600 dark:text-red-300">
+                This field needs attention — see the summary below.
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2">
               <input
                 className="input"
@@ -2335,9 +2463,26 @@ export function LinkForm({
         </div>
       </CollapsibleSection>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
-          {error}
+      {(error || issues.length > 0) && (
+        <div
+          ref={errorBannerRef}
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100"
+        >
+          {issues.length > 0 ? (
+            <>
+              <p className="font-medium">
+                Please fix {issues.length === 1 ? "this" : `these ${issues.length}`} before saving:
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {issues.map((m, i) => (
+                  <li key={i}>{m}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            error
+          )}
         </div>
       )}
 
@@ -2381,6 +2526,8 @@ function humanizeError(code?: string): string {
       return "That Google account connection couldn't be found. Reconnect it in Settings.";
     case "invalid_request":
       return "Some fields are invalid. Double-check the form and try again.";
+    case "invalid_webhook":
+      return "That webhook URL isn’t allowed — it must be a public https:// URL (no localhost or private addresses).";
     case "not_found":
       return "This link no longer exists.";
     default:
