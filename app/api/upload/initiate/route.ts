@@ -27,6 +27,7 @@ import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
 import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
 import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
+import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -177,6 +178,9 @@ export async function POST(request: NextRequest) {
   // fields the record value wins over a client-sent URL value so an uploader
   // can't tamper with owner data; falls back to URL prefill, then the default.
   const recordValues = await getAirtableRecordValues(link, input.recordId);
+  // Record-source ids (e.g. ?cleaner=recXXX) → persisted so the Airtable record
+  // builder can link them / copy their values into the destination row.
+  const sourceRecordIds = resolveSourceRecordIds(link.airtable_config?.recordSources, prefillValues);
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;
@@ -306,6 +310,7 @@ export async function POST(request: NextRequest) {
       folderId: resolvedFolderId,
       sourceBlockId: resolvedSourceBlockId,
       airtableRecordId: input.recordId ?? null,
+      sourceRecordIds,
     });
   } catch (err) {
     // eslint-disable-next-line no-console

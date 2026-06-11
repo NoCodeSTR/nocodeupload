@@ -436,6 +436,10 @@ create table public.uploads (
   -- Airtable record id this submission targets (from ?record=); when the link
   -- opts into two-way sync, the Airtable step UPDATEs this record. Null = create.
   airtable_record_id text,
+  -- Record sources: { aliasKey: recordId } resolved from the link URL at submit
+  -- (e.g. { "cleaner": "recABC" }). The Airtable record builder maps these into
+  -- linked fields (ref:<alias>) and copied values (ref:<alias>:<Field>).
+  source_record_ids jsonb not null default '{}'::jsonb,
   status text not null default 'uploading' check (status in ('uploading', 'complete', 'failed')),
   error_message text,
   created_at timestamptz not null default now(),

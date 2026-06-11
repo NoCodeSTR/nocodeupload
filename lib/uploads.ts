@@ -35,6 +35,8 @@ export async function createUploadRecord(args: {
   sourceBlockId?: string | null;
   // Airtable record id this submission targets (two-way sync); null = create.
   airtableRecordId?: string | null;
+  // Resolved record-source ids for this submission: { aliasKey: recordId }.
+  sourceRecordIds?: Record<string, string> | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
 
@@ -56,6 +58,7 @@ export async function createUploadRecord(args: {
     folder_id: args.folderId ?? args.link.folder_id,
     source_block_id: args.sourceBlockId ?? null,
     airtable_record_id: args.airtableRecordId ?? null,
+    source_record_ids: args.sourceRecordIds ?? {},
     provider_file_id: null,
     original_filename: args.filename,
     mime_type: args.mimeType,

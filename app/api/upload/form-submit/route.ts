@@ -20,6 +20,7 @@ import { notifyAfterUpload } from "@/lib/batch";
 import { recordAfterUpload } from "@/lib/airtable/record";
 import { isFieldVisible } from "@/lib/conditional";
 import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
+import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { cleanFieldValue, isValidEmail } from "@/lib/field-values";
 import { prefillKey } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
@@ -133,6 +134,7 @@ export async function POST(request: NextRequest) {
       customData,
       ipHash,
       airtableRecordId: input.recordId ?? null,
+      sourceRecordIds: resolveSourceRecordIds(link.airtable_config?.recordSources, prefillValues),
     });
     carrierUploadId = res.carrierUploadId;
   } catch (err) {

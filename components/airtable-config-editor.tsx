@@ -15,7 +15,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Table2, AlertCircle, RefreshCw } from "lucide-react";
 import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
-import { AIRTABLE_BUILTIN_SOURCES, customFieldSourceKey } from "@/lib/airtable/sources";
+import {
+  AIRTABLE_BUILTIN_SOURCES,
+  customFieldSourceKey,
+  recordSourceLinkKey,
+  recordSourceValueKey,
+} from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
 import type { AirtableConfig, CustomFieldDef, RecordSource } from "@/lib/db-types";
 
@@ -321,6 +326,21 @@ export function AirtableConfigEditor({
     ...customFields
       .filter((f) => f.label.trim())
       .map((f) => ({ key: customFieldSourceKey(f.label.trim()), label: f.label.trim(), hint: "Custom field" })),
+    // Record sources: link the referenced record into a linked field, and copy
+    // any pulled field's value into a destination field.
+    ...recordSources.flatMap((src) => {
+      const aliasKey = prefillKey(src.alias || "");
+      if (!aliasKey || !src.tableId) return [];
+      const name = src.alias.trim() || src.tableName || "source";
+      return [
+        { key: recordSourceLinkKey(aliasKey), label: `${name} (record link)`, hint: "Linked record" },
+        ...src.fields.map((f) => ({
+          key: recordSourceValueKey(aliasKey, f),
+          label: `${name} · ${f}`,
+          hint: "Pulled value",
+        })),
+      ];
+    }),
   ];
 
   return (

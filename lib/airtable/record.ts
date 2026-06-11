@@ -26,7 +26,9 @@ import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
-import { createRecord, updateRecord, type AirtableFieldValue } from "@/lib/airtable/client";
+import { createRecord, updateRecord, getRecord, type AirtableFieldValue } from "@/lib/airtable/client";
+import { parseRecordSourceKey } from "@/lib/airtable/sources";
+import { prefillKey } from "@/lib/filename";
 import type { AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
 
@@ -39,7 +41,7 @@ const ATTACH_TOKEN_TTL_MS = 30 * 60 * 1000;
 const REC_ID_RE = /^rec[A-Za-z0-9]{6,}$/;
 
 const UPLOAD_FIELDS =
-  "id, upload_link_id, user_id, storage_connection_id, provider, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, completed_at, status, batch_id, airtable_record_id";
+  "id, upload_link_id, user_id, storage_connection_id, provider, provider_file_id, original_filename, mime_type, file_size_bytes, uploader_name, uploader_email, uploader_message, custom_data, completed_at, status, batch_id, airtable_record_id, source_record_ids";
 
 interface UploadRecordRow {
   id: string;
@@ -59,6 +61,7 @@ interface UploadRecordRow {
   status: string;
   batch_id: string | null;
   airtable_record_id: string | null;
+  source_record_ids: Record<string, string> | null;
 }
 
 // --- Config loader -----------------------------------------------------------
@@ -146,6 +149,33 @@ function humanSize(bytes: number): string {
 function isoDate(d: Date): string {
   const p = (x: number) => String(x).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Best-effort stringify of an Airtable cell (for copying pulled source values). */
+function cellToStr(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  if (typeof v === "boolean") return v ? "Yes" : "";
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => {
+        if (x == null) return "";
+        if (typeof x === "string" || typeof x === "number") return String(x);
+        if (typeof x === "object") {
+          const o = x as Record<string, unknown>;
+          return String(o.name ?? o.text ?? o.email ?? o.url ?? o.id ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return String(o.name ?? o.text ?? o.email ?? o.url ?? o.id ?? "");
+  }
+  return "";
 }
 
 /** Resolve a mapping source key to a string value for the given upload set. */
@@ -242,6 +272,47 @@ async function buildAndCreate(args: {
   }
   for (const sv of config.staticValues ?? []) {
     if (sv.field && sv.value) fields[sv.field] = sv.value;
+  }
+
+  // Record sources: link the referenced record into a linked field (ref:<alias>)
+  // and/or copy a pulled value into a field (ref:<alias>:<Field>). The record
+  // ids were persisted per submission at submit; values are fetched live here
+  // with the owner token (authoritative). Each source record is fetched once.
+  const sourceRecordIds = uploads[0]?.source_record_ids ?? {};
+  const sourceDefs = config.recordSources ?? [];
+  if (sourceDefs.length > 0 && Object.keys(sourceRecordIds).length > 0) {
+    const recCache = new Map<string, Record<string, unknown> | null>();
+    const loadSourceFields = async (aliasKey: string): Promise<Record<string, unknown> | null> => {
+      if (recCache.has(aliasKey)) return recCache.get(aliasKey) ?? null;
+      const def = sourceDefs.find((s) => prefillKey(s.alias) === aliasKey);
+      const recId = sourceRecordIds[aliasKey];
+      if (!def?.tableId || !recId || !REC_ID_RE.test(recId)) {
+        recCache.set(aliasKey, null);
+        return null;
+      }
+      try {
+        const rec = await getRecord({ token, baseId: config.baseId, tableId: def.tableId, recordId: recId });
+        recCache.set(aliasKey, rec.fields ?? {});
+        return rec.fields ?? {};
+      } catch {
+        recCache.set(aliasKey, null);
+        return null;
+      }
+    };
+    for (const [srcKey, fieldName] of Object.entries(config.mapping ?? {})) {
+      if (!fieldName) continue;
+      const ref = parseRecordSourceKey(srcKey);
+      if (!ref) continue;
+      const recId = sourceRecordIds[ref.aliasKey];
+      if (!recId || !REC_ID_RE.test(recId)) continue;
+      if (ref.field == null) {
+        fields[fieldName] = [recId]; // linked-record field takes [recordId]
+      } else {
+        const recFields = await loadSourceFields(ref.aliasKey);
+        const v = cellToStr(recFields?.[ref.field]);
+        if (v && v.trim() !== "") fields[fieldName] = v;
+      }
+    }
   }
 
   // Opt-in attachments: point Airtable at our signed proxy for each Drive file.

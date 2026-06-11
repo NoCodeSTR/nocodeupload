@@ -161,6 +161,9 @@ export type AirtableFieldValue =
   | string
   | number
   | boolean
+  // Linked-record fields take an array of record ids (["recXXX"]); multi-selects
+  // take an array of option strings. Typecast tolerates both.
+  | string[]
   | Array<{ url: string; filename?: string }>;
 
 export interface AirtableRecord {

@@ -179,9 +179,13 @@ export function PublicUploader({
   const [name, setName] = useState(prefill.name ?? prefillName ?? "");
   const [email, setEmail] = useState(prefill.email ?? prefillEmail ?? "");
   const [message, setMessage] = useState(prefill.message ?? "");
-  // Seed each custom field from its URL prefill (by label key), else the owner default.
+  // Seed each custom field from its URL prefill (by label key), else the owner
+  // default — which may itself reference a record source (e.g. {{cleaner.Phone}}),
+  // resolved here against the prefill/source values. The uploader can edit it.
   const [customValues, setCustomValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(customFields.map((f) => [f.id, prefill[prefillKey(f.label)] ?? f.value ?? ""])),
+    Object.fromEntries(
+      customFields.map((f) => [f.id, prefill[prefillKey(f.label)] ?? renderMergeTags(f.value ?? "", prefill)]),
+    ),
   );
   const [files, setFiles] = useState<FileItem[]>([]);
   const [dragOver, setDragOver] = useState(false);

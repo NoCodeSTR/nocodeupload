@@ -418,6 +418,8 @@ export interface UploadRow {
   source_block_id: string | null;
   /** Airtable record id this submission targets (two-way sync); null = create. */
   airtable_record_id: string | null;
+  /** Resolved record-source ids for this submission: { aliasKey: recordId }. */
+  source_record_ids: Record<string, string> | null;
   status: "uploading" | "complete" | "failed";
   error_message: string | null;
   created_at: string;
