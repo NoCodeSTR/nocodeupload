@@ -226,3 +226,27 @@ export async function getRecord(args: {
     `/${encodeURIComponent(args.baseId)}/${encodeURIComponent(args.tableId)}/${encodeURIComponent(args.recordId)}`,
   );
 }
+
+/**
+ * List records of a table (for the preview / record pickers). Keep it light:
+ * cap the count and optionally restrict to specific fields (e.g. just the
+ * primary field for labels). Optional filterByFormula for a search.
+ */
+export async function listRecords(args: {
+  token: string;
+  baseId: string;
+  tableId: string;
+  fields?: string[];
+  maxRecords?: number;
+  filterByFormula?: string;
+}): Promise<AirtableRecord[]> {
+  const params = new URLSearchParams();
+  params.set("maxRecords", String(args.maxRecords ?? 25));
+  for (const f of args.fields ?? []) params.append("fields[]", f);
+  if (args.filterByFormula) params.set("filterByFormula", args.filterByFormula);
+  const data = await airtableFetch<{ records?: AirtableRecord[] }>(
+    args.token,
+    `/${encodeURIComponent(args.baseId)}/${encodeURIComponent(args.tableId)}?${params.toString()}`,
+  );
+  return data.records ?? [];
+}

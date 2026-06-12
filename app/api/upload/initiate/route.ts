@@ -167,10 +167,14 @@ export async function POST(request: NextRequest) {
   // values may be dynamic (e.g. {{guest.First Name}}) — resolve tokens against the
   // single record, connected sources (fetched only when a hidden token needs it),
   // and URL params.
-  const dynamicHidden =
+  // Source values are needed when a hidden prefill OR the file-name / video
+  // templates reference a connected record ({{alias.Field}}). Fetched once.
+  const needsSourceVals =
     (link.hide_name && (link.prefill_name ?? "").includes("{{")) ||
-    (link.hide_email && (link.prefill_email ?? "").includes("{{"));
-  const sourceVals = dynamicHidden ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
+    (link.hide_email && (link.prefill_email ?? "").includes("{{")) ||
+    (link.filename_template ?? "").includes("{{") ||
+    (link.description_template ?? "").includes("{{");
+  const sourceVals = needsSourceVals ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
   const prefillCtx = { ...recordValues, ...sourceVals, ...prefillValues };
   const renderPrefill = (tpl: string | null | undefined): string | null =>
     tpl ? renderMergeTags(tpl, prefillCtx).trim() || null : null;
@@ -219,8 +223,23 @@ export async function POST(request: NextRequest) {
     if (val) customData[f.label] = val;
   }
 
+  // Two-pass templating: resolve connected-record {{alias.Field}} (and other
+  // {{merge}}) tags first, so file names / video templates can use connected
+  // data; the remaining {date}/{field:Label}/{name} tokens are then applied by
+  // renderFilename/renderText. Mirrors the builder's preview.
+  const templateMergeMap: Record<string, string> = {
+    ...recordValues,
+    ...sourceVals,
+    ...customData,
+    name: resolvedName ?? "",
+    email: resolvedEmail ?? "",
+    message: input.uploaderMessage?.trim() ?? "",
+  };
+  const filenameTpl = renderMergeTags(link.filename_template ?? "", templateMergeMap);
+  const descriptionTpl = renderMergeTags(link.description_template ?? "", templateMergeMap);
+
   // Apply the link's filename template (no-op if unset → original name kept).
-  const finalFilename = renderFilename(link.filename_template, {
+  const finalFilename = renderFilename(filenameTpl, {
     originalFilename: input.filename,
     uploaderName: resolvedName,
     uploaderEmail: resolvedEmail,
@@ -275,8 +294,8 @@ export async function POST(request: NextRequest) {
       customData,
       date: new Date(),
     };
-    videoTitle = renderText(link.filename_template, ctx) || originalBase;
-    videoDescription = renderText(link.description_template, ctx);
+    videoTitle = renderText(filenameTpl, ctx) || originalBase;
+    videoDescription = renderText(descriptionTpl, ctx);
   }
 
   // The name stored/shown for this upload: video title for YouTube, else the

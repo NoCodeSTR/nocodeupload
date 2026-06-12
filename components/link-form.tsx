@@ -20,6 +20,7 @@ import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { ConnectedDataEditor } from "@/components/connected-data-editor";
 import { AirtableMappingEditor } from "@/components/airtable-mapping-editor";
+import { PreviewRecordPicker } from "@/components/preview-record-picker";
 import { useAirtableSchema } from "@/components/airtable-schema";
 import { AirtableImport, type ImportedAirtableField } from "@/components/airtable-import";
 import { ImageUploader } from "@/components/image-uploader";
@@ -307,6 +308,18 @@ export function LinkForm({
   // One shared Airtable schema loader for both Connected Data (source) and
   // Airtable Mapping (destination) so bases/tables are fetched once.
   const airtableSchema = useAirtableSchema(airtableConnected, airtableConfig?.baseId);
+  // Preview Mode: real connected-record values (keyed `${aliasKey}.${fieldKey}`)
+  // chosen via the per-source pickers, plus the picked record's display label.
+  const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
+  const [previewLabels, setPreviewLabels] = useState<Record<string, string>>({});
+  function setPreviewForAlias(aliasKey: string, values: Record<string, string>, label: string) {
+    setPreviewValues((prev) => {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(prev)) if (!k.startsWith(`${aliasKey}.`)) next[k] = v;
+      return { ...next, ...values };
+    });
+    setPreviewLabels((prev) => ({ ...prev, [aliasKey]: label }));
+  }
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -512,7 +525,9 @@ export function LinkForm({
     });
   }
 
-  // Sample values for the builder preview (real values come from URL prefills).
+  // Sample values for the builder preview. Real connected-record values from
+  // Preview Mode (previewValues) override the samples, so {{guest.First Name}}
+  // shows the actual picked record's value.
   const mergeSample: Record<string, string> = {
     name: prefillName || "Jane",
     email: prefillEmail || "jane@example.com",
@@ -520,6 +535,7 @@ export function LinkForm({
     ...Object.fromEntries(
       customFields.filter((f) => f.label.trim()).map((f) => [f.label.trim(), f.value.trim() || "sample"]),
     ),
+    ...previewValues,
   };
 
   function addTag(name: string) {
@@ -980,12 +996,14 @@ export function LinkForm({
     ),
     date: new Date(),
   };
-  // Drive renames files (slugified, ext preserved); YouTube uses the template
-  // as a human-readable video title (raw values, no slug). Both share the same
-  // token vocabulary.
-  const filenamePreview = renderFilename(filenameTemplate, previewCtx);
-  const titlePreview = renderText(filenameTemplate, previewCtx) || previewCtx.originalFilename;
-  const descriptionPreview = renderText(descriptionTemplate, previewCtx);
+  // Two-pass: resolve connected-record {{alias.Field}} merge tags first (against
+  // the sample/preview values), THEN the filename tokens ({date}, {field:Label}…).
+  // Mirrors the runtime in /api/upload/initiate so the preview matches reality.
+  const filenameTemplateResolved = renderMergeTags(filenameTemplate, mergeSample);
+  const descriptionTemplateResolved = renderMergeTags(descriptionTemplate, mergeSample);
+  const filenamePreview = renderFilename(filenameTemplateResolved, previewCtx);
+  const titlePreview = renderText(filenameTemplateResolved, previewCtx) || previewCtx.originalFilename;
+  const descriptionPreview = renderText(descriptionTemplateResolved, previewCtx);
 
   // Tag suggestions: the user's existing tags not already selected, filtered by
   // what they're typing.
@@ -1264,6 +1282,98 @@ export function LinkForm({
           schema={airtableSchema}
         />
       </CollapsibleSection>
+
+      {/* Preview — pick a real record per connected table and watch the form
+          personalize. Only shown once a base + connected tables exist. */}
+      {airtableConfig?.baseId &&
+        (airtableConfig.recordSources ?? []).some((s) => s.tableId && s.alias.trim()) && (
+          <CollapsibleSection
+            title="Preview"
+            badge="Pro"
+            description="Pick a real record from each connected table to see exactly what the uploader will experience — headings, file names, and prefills with real data."
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(airtableConfig.recordSources ?? [])
+                  .filter((s) => s.tableId && s.alias.trim())
+                  .map((s) => {
+                    const t = airtableSchema.tables.find((tt) => tt.id === s.tableId);
+                    return (
+                      <PreviewRecordPicker
+                        key={s.id}
+                        baseId={airtableConfig.baseId}
+                        tableId={s.tableId}
+                        primaryField={t?.fields?.[0]?.name ?? ""}
+                        aliasKey={prefillKey(s.alias)}
+                        sourceLabel={s.alias.trim() || s.tableName || "Record"}
+                        onPick={setPreviewForAlias}
+                      />
+                    );
+                  })}
+              </div>
+
+              {Object.values(previewLabels).some(Boolean) && (
+                <p className="text-xs text-ink-500">
+                  Previewing with:{" "}
+                  {Object.entries(previewLabels)
+                    .filter(([, l]) => l)
+                    .map(([a, l]) => `${a} = ${l}`)
+                    .join("  ·  ")}
+                </p>
+              )}
+
+              {/* Compact "what the uploader sees" header preview. */}
+              <div className="rounded-lg border border-ink-200 bg-white p-4 dark:border-ink-700 dark:bg-ink-950">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-400">
+                  Uploader sees
+                </p>
+                <h3 className="font-display text-lg font-bold">{name.trim() || "Your upload link"}</h3>
+                {description.trim() && <p className="mt-1 text-sm text-ink-500">{description.trim()}</p>}
+                {contentBlocks
+                  .filter((b) => b.type === "divider" || (b.text ?? "").trim())
+                  .map((b) => {
+                    if (b.type === "divider") {
+                      return <hr key={b.id} className="my-3 border-ink-200 dark:border-ink-700" />;
+                    }
+                    const text = renderMergeTags(b.text ?? "", mergeSample);
+                    if (!text.trim()) return null;
+                    return b.type === "heading" ? (
+                      <h4 key={b.id} className="mt-3 font-display text-base font-semibold">
+                        {text}
+                      </h4>
+                    ) : (
+                      <p key={b.id} className="mt-2 whitespace-pre-wrap text-sm text-ink-600 dark:text-ink-300">
+                        {text}
+                      </p>
+                    );
+                  })}
+                {(() => {
+                  const pn = !hideName ? renderMergeTags(prefillName, mergeSample).trim() : "";
+                  const pe = !hideEmail ? renderMergeTags(prefillEmail, mergeSample).trim() : "";
+                  if (!pn && !pe) return null;
+                  return (
+                    <div className="mt-3 space-y-1 border-t border-ink-100 pt-3 text-sm dark:border-ink-800">
+                      {pn && (
+                        <p>
+                          <span className="text-ink-400">Name prefilled:</span> {pn}
+                        </p>
+                      )}
+                      {pe && (
+                        <p>
+                          <span className="text-ink-400">Email prefilled:</span> {pe}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              <p className="text-xs text-ink-400">
+                File-naming and other previews below also update to use the picked record. Pick{" "}
+                <span className="font-medium">Leave blank</span> on a record to clear it.
+              </p>
+            </div>
+          </CollapsibleSection>
+        )}
 
       {/* Details */}
       <CollapsibleSection title="Details" description="What this link is for." defaultOpen>
@@ -2113,6 +2223,23 @@ export function LinkForm({
                   className="rounded-md border border-brand-200 bg-brand-50 px-2 py-1 font-mono text-xs text-brand-700 hover:bg-brand-100 dark:border-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
                 >
                   {tok}
+                </button>
+              );
+            })}
+          {/* Connected-table tokens work in file names too ({{alias.Field}}). */}
+          {(airtableConfig?.recordSources ?? [])
+            .filter((s) => s.alias.trim())
+            .map((s) => {
+              const ak = prefillKey(s.alias);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setFilenameTemplate((v) => (v ? `${v}-{{${ak}.}}` : `{{${ak}.}}`))}
+                  title={`Connected table — add the field, e.g. {{${ak}.Name}}`}
+                  className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
+                >
+                  {`{{${ak}.…}}`}
                 </button>
               );
             })}
