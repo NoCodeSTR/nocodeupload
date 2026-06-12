@@ -1793,8 +1793,8 @@ export function LinkForm({
                 className="input"
                 value={f.label}
                 onChange={(e) => updateCustomField(f.id, { label: e.target.value })}
-                placeholder="Field name (e.g. Cleaner Record ID)"
-                maxLength={60}
+                placeholder="Field name or question (e.g. Any other notes?)"
+                maxLength={1000}
               />
               <select
                 className="input"
@@ -1802,7 +1802,8 @@ export function LinkForm({
                 onChange={(e) => setCustomFieldType(f.id, e.target.value as CustomFieldDef["type"])}
                 aria-label="Field type"
               >
-                <option value="text">Text field</option>
+                <option value="text">Single line text</option>
+                <option value="longtext">Long text</option>
                 <option value="checkbox">Checkbox</option>
                 <option value="select">Single-select</option>
                 <option value="multiselect">Multi-select</option>
@@ -1838,7 +1839,7 @@ export function LinkForm({
                           ? "Default email (optional)"
                           : "Default / prefilled value"
                 }
-                maxLength={500}
+                maxLength={1000}
               />
             ) : (
               <div className="mt-2 space-y-2 rounded-md bg-ink-50 p-2 dark:bg-ink-900/40">

@@ -14,6 +14,7 @@ import "server-only";
 import { getAirtableToken } from "@/lib/airtable/connection";
 import { getRecord } from "@/lib/airtable/client";
 import { getLinkBySlugAdmin } from "@/lib/links";
+import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
 import type { UploadLinkRow } from "@/lib/db-types";
 
@@ -117,6 +118,12 @@ function collectReferencedSourceFields(
     if (s?.text) strings.push(s.text);
   }
   for (const f of link.custom_fields ?? []) if (f?.value) strings.push(f.value);
+  // Dynamic prefill for the built-in name/email can reference sources too — but
+  // only when SHOWN to the uploader. Hidden prefills are resolved server-side
+  // (getAirtableSourceValuesForSubmit), so their tokens must NOT pull source
+  // values into the browser payload here.
+  if (link.prefill_name && !link.hide_name) strings.push(link.prefill_name);
+  if (link.prefill_email && !link.hide_email) strings.push(link.prefill_email);
 
   const tagRe = /\{\{([^}]+)\}\}/g;
   for (const str of strings) {
@@ -201,6 +208,46 @@ export async function getAirtableSourceValuesBySlug(
         }
       } catch {
         /* fail closed — a missing record / scope never blocks the page */
+      }
+    }),
+  );
+  return out;
+}
+
+/**
+ * Submit-time source values: fetch each connected source's record (id resolved
+ * from the URL prefills) and return ALL its fields namespaced as
+ * `${aliasKey}.${fieldKey}`. Used server-side to resolve dynamic HIDDEN prefills
+ * (e.g. a silently-attached name of {{guest.First Name}}) authoritatively — the
+ * values never reach the browser here. Fails closed per source. Callers should
+ * gate the call so it only runs when a dynamic hidden value actually needs it.
+ */
+export async function getAirtableSourceValuesForSubmit(
+  link: UploadLinkRow,
+  prefillValues: Record<string, string>,
+): Promise<Record<string, string>> {
+  const cfg = link.airtable_config;
+  const sources = cfg?.recordSources ?? [];
+  if (!cfg?.baseId || sources.length === 0) return {};
+  const recordIds = resolveSourceRecordIds(sources, prefillValues);
+  if (Object.keys(recordIds).length === 0) return {};
+  const token = await getAirtableToken(link.user_id, { admin: true });
+  if (!token) return {};
+
+  const out: Record<string, string> = {};
+  await Promise.all(
+    sources.map(async (src) => {
+      const aliasKey = prefillKey(src.alias || "");
+      const recordId = recordIds[aliasKey];
+      if (!src.tableId || !recordId) return;
+      try {
+        const rec = await getRecord({ token, baseId: cfg.baseId, tableId: src.tableId, recordId });
+        for (const [field, value] of Object.entries(rec.fields ?? {})) {
+          const s = toStr(value);
+          if (s) out[`${aliasKey}.${prefillKey(field)}`] = s;
+        }
+      } catch {
+        /* fail closed */
       }
     }),
   );

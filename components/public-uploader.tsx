@@ -176,8 +176,11 @@ export function PublicUploader({
 }: PublicUploaderProps) {
   const multiBox = boxes.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(prefill.name ?? prefillName ?? "");
-  const [email, setEmail] = useState(prefill.email ?? prefillEmail ?? "");
+  // Prefill name/email may be dynamic (e.g. {{guest.First Name}}) — resolve tokens
+  // against the prefill map (which includes connected-record values). A ?name=
+  // URL override still wins.
+  const [name, setName] = useState(prefill.name ?? renderMergeTags(prefillName ?? "", prefill));
+  const [email, setEmail] = useState(prefill.email ?? renderMergeTags(prefillEmail ?? "", prefill));
   const [message, setMessage] = useState(prefill.message ?? "");
   // Seed each custom field from its URL prefill (by label key), else the owner
   // default — which may itself reference a record source (e.g. {{cleaner.Phone}}),
@@ -620,6 +623,15 @@ export function PublicUploader({
               placeholder="0.00"
             />
           </div>
+        ) : type === "longtext" ? (
+          <textarea
+            id={`cf-${f.id}`}
+            className="input min-h-[110px]"
+            rows={4}
+            value={cur}
+            onChange={(e) => setVal(e.target.value)}
+            disabled={uploading}
+          />
         ) : (
           <input
             id={`cf-${f.id}`}

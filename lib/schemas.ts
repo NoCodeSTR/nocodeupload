@@ -16,12 +16,14 @@ export type StorageProviderId = z.infer<typeof storageProviderSchema>;
 
 export const customFieldSchema = z.object({
   id: z.string().min(1).max(64),
-  label: z.string().min(1, "Label is required").max(60),
-  value: z.string().max(500).default(""),
+  // Labels can be full questions ("Any other notes? Please include details…"),
+  // so allow up to 1000 chars. Value (the default) matches.
+  label: z.string().min(1, "Label is required").max(1000),
+  value: z.string().max(1000).default(""),
   visible: z.boolean().default(true),
   required: z.boolean().default(false),
   type: z
-    .enum(["text", "checkbox", "select", "multiselect", "currency", "number", "phone", "email"])
+    .enum(["text", "longtext", "checkbox", "select", "multiselect", "currency", "number", "phone", "email"])
     .default("text"),
   // Choices for select / multiselect. Capped to keep the public payload sane.
   options: z.array(z.string().min(1).max(80)).max(20).optional(),
@@ -115,7 +117,8 @@ export type AirtableConnectInput = z.infer<typeof airtableConnectSchema>;
 
 const airtableStaticValueSchema = z.object({
   field: z.string().min(1).max(120),
-  value: z.string().max(500).default(""),
+  // Templates can mix text + tokens, so allow a bit more room.
+  value: z.string().max(1000).default(""),
 });
 
 /**

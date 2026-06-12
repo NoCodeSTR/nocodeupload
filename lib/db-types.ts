@@ -267,6 +267,7 @@ export interface ProjectRow {
 /** Input control type for a custom field. */
 export type CustomFieldType =
   | "text"
+  | "longtext"
   | "checkbox"
   | "select"
   | "multiselect"

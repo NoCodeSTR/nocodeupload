@@ -19,9 +19,10 @@ import { createFormSubmission } from "@/lib/forms";
 import { notifyAfterUpload } from "@/lib/batch";
 import { recordAfterUpload } from "@/lib/airtable/record";
 import { isFieldVisible } from "@/lib/conditional";
-import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
+import { getAirtableRecordValues, getAirtableSourceValuesForSubmit } from "@/lib/airtable/record-prefill";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { cleanFieldValue, isValidEmail } from "@/lib/field-values";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { prefillKey } from "@/lib/filename";
 import { hashIp } from "@/lib/slug";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -71,9 +72,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_password" }, { status: 403 });
   }
 
-  // Built-in name/email (honor hide + prefill).
-  const resolvedName = link.hide_name ? (link.prefill_name ?? null) : (input.uploaderName?.trim() || null);
-  const resolvedEmail = link.hide_email ? (link.prefill_email ?? null) : (input.uploaderEmail?.trim() || null);
+  const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
+  const submitted = input.customValues ?? {};
+  const prefillValues = input.prefillValues ?? {};
+  // Authoritative Airtable single-record values (server-fetched).
+  const recordValues = await getAirtableRecordValues(link, input.recordId);
+
+  // Built-in name/email (honor hide + prefill). Hidden prefills may be dynamic
+  // (e.g. {{guest.First Name}}) — resolve tokens against the single record,
+  // connected sources (fetched only when a hidden token needs it), and URL params.
+  const dynamicHidden =
+    (link.hide_name && (link.prefill_name ?? "").includes("{{")) ||
+    (link.hide_email && (link.prefill_email ?? "").includes("{{"));
+  const sourceVals = dynamicHidden ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
+  const prefillCtx = { ...recordValues, ...sourceVals, ...prefillValues };
+  const renderPrefill = (tpl: string | null | undefined): string | null =>
+    tpl ? renderMergeTags(tpl, prefillCtx).trim() || null : null;
+  const resolvedName = link.hide_name ? renderPrefill(link.prefill_name) : (input.uploaderName?.trim() || null);
+  const resolvedEmail = link.hide_email ? renderPrefill(link.prefill_email) : (input.uploaderEmail?.trim() || null);
   if (link.require_name && !link.hide_name && !resolvedName) {
     return NextResponse.json({ error: "missing_name" }, { status: 400 });
   }
@@ -83,12 +99,6 @@ export async function POST(request: NextRequest) {
 
   // Resolve custom fields (same rules as the upload path, incl. conditional skip).
   const customData: Record<string, string> = {};
-  const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
-  const submitted = input.customValues ?? {};
-  const prefillValues = input.prefillValues ?? {};
-  // Authoritative Airtable record values (server-fetched); record wins over a
-  // client URL value for hidden fields, then URL prefill, then the default.
-  const recordValues = await getAirtableRecordValues(link, input.recordId);
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;

@@ -78,7 +78,19 @@ export function ConnectedDataEditor({ connected, value, onChange, schema }: Conn
   }
   function pickSourceTable(id: string, tableId: string) {
     const t = tables.find((x) => x.id === tableId);
-    updateSource(id, { tableId, tableName: t?.name ?? "" });
+    const src = recordSources.find((s) => s.id === id);
+    const patch: Partial<RecordSource> = { tableId, tableName: t?.name ?? "" };
+    // Auto-suggest an alias from the table name when the user hasn't set one
+    // (deduped against other sources). Editable afterward.
+    if (t && !src?.alias.trim()) {
+      const base = prefillKey(t.name) || "table";
+      const taken = new Set(recordSources.filter((s) => s.id !== id).map((s) => prefillKey(s.alias)));
+      let alias = base;
+      let n = 2;
+      while (taken.has(alias)) alias = `${base}_${n++}`;
+      patch.alias = alias;
+    }
+    updateSource(id, patch);
   }
 
   const baseOptions: SelectOption[] = (() => {

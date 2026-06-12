@@ -28,6 +28,7 @@ import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
 import { createRecord, updateRecord, getRecord, type AirtableFieldValue } from "@/lib/airtable/client";
 import { parseRecordSourceKey, getFieldMappings } from "@/lib/airtable/sources";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { prefillKey } from "@/lib/filename";
 import type { AirtableConfig } from "@/lib/db-types";
 import type { NotifyResult } from "@/lib/notifications/types";
@@ -309,8 +310,46 @@ async function buildAndCreate(args: {
     }
   }
 
-  for (const sv of config.staticValues ?? []) {
-    if (sv.field && sv.value) fields[sv.field] = sv.value;
+  // Constant values — templated: a constant may mix static text with merge tags
+  // ({{name}}, {{date}}, {{Custom Field}}, {{cleaner.Phone}}). Render each against
+  // the submission context: uploader fields, custom data, date/count, and any
+  // connected-source fields it references (fetched once via loadSourceFields).
+  const statics = config.staticValues ?? [];
+  if (statics.length > 0) {
+    const rep = uploads[0];
+    const d = rep?.completed_at ? new Date(rep.completed_at) : new Date();
+    const mergeMap: Record<string, string> = {
+      name: rep?.uploader_name ?? "",
+      email: rep?.uploader_email ?? "",
+      message: rep?.uploader_message ?? "",
+      date: isoDate(d),
+      count: String(uploads.length),
+    };
+    for (const [label, val] of Object.entries(rep?.custom_data ?? {})) mergeMap[label] = val;
+    // Collect connected-source aliases referenced in any constant, fetch each.
+    const aliasesNeeded = new Set<string>();
+    const tokenRe = /\{\{([^}]+)\}\}/g;
+    for (const sv of statics) {
+      let m: RegExpExecArray | null;
+      while ((m = tokenRe.exec(sv.value ?? ""))) {
+        const inner = m[1].split("|")[0].trim();
+        const dot = inner.indexOf(".");
+        if (dot > 0) aliasesNeeded.add(prefillKey(inner.slice(0, dot)));
+      }
+    }
+    for (const aliasKey of aliasesNeeded) {
+      const recFields = await loadSourceFields(aliasKey);
+      if (recFields) {
+        for (const [fname, fval] of Object.entries(recFields)) {
+          mergeMap[`${aliasKey}.${fname}`] = cellToStr(fval);
+        }
+      }
+    }
+    for (const sv of statics) {
+      if (!sv.field) continue;
+      const rendered = renderMergeTags(sv.value ?? "", mergeMap);
+      if (rendered.trim() !== "") fields[sv.field] = rendered;
+    }
   }
 
   // Opt-in attachments: point Airtable at our signed proxy for each Drive file.

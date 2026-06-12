@@ -31,8 +31,8 @@ interface ApiTable {
 // as inputs (attachments, formulas, rollups, lookups, collaborators, etc.).
 const TYPE_MAP: Record<string, CustomFieldType> = {
   singleLineText: "text",
-  multilineText: "text",
-  richText: "text",
+  multilineText: "longtext",
+  richText: "longtext",
   email: "email",
   phoneNumber: "phone",
   url: "text",
@@ -222,7 +222,28 @@ export function AirtableImport({ onImport }: AirtableImportProps) {
             </p>
           ) : (
             <>
-              <p className="mb-1.5 text-xs text-ink-500">Choose which columns to pull in as form fields:</p>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-ink-500">
+                  Choose which columns to pull in ({selected.size}/{importable.length} selected):
+                </p>
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set(importable.map((f) => f.id)))}
+                    className="font-medium text-brand hover:underline"
+                  >
+                    Select all
+                  </button>
+                  <span className="text-ink-300">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="font-medium text-ink-500 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
               <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-ink-200 p-2 dark:border-ink-700">
                 {importable.map((f) => (
                   <label key={f.id} className="flex items-center gap-2 text-sm">

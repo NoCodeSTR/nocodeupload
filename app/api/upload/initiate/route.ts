@@ -26,8 +26,9 @@ import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
 import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
-import { getAirtableRecordValues } from "@/lib/airtable/record-prefill";
+import { getAirtableRecordValues, getAirtableSourceValuesForSubmit } from "@/lib/airtable/record-prefill";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { hashIp } from "@/lib/slug";
 import { encryptToToken } from "@/lib/crypto/tokens";
 import { checkUploadAllowed } from "@/lib/rate-limit";
@@ -149,13 +150,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "type_not_allowed" }, { status: 415 });
   }
 
-  // Resolve built-in name/email honoring prefill + hide. Hidden fields take
-  // the owner's prefilled value server-side; the browser value is ignored.
+  // Custom-field + prefill resolution inputs.
+  const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
+  const submitted = input.customValues ?? {};
+  const prefillValues = input.prefillValues ?? {};
+  // Airtable single-record personalization (authoritative, server-fetched). For
+  // hidden fields the record value wins over a client-sent URL value so an
+  // uploader can't tamper with owner data; falls back to URL prefill, then default.
+  const recordValues = await getAirtableRecordValues(link, input.recordId);
+  // Record-source ids (e.g. ?cleaner=recXXX) → persisted so the Airtable record
+  // builder can link them / copy their values into the destination row.
+  const sourceRecordIds = resolveSourceRecordIds(link.airtable_config?.recordSources, prefillValues);
+
+  // Resolve built-in name/email honoring prefill + hide. Hidden fields take the
+  // owner's prefilled value server-side; the browser value is ignored. Prefill
+  // values may be dynamic (e.g. {{guest.First Name}}) — resolve tokens against the
+  // single record, connected sources (fetched only when a hidden token needs it),
+  // and URL params.
+  const dynamicHidden =
+    (link.hide_name && (link.prefill_name ?? "").includes("{{")) ||
+    (link.hide_email && (link.prefill_email ?? "").includes("{{"));
+  const sourceVals = dynamicHidden ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
+  const prefillCtx = { ...recordValues, ...sourceVals, ...prefillValues };
+  const renderPrefill = (tpl: string | null | undefined): string | null =>
+    tpl ? renderMergeTags(tpl, prefillCtx).trim() || null : null;
   const resolvedName = link.hide_name
-    ? (link.prefill_name ?? null)
+    ? renderPrefill(link.prefill_name)
     : (input.uploaderName?.trim() || null);
   const resolvedEmail = link.hide_email
-    ? (link.prefill_email ?? null)
+    ? renderPrefill(link.prefill_email)
     : (input.uploaderEmail?.trim() || null);
 
   // Required built-in validation (only enforced for visible fields).
@@ -168,19 +191,8 @@ export async function POST(request: NextRequest) {
 
   // Resolve custom fields → custom_data. Visible values come from the browser
   // (already seeded from URL prefills by the client). Hidden values come from a
-  // URL prefill when present (owner-generated links, e.g. an Airtable formula
-  // that silently tags a record id) and otherwise from the owner's value.
+  // URL prefill / the single record when present, otherwise the owner's default.
   const customData: Record<string, string> = {};
-  const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
-  const submitted = input.customValues ?? {};
-  const prefillValues = input.prefillValues ?? {};
-  // Airtable record personalization (authoritative, server-fetched). For hidden
-  // fields the record value wins over a client-sent URL value so an uploader
-  // can't tamper with owner data; falls back to URL prefill, then the default.
-  const recordValues = await getAirtableRecordValues(link, input.recordId);
-  // Record-source ids (e.g. ?cleaner=recXXX) → persisted so the Airtable record
-  // builder can link them / copy their values into the destination row.
-  const sourceRecordIds = resolveSourceRecordIds(link.airtable_config?.recordSources, prefillValues);
   for (const f of fields) {
     const type = f.type ?? "text";
     let val: string;

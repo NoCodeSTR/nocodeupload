@@ -290,6 +290,10 @@ export function AirtableMappingEditor({
               <span className="label block">
                 Constant values <span className="font-normal text-ink-400">(optional)</span>
               </span>
+              <p className="text-xs text-ink-400">
+                A fixed value, or a template mixing text + tokens —{" "}
+                <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"Cleaning for {{property.Name}}"}</code>.
+              </p>
               {(value?.staticValues ?? []).map((sv, idx) => (
                 <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
                   <SearchableSelect
@@ -306,8 +310,8 @@ export function AirtableMappingEditor({
                     className="input w-auto flex-1"
                     value={sv.value}
                     onChange={(e) => updateStatic(idx, { value: e.target.value })}
-                    placeholder="Value (e.g. Guest upload)"
-                    maxLength={500}
+                    placeholder="e.g. Guest upload, or Cleaning for {{property.Name}}"
+                    maxLength={1000}
                   />
                   <button
                     type="button"
