@@ -163,7 +163,9 @@ export async function getAirtableSourceValuesBySlug(
   }
   const cfg = link?.airtable_config;
   const sources = cfg?.recordSources ?? [];
-  if (!link || !cfg?.enabled || !cfg.baseId || sources.length === 0) return {};
+  // Connected Data powers personalization independently of record creation, so
+  // this is gated on a base + sources — NOT on the create-a-record flag.
+  if (!link || !cfg?.baseId || sources.length === 0) return {};
 
   // Which source fields does the form's copy actually reference? Only those ship.
   const aliasKeys = new Set(sources.map((s) => prefillKey(s.alias || "")).filter(Boolean));

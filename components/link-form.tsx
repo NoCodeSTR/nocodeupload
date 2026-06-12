@@ -18,7 +18,9 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
-import { AirtableConfigEditor } from "@/components/airtable-config-editor";
+import { ConnectedDataEditor } from "@/components/connected-data-editor";
+import { AirtableMappingEditor } from "@/components/airtable-mapping-editor";
+import { useAirtableSchema } from "@/components/airtable-schema";
 import { AirtableImport, type ImportedAirtableField } from "@/components/airtable-import";
 import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
@@ -302,6 +304,9 @@ export function LinkForm({
   const [airtableConfig, setAirtableConfig] = useState<AirtableConfig | null>(
     initialLink?.airtable_config ?? null,
   );
+  // One shared Airtable schema loader for both Connected Data (source) and
+  // Airtable Mapping (destination) so bases/tables are fetched once.
+  const airtableSchema = useAirtableSchema(airtableConnected, airtableConfig?.baseId);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -912,12 +917,17 @@ export function LinkForm({
       uploadPassword: usePassword ? uploadPassword.trim() || null : null,
       projectId: projectId || null,
       tags,
-      // Only persist a usable Airtable config (connected + enabled + targeted);
-      // otherwise null, which clears any previously-saved config on edit.
-      airtableConfig:
-        airtableConnected && airtableConfig?.enabled && airtableConfig.baseId && airtableConfig.tableId
-          ? airtableConfig
-          : null,
+      // Persist the Airtable config when there's a usable base AND either
+      // connected tables (data source) or a record destination (enabled + table).
+      // Connected Data alone is worth saving (it powers personalization without
+      // creating a record). Otherwise null, clearing any prior config on edit.
+      airtableConfig: (() => {
+        const cfg = airtableConfig;
+        if (!airtableConnected || !cfg?.baseId) return null;
+        const hasSources = (cfg.recordSources ?? []).some((s) => s.tableId && s.alias.trim());
+        const hasDestination = Boolean(cfg.enabled && cfg.tableId);
+        return hasSources || hasDestination ? cfg : null;
+      })(),
     };
 
     // Pre-validate against the SAME schema the server enforces, so the owner
@@ -1241,6 +1251,20 @@ export function LinkForm({
         )}
       </CollapsibleSection>
 
+      {/* Connected data — Airtable connection + base + connected tables (source) */}
+      <CollapsibleSection
+        title="Connected data"
+        badge="Pro"
+        description="Connect Airtable tables whose records this form can reference everywhere — merge tags, file naming, mapping, routing, and notifications."
+      >
+        <ConnectedDataEditor
+          connected={airtableConnected}
+          value={airtableConfig}
+          onChange={setAirtableConfig}
+          schema={airtableSchema}
+        />
+      </CollapsibleSection>
+
       {/* Details */}
       <CollapsibleSection title="Details" description="What this link is for." defaultOpen>
         <div>
@@ -1374,6 +1398,23 @@ export function LinkForm({
             (Enter to add).
           </p>
         </div>
+
+        {/* Branding (accent color) — part of the link's presentation */}
+        <div className="mt-4 border-t border-ink-100 pt-4 dark:border-ink-800">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useCustomColor} onChange={(e) => setUseCustomColor(e.target.checked)} />
+            Custom accent color
+          </label>
+          {useCustomColor && (
+            <input
+              type="color"
+              value={brandingColor}
+              onChange={(e) => setBrandingColor(e.target.value)}
+              className="mt-2 h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
+              aria-label="Accent color"
+            />
+          )}
+        </div>
       </CollapsibleSection>
 
       {/* Upload rules */}
@@ -1468,43 +1509,6 @@ export function LinkForm({
             Off by default. When on, uploaders must enter this exact value first. Keep it as
             simple as you like (a 4-digit code works).
           </p>
-        </div>
-      </CollapsibleSection>
-
-      {/* Uploader form fields */}
-      <CollapsibleSection title="Uploader form" description="What you ask visitors for (optional fields).">
-
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={requireName} onChange={(e) => setRequireName(e.target.checked)} />
-          Require uploader name
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={requireEmail} onChange={(e) => setRequireEmail(e.target.checked)} />
-          Require uploader email
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={showMessageField} onChange={(e) => setShowMessageField(e.target.checked)} />
-          Show a message / notes field
-        </label>
-
-        {/* Prefill + hide for name/email */}
-        <div className="grid gap-3 border-t border-ink-200 pt-3 dark:border-ink-700 sm:grid-cols-2">
-          <div>
-            <label className="label mb-1" htmlFor="prefill-name">Prefill name (optional)</label>
-            <input id="prefill-name" className="input" value={prefillName} onChange={(e) => setPrefillName(e.target.value)} placeholder="e.g. Maria" />
-            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
-              <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} />
-              Hide from uploader (attach silently)
-            </label>
-          </div>
-          <div>
-            <label className="label mb-1" htmlFor="prefill-email">Prefill email (optional)</label>
-            <input id="prefill-email" className="input" value={prefillEmail} onChange={(e) => setPrefillEmail(e.target.value)} placeholder="e.g. maria@example.com" />
-            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
-              <input type="checkbox" checked={hideEmail} onChange={(e) => setHideEmail(e.target.checked)} />
-              Hide from uploader (attach silently)
-            </label>
-          </div>
         </div>
       </CollapsibleSection>
 
@@ -1706,6 +1710,43 @@ export function LinkForm({
         <p className="text-xs text-ink-400">
           Fields with no section appear first, then each section in order (empty sections are hidden).
         </p>
+      </CollapsibleSection>
+
+      {/* Uploader form fields — built-in identity fields, atop the Fields group */}
+      <CollapsibleSection title="Uploader form" description="What you ask visitors for (optional fields).">
+
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={requireName} onChange={(e) => setRequireName(e.target.checked)} />
+          Require uploader name
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={requireEmail} onChange={(e) => setRequireEmail(e.target.checked)} />
+          Require uploader email
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={showMessageField} onChange={(e) => setShowMessageField(e.target.checked)} />
+          Show a message / notes field
+        </label>
+
+        {/* Prefill + hide for name/email */}
+        <div className="grid gap-3 border-t border-ink-200 pt-3 dark:border-ink-700 sm:grid-cols-2">
+          <div>
+            <label className="label mb-1" htmlFor="prefill-name">Prefill name (optional)</label>
+            <input id="prefill-name" className="input" value={prefillName} onChange={(e) => setPrefillName(e.target.value)} placeholder="e.g. Maria" />
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
+              <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} />
+              Hide from uploader (attach silently)
+            </label>
+          </div>
+          <div>
+            <label className="label mb-1" htmlFor="prefill-email">Prefill email (optional)</label>
+            <input id="prefill-email" className="input" value={prefillEmail} onChange={(e) => setPrefillEmail(e.target.value)} placeholder="e.g. maria@example.com" />
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
+              <input type="checkbox" checked={hideEmail} onChange={(e) => setHideEmail(e.target.checked)} />
+              Hide from uploader (attach silently)
+            </label>
+          </div>
+        </div>
       </CollapsibleSection>
 
       {/* Custom fields */}
@@ -2141,21 +2182,20 @@ export function LinkForm({
         </CollapsibleSection>
       )}
 
-      {/* Branding */}
-      <CollapsibleSection title="Branding" description="Personalize the public upload page.">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={useCustomColor} onChange={(e) => setUseCustomColor(e.target.checked)} />
-          Custom accent color
-        </label>
-        {useCustomColor && (
-          <input
-            type="color"
-            value={brandingColor}
-            onChange={(e) => setBrandingColor(e.target.value)}
-            className="h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
-            aria-label="Accent color"
-          />
-        )}
+      {/* Airtable mapping — the destination (create/update a record). The source
+          (base + connected tables) lives in Connected data near the top. */}
+      <CollapsibleSection
+        title="Airtable mapping"
+        badge="Pro"
+        description="Optionally create or update an Airtable record on submit — fill its fields from the upload, custom fields, or any connected table."
+      >
+        <AirtableMappingEditor
+          connected={airtableConnected}
+          value={airtableConfig}
+          onChange={setAirtableConfig}
+          customFields={customFields}
+          schema={airtableSchema}
+        />
       </CollapsibleSection>
 
       {/* Notifications & webhook */}
@@ -2428,20 +2468,6 @@ export function LinkForm({
             + Add rule
           </button>
         )}
-      </CollapsibleSection>
-
-      {/* Airtable destination */}
-      <CollapsibleSection
-        title="Airtable"
-        badge="Pro"
-        description="Log every upload as a row in an Airtable table — the file link, the uploader's answers, and (optionally) the file itself. Files still go to your storage; this adds a record alongside."
-      >
-        <AirtableConfigEditor
-          connected={airtableConnected}
-          value={airtableConfig}
-          onChange={setAirtableConfig}
-          customFields={customFields}
-        />
       </CollapsibleSection>
 
       {/* After upload */}
