@@ -21,11 +21,13 @@ import { CollapsibleSection } from "@/components/collapsible-section";
 import { ConnectedDataEditor } from "@/components/connected-data-editor";
 import { AirtableMappingEditor } from "@/components/airtable-mapping-editor";
 import { PreviewRecordPicker } from "@/components/preview-record-picker";
+import { TokenFieldPicker } from "@/components/token-field-picker";
 import { useAirtableSchema } from "@/components/airtable-schema";
 import { AirtableImport, type ImportedAirtableField } from "@/components/airtable-import";
 import { ImageUploader } from "@/components/image-uploader";
 import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import { renderMergeTags } from "@/lib/merge-tags";
+import { getFieldMappings } from "@/lib/airtable/sources";
 import { uploadLinkCreateSchema } from "@/lib/schemas";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
@@ -507,10 +509,16 @@ export function LinkForm({
         mapping: {},
         staticValues: [],
       };
-      // Switching tables invalidates the old table's field-name mappings.
+      // Switching tables invalidates the old table's field mappings. Auto-map
+      // each imported column to its matching custom field (dest field ← the
+      // field:<Label> source) so the owner never re-maps imported columns.
       const tableChanged = baseCfg.tableId !== result.tableId;
-      const mapping: Record<string, string> = tableChanged ? {} : { ...baseCfg.mapping };
-      for (const f of result.fields) mapping[`field:${f.label.trim()}`] = f.label.trim();
+      const prevMaps = tableChanged ? [] : getFieldMappings(baseCfg);
+      const byField = new Map(prevMaps.map((m) => [m.field, m]));
+      for (const f of result.fields) {
+        const label = f.label.trim();
+        byField.set(label, { field: label, source: `field:${label}` });
+      }
       return {
         ...baseCfg,
         enabled: true,
@@ -518,7 +526,8 @@ export function LinkForm({
         baseName: result.baseName,
         tableId: result.tableId,
         tableName: result.tableName,
-        mapping,
+        mapping: {},
+        fieldMappings: Array.from(byField.values()),
         attachFieldName: tableChanged ? null : baseCfg.attachFieldName,
         staticValues: tableChanged ? [] : baseCfg.staticValues,
       };
@@ -1707,22 +1716,18 @@ export function LinkForm({
                         </button>
                       );
                     })}
-                  {/* Connected-table tokens: {{alias.FieldName}}. Field names live
-                      in Airtable → Connected tables; this seeds the namespace. */}
+                  {/* Connected-table tokens: click to search + pick the exact field. */}
                   {(airtableConfig?.recordSources ?? [])
                     .filter((s) => s.alias.trim())
                     .map((s) => {
-                      const ak = prefillKey(s.alias);
+                      const t = airtableSchema.tables.find((tt) => tt.id === s.tableId);
                       return (
-                        <button
+                        <TokenFieldPicker
                           key={s.id}
-                          type="button"
-                          onClick={() => insertContentToken(b.id, `{{${ak}.}}`)}
-                          title={`Connected table — add the field name, e.g. {{${ak}.Name}}`}
-                          className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
-                        >
-                          {`{{${ak}.…}}`}
-                        </button>
+                          aliasKey={prefillKey(s.alias)}
+                          fields={(t?.fields ?? []).map((f) => f.name)}
+                          onInsert={(tok) => insertContentToken(b.id, tok)}
+                        />
                       );
                     })}
                 </div>
@@ -1868,7 +1873,11 @@ export function LinkForm({
 
         {airtableConnected && (
           <div className="border-b border-ink-100 pb-3 dark:border-ink-800">
-            <AirtableImport onImport={importAirtableFields} />
+            <AirtableImport
+              onImport={importAirtableFields}
+              defaultBaseId={airtableConfig?.baseId ?? ""}
+              defaultBaseName={airtableConfig?.baseName ?? ""}
+            />
           </div>
         )}
 
@@ -2226,21 +2235,18 @@ export function LinkForm({
                 </button>
               );
             })}
-          {/* Connected-table tokens work in file names too ({{alias.Field}}). */}
+          {/* Connected-table tokens work in file names too — click to pick the field. */}
           {(airtableConfig?.recordSources ?? [])
             .filter((s) => s.alias.trim())
             .map((s) => {
-              const ak = prefillKey(s.alias);
+              const t = airtableSchema.tables.find((tt) => tt.id === s.tableId);
               return (
-                <button
+                <TokenFieldPicker
                   key={s.id}
-                  type="button"
-                  onClick={() => setFilenameTemplate((v) => (v ? `${v}-{{${ak}.}}` : `{{${ak}.}}`))}
-                  title={`Connected table — add the field, e.g. {{${ak}.Name}}`}
-                  className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
-                >
-                  {`{{${ak}.…}}`}
-                </button>
+                  aliasKey={prefillKey(s.alias)}
+                  fields={(t?.fields ?? []).map((f) => f.name)}
+                  onInsert={(tok) => setFilenameTemplate((v) => (v ? `${v}-${tok}` : tok))}
+                />
               );
             })}
         </div>

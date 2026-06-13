@@ -10,6 +10,7 @@
  * constant values, attachments, and two-way sync. The base + connected tables
  * live in Connected Data; this section shares the same AirtableConfig + schema.
  */
+import { useState } from "react";
 import { Table2, AlertCircle, RefreshCw } from "lucide-react";
 import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
 import {
@@ -26,6 +27,7 @@ import {
   customFieldSourceKey,
   recordSourceLinkKey,
   recordSourceValueKey,
+  parseRecordSourceKey,
   getFieldMappings,
 } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
@@ -101,29 +103,47 @@ export function AirtableMappingEditor({
   }));
   const attachmentOptions: SelectOption[] = attachmentFields.map((f) => ({ value: f.name, label: f.name }));
 
-  // Value sources offered for each destination field: upload context, custom
-  // fields, the record links, and every field of every connected table.
-  const sources = [
-    ...AIRTABLE_BUILTIN_SOURCES.map((s) => ({ key: s.key, label: s.label, hint: s.hint })),
-    ...customFields
-      .filter((f) => f.label.trim())
-      .map((f) => ({ key: customFieldSourceKey(f.label.trim()), label: f.label.trim(), hint: "Custom field" })),
-    ...recordSources.flatMap((src) => {
-      const aliasKey = prefillKey(src.alias || "");
-      if (!aliasKey || !src.tableId) return [];
-      const name = src.alias.trim() || src.tableName || "source";
-      const srcTable = tables.find((t) => t.id === src.tableId);
-      return [
-        { key: recordSourceLinkKey(aliasKey), label: `${name} (record link)`, hint: "Linked record" },
-        ...(srcTable?.fields ?? []).map((f) => ({
-          key: recordSourceValueKey(aliasKey, f.name),
-          label: `${name} · ${f.name}`,
-          hint: "Pulled value",
-        })),
-      ];
-    }),
+  // Value sources grouped into categories for a two-step picker: pick a source
+  // (File & upload / Form fields / each connected table), then the value within.
+  const valueCategories: Array<{ id: string; label: string; options: SelectOption[] }> = [
+    {
+      id: "__builtin",
+      label: "File & upload info",
+      options: AIRTABLE_BUILTIN_SOURCES.map((s) => ({ value: s.key, label: s.label, hint: s.hint })),
+    },
   ];
-  const valueSourceOptions: SelectOption[] = sources.map((s) => ({ value: s.key, label: s.label, hint: s.hint }));
+  const formOpts = customFields
+    .filter((f) => f.label.trim())
+    .map((f) => ({ value: customFieldSourceKey(f.label.trim()), label: f.label.trim() }));
+  if (formOpts.length) valueCategories.push({ id: "__form", label: "Form fields", options: formOpts });
+  for (const src of recordSources) {
+    const aliasKey = prefillKey(src.alias || "");
+    if (!aliasKey || !src.tableId) continue;
+    const name = src.alias.trim() || src.tableName || "table";
+    const srcTable = tables.find((t) => t.id === src.tableId);
+    valueCategories.push({
+      id: `ref:${aliasKey}`,
+      label: src.tableName && src.tableName !== name ? `${name} (${src.tableName})` : name,
+      options: [
+        { value: recordSourceLinkKey(aliasKey), label: `${name} record (link)`, hint: "Linked record" },
+        ...(srcTable?.fields ?? []).map((f) => ({ value: recordSourceValueKey(aliasKey, f.name), label: f.name })),
+      ],
+    });
+  }
+  const categoryOptions: SelectOption[] = valueCategories.map((c) => ({ value: c.id, label: c.label }));
+
+  // Which category a source key belongs to (so an existing mapping shows the
+  // right first dropdown without extra state).
+  function categoryOf(srcKey: string): string {
+    if (!srcKey) return "";
+    const ref = parseRecordSourceKey(srcKey);
+    if (ref) return `ref:${ref.aliasKey}`;
+    if (srcKey.startsWith("field:")) return "__form";
+    return "__builtin";
+  }
+  // The first-dropdown selection per destination field (defaults to the category
+  // derived from any existing mapping).
+  const [catByField, setCatByField] = useState<Record<string, string>>({});
 
   function mappingWarning(sourceKey: string, fieldName: string | undefined): string | null {
     if (!fieldName || !perBatch || !MULTI_VALUE_SOURCES.has(sourceKey)) return null;
@@ -245,6 +265,8 @@ export function AirtableMappingEditor({
                 )}
                 {mappingFields.map((destField) => {
                   const selected = fieldMappingFor(destField.name);
+                  const cat = catByField[destField.name] ?? categoryOf(selected);
+                  const catOpts = valueCategories.find((c) => c.id === cat)?.options ?? [];
                   const warn = mappingWarning(selected, destField.name);
                   return (
                     <div key={destField.id} className="space-y-0.5">
@@ -254,16 +276,33 @@ export function AirtableMappingEditor({
                           <span className="ml-1 text-xs text-ink-400">({prettyType(destField.type)})</span>
                         </div>
                         <span className="text-ink-400">←</span>
+                        {/* Step 1: where the value comes from. */}
                         <SearchableSelect
-                          className="w-auto min-w-[11rem] flex-1"
-                          value={selected}
-                          onChange={(v) => setFieldMapping(destField.name, v)}
-                          options={valueSourceOptions}
+                          className="w-auto min-w-[8rem]"
+                          value={cat}
+                          onChange={(c) => {
+                            setCatByField((prev) => ({ ...prev, [destField.name]: c }));
+                            setFieldMapping(destField.name, ""); // reset value when source changes
+                          }}
+                          options={categoryOptions}
                           emptyOptionLabel="Leave blank"
-                          placeholder="Leave blank"
-                          searchPlaceholder="Search values…"
-                          ariaLabel={`Value for ${destField.name}`}
+                          placeholder="Source…"
+                          searchPlaceholder="Search sources…"
+                          ariaLabel={`Source for ${destField.name}`}
                         />
+                        {/* Step 2: the specific value within that source. */}
+                        {cat && (
+                          <SearchableSelect
+                            className="w-auto min-w-[10rem] flex-1"
+                            value={selected}
+                            onChange={(v) => setFieldMapping(destField.name, v)}
+                            options={catOpts}
+                            emptyOptionLabel="Choose…"
+                            placeholder="Choose value…"
+                            searchPlaceholder="Search…"
+                            ariaLabel={`Value for ${destField.name}`}
+                          />
+                        )}
                       </div>
                       {warn && (
                         <p className="flex items-start gap-1 pl-1 text-xs text-amber-600 dark:text-amber-300">

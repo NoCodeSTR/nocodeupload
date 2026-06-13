@@ -62,13 +62,16 @@ interface AirtableImportProps {
     tableName: string;
     fields: ImportedAirtableField[];
   }) => void;
+  /** Base chosen in Connected Data — preselected here so they don't re-pick it. */
+  defaultBaseId?: string;
+  defaultBaseName?: string;
 }
 
-export function AirtableImport({ onImport }: AirtableImportProps) {
+export function AirtableImport({ onImport, defaultBaseId = "", defaultBaseName = "" }: AirtableImportProps) {
   const [open, setOpen] = useState(false);
   const [bases, setBases] = useState<ApiBase[]>([]);
   const [tables, setTables] = useState<ApiTable[]>([]);
-  const [baseId, setBaseId] = useState("");
+  const [baseId, setBaseId] = useState(defaultBaseId);
   const [tableId, setTableId] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loadingBases, setLoadingBases] = useState(false);
@@ -111,6 +114,13 @@ export function AirtableImport({ onImport }: AirtableImportProps) {
     setOpen(true);
     setJustImported(0);
     if (bases.length === 0) void loadBases();
+    // Preselect the base from Connected Data so they jump straight to the table.
+    if (defaultBaseId && !baseId) {
+      setBaseId(defaultBaseId);
+      void loadTables(defaultBaseId);
+    } else if (baseId && tables.length === 0) {
+      void loadTables(baseId);
+    }
   }
   function pickBase(id: string) {
     setBaseId(id);
@@ -157,6 +167,9 @@ export function AirtableImport({ onImport }: AirtableImportProps) {
   }
 
   const baseOptions: SelectOption[] = bases.map((b) => ({ value: b.id, label: b.name }));
+  if (baseId && !baseOptions.some((o) => o.value === baseId)) {
+    baseOptions.unshift({ value: baseId, label: defaultBaseName || baseId });
+  }
   const tableOptions: SelectOption[] = tables.map((t) => ({ value: t.id, label: t.name }));
 
   if (!open) {
