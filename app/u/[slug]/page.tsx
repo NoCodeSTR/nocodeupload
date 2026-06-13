@@ -9,7 +9,11 @@ import { ShieldCheck } from "lucide-react";
 import { UploadCard } from "@/components/upload-card";
 import { UploadGate } from "@/components/upload-gate";
 import { getPublicLinkBySlug } from "@/lib/links";
-import { getAirtableRecordValuesBySlug, getAirtableSourceValuesBySlug } from "@/lib/airtable/record-prefill";
+import {
+  getAirtableRecordValuesBySlug,
+  getAirtableSourceValuesBySlug,
+  getUpdateTargetValuesBySlug,
+} from "@/lib/airtable/record-prefill";
 
 export const dynamic = "force-dynamic";
 
@@ -56,11 +60,13 @@ export default async function PublicUploadPage({
   // Airtable personalization (server-side only — the owner's token never touches
   // the client): the single ?record= record's columns, PLUS any multi-table
   // record sources (?alias=recXXX each). URL params still win over both.
-  const [recordValues, sourceValues] = await Promise.all([
+  const [recordValues, sourceValues, updateValues] = await Promise.all([
     recordId ? getAirtableRecordValuesBySlug(params.slug, recordId) : Promise.resolve({}),
     getAirtableSourceValuesBySlug(params.slug, searchParams),
+    // Update mode: preload the record being edited so matching fields aren't blank.
+    getUpdateTargetValuesBySlug(params.slug, searchParams),
   ]);
-  const mergedPrefill = { ...recordValues, ...sourceValues, ...prefill };
+  const mergedPrefill = { ...recordValues, ...updateValues, ...sourceValues, ...prefill };
 
   return (
     <main className="min-h-screen bg-ink-50 px-4 py-10 dark:bg-ink-950">

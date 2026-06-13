@@ -19,7 +19,11 @@ import { createFormSubmission } from "@/lib/forms";
 import { notifyAfterUpload } from "@/lib/batch";
 import { recordAfterUpload } from "@/lib/airtable/record";
 import { isFieldVisible } from "@/lib/conditional";
-import { getAirtableRecordValues, getAirtableSourceValuesForSubmit } from "@/lib/airtable/record-prefill";
+import {
+  getAirtableRecordValues,
+  getAirtableSourceValuesForSubmit,
+  getUpdateTargetValues,
+} from "@/lib/airtable/record-prefill";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { cleanFieldValue, isValidEmail } from "@/lib/field-values";
 import { renderMergeTags } from "@/lib/merge-tags";
@@ -75,8 +79,13 @@ export async function POST(request: NextRequest) {
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
   const prefillValues = input.prefillValues ?? {};
-  // Authoritative Airtable single-record values (server-fetched).
-  const recordValues = await getAirtableRecordValues(link, input.recordId);
+  // Authoritative Airtable record values (server-fetched). In update mode this
+  // includes the record being edited so its current values back-fill hidden
+  // fields instead of blanking them.
+  const recordValues = {
+    ...(await getAirtableRecordValues(link, input.recordId)),
+    ...(await getUpdateTargetValues(link, prefillValues)),
+  };
 
   // Built-in name/email (honor hide + prefill). Hidden prefills may be dynamic
   // (e.g. {{guest.First Name}}) — resolve tokens against the single record,

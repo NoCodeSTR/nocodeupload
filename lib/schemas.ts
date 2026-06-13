@@ -163,6 +163,8 @@ export const airtableConfigSchema = z.object({
   staticValues: z.array(airtableStaticValueSchema).max(20).default([]),
   allowRecordPrefill: z.boolean().default(false),
   updateRecordWhenPresent: z.boolean().default(false),
+  recordAction: z.enum(["create", "update"]).optional(),
+  updateRecordSource: z.string().max(80).optional(),
   recordSources: z.array(recordSourceSchema).max(10).default([]),
 });
 export type AirtableConfigInput = z.infer<typeof airtableConfigSchema>;

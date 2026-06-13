@@ -253,3 +253,57 @@ export async function getAirtableSourceValuesForSubmit(
   );
   return out;
 }
+
+/**
+ * Update mode: fetch the record being updated (in the destination table) and
+ * return its columns as { prefillKey(column): value } so the public form can
+ * PRELOAD existing values into matching fields — the uploader edits the current
+ * record instead of blanking unmapped/untouched columns. The id comes from the
+ * link URL (?record=) or the chosen connected alias (?guest=). Empty unless the
+ * link is in update mode with a valid record id. Fails closed.
+ */
+export async function getUpdateTargetValues(
+  link: UploadLinkRow,
+  params: Record<string, string | string[] | undefined>,
+): Promise<Record<string, string>> {
+  const cfg = link.airtable_config;
+  if (cfg?.recordAction !== "update" || !cfg.baseId || !cfg.tableId) return {};
+
+  const norm: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val != null && val !== "") norm[prefillKey(k)] = String(val).trim();
+  }
+  const src = cfg.updateRecordSource ?? "url";
+  const recordId = src === "url" ? norm.record ?? norm.recordid : norm[prefillKey(src)];
+  if (!recordId || !REC_ID_RE.test(recordId)) return {};
+
+  const token = await getAirtableToken(link.user_id, { admin: true });
+  if (!token) return {};
+  try {
+    const rec = await getRecord({ token, baseId: cfg.baseId, tableId: cfg.tableId, recordId });
+    const out: Record<string, string> = {};
+    for (const [field, value] of Object.entries(rec.fields ?? {})) {
+      const s = toStr(value);
+      if (s) out[prefillKey(field)] = s;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** getUpdateTargetValues, loading the link by slug (public page). */
+export async function getUpdateTargetValuesBySlug(
+  slug: string,
+  params: Record<string, string | string[] | undefined>,
+): Promise<Record<string, string>> {
+  let link: UploadLinkRow | null;
+  try {
+    link = await getLinkBySlugAdmin(slug);
+  } catch {
+    return {};
+  }
+  if (!link) return {};
+  return getUpdateTargetValues(link, params);
+}

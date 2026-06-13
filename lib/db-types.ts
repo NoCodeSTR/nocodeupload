@@ -234,10 +234,21 @@ export interface AirtableConfig {
    */
   allowRecordPrefill?: boolean;
   /**
-   * Two-way sync: when true AND the submission carries a recordId (?record=),
-   * UPDATE that record instead of creating a new one. No recordId → create.
+   * Legacy two-way sync flag (pre-recordAction). When true AND a ?record= id is
+   * present, UPDATE instead of create. Superseded by recordAction; kept for
+   * back-compat (treated as recordAction "update", updateRecordSource "url").
    */
   updateRecordWhenPresent?: boolean;
+  /**
+   * Create a new record vs. update an existing one. Default "create".
+   */
+  recordAction?: "create" | "update";
+  /**
+   * Where the record id to UPDATE comes from: "url" (?record=recXXX) or a record
+   * source alias key (e.g. "guest" → ?guest=recXXX, updating that record's
+   * table). Only meaningful when recordAction is "update".
+   */
+  updateRecordSource?: string;
   /**
    * Record sources — other tables in the same base pulled in by id so their
    * fields are available live as namespaced merge tags ({{alias.Field}}). See

@@ -145,6 +145,44 @@ export function AirtableMappingEditor({
   // derived from any existing mapping).
   const [catByField, setCatByField] = useState<Record<string, string>>({});
 
+  // Create vs update. For update, the record id comes from the link URL (?record=)
+  // or a connected alias (?guest=) — picking an alias points the destination table
+  // at that alias's table so the mapping fills the record being updated.
+  const recordAction: "create" | "update" =
+    value?.recordAction ?? (value?.updateRecordWhenPresent ? "update" : "create");
+  const updateSource = value?.updateRecordSource ?? "url";
+  const updateSourceOptions: SelectOption[] = [
+    { value: "url", label: "A record id in the link URL (?record=)" },
+    ...recordSources
+      .filter((s) => s.tableId && s.alias.trim())
+      .map((s) => {
+        const ak = prefillKey(s.alias);
+        return { value: ak, label: `${s.alias.trim()} record (?${ak}=)`, hint: s.tableName };
+      }),
+  ];
+  function setAction(a: "create" | "update") {
+    update({ recordAction: a, updateRecordWhenPresent: false });
+  }
+  function setUpdateSource(src: string) {
+    if (src === "url") {
+      update({ updateRecordSource: "url" });
+      return;
+    }
+    const def = recordSources.find((s) => prefillKey(s.alias) === src);
+    if (def?.tableId && def.tableId !== value?.tableId) {
+      // Target the alias's table; its columns differ, so reset the mapping.
+      update({
+        updateRecordSource: src,
+        tableId: def.tableId,
+        tableName: def.tableName ?? "",
+        fieldMappings: [],
+        attachFieldName: null,
+      });
+    } else {
+      update({ updateRecordSource: src });
+    }
+  }
+
   function mappingWarning(sourceKey: string, fieldName: string | undefined): string | null {
     if (!fieldName || !perBatch || !MULTI_VALUE_SOURCES.has(sourceKey)) return null;
     const t = selectedTable?.fields.find((f) => f.name === fieldName)?.type;
@@ -170,42 +208,103 @@ export function AirtableMappingEditor({
       <label className="flex items-center gap-2 text-sm font-medium">
         <input type="checkbox" checked={enabled} onChange={(e) => update({ enabled: e.target.checked })} />
         <Table2 className="h-4 w-4 text-ink-500" />
-        Create an Airtable record on every submission
+        Create or update an Airtable record on submit
       </label>
 
       {enabled && !baseId && (
         <p className="rounded-md bg-ink-50 px-3 py-2 text-xs text-ink-500 dark:bg-ink-900/40">
           Pick your Airtable <strong>base</strong> in the <strong>Connected data</strong> section above,
-          then choose which table to write to here.
+          then choose what to write here.
         </p>
       )}
 
       {enabled && baseId && (
         <div className="space-y-4 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
-          {/* Destination table */}
+          {/* Create vs Update */}
           <div>
-            <div className="mb-1 flex items-center justify-between">
-              <label className="label">Write the record to</label>
-              <button
-                type="button"
-                onClick={() => baseId && void loadTables(baseId)}
-                disabled={loadingTables}
-                className="inline-flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 disabled:opacity-50 dark:hover:text-ink-200"
-              >
-                <RefreshCw className={`h-3 w-3 ${loadingTables ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
+            <span className="label mb-1 block">On submit…</span>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="airtable-action"
+                  checked={recordAction === "create"}
+                  onChange={() => setAction("create")}
+                />
+                Create a new record
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input
+                  type="radio"
+                  name="airtable-action"
+                  checked={recordAction === "update"}
+                  onChange={() => setAction("update")}
+                />
+                Update an existing record
+              </label>
             </div>
-            <SearchableSelect
-              value={value?.tableId ?? ""}
-              onChange={pickTable}
-              options={tableOptions}
-              loading={loadingTables}
-              placeholder="Choose a table…"
-              searchPlaceholder="Search tables…"
-              ariaLabel="Destination table"
-            />
           </div>
+
+          {recordAction === "update" && (
+            <>
+              <div>
+                <label className="label mb-1 block">Which record to update</label>
+                <SearchableSelect
+                  value={updateSource}
+                  onChange={setUpdateSource}
+                  options={updateSourceOptions}
+                  placeholder="Where the record id comes from…"
+                  searchPlaceholder="Search…"
+                  ariaLabel="Update record source"
+                />
+              </div>
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                <span>
+                  Update mode needs a record id in the link —{" "}
+                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">
+                    {updateSource === "url" ? "?record=recXXX" : `?${updateSource}=recXXX`}
+                  </code>
+                  . Submissions opened without one are skipped. The record&apos;s current values are
+                  preloaded into matching fields so nothing gets blanked.
+                </span>
+              </div>
+            </>
+          )}
+
+          {/* Destination / target table */}
+          {recordAction === "update" && updateSource !== "url" ? (
+            <div>
+              <span className="label mb-1 block">Updating records in</span>
+              <p className="rounded-md bg-ink-50 px-3 py-2 text-sm dark:bg-ink-900/40">
+                {value?.tableName || selectedTable?.name || "the connected table"}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="label">{recordAction === "update" ? "Record's table" : "Write the record to"}</label>
+                <button
+                  type="button"
+                  onClick={() => baseId && void loadTables(baseId)}
+                  disabled={loadingTables}
+                  className="inline-flex items-center gap-1 text-xs text-ink-500 hover:text-ink-800 disabled:opacity-50 dark:hover:text-ink-200"
+                >
+                  <RefreshCw className={`h-3 w-3 ${loadingTables ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+              <SearchableSelect
+                value={value?.tableId ?? ""}
+                onChange={pickTable}
+                options={tableOptions}
+                loading={loadingTables}
+                placeholder="Choose a table…"
+                searchPlaceholder="Search tables…"
+                ariaLabel="Destination table"
+              />
+            </div>
+          )}
 
           {fetchError && (
             <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-900/30 dark:text-red-100">
@@ -424,8 +523,10 @@ export function AirtableMappingEditor({
             </div>
           )}
 
-          {/* Two-way sync (record personalization for the destination record) */}
-          {selectedTable && (
+          {/* Record personalization — create mode only (update mode preloads
+              automatically). Prefills fields from a ?record= record without
+              updating it. */}
+          {selectedTable && recordAction === "create" && (
             <div className="space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
               <label className="flex items-start gap-2 text-sm">
                 <input
@@ -435,34 +536,15 @@ export function AirtableMappingEditor({
                   onChange={(e) => update({ allowRecordPrefill: e.target.checked })}
                 />
                 <span>
-                  Personalize from the destination record
+                  Personalize from a record (without updating it)
                   <span className="block text-xs text-ink-400">
                     Add{" "}
                     <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?record=recXXXXXXXX</code> to
                     the link URL — that record&apos;s columns fill merge tags and prefill any field whose
                     label matches a column. Requires the token&apos;s{" "}
                     <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:read</code>{" "}
-                    scope.
-                  </span>
-                </span>
-              </label>
-
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={Boolean(value?.updateRecordWhenPresent)}
-                  onChange={(e) => update({ updateRecordWhenPresent: e.target.checked })}
-                />
-                <span>
-                  Update that record on submit (two-way sync)
-                  <span className="block text-xs text-ink-400">
-                    When opened with{" "}
-                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">?record=recXXX</code>, the
-                    submission updates that record instead of creating a new one (no record id still
-                    creates a new record). Needs the token&apos;s{" "}
-                    <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">data.records:write</code>{" "}
-                    scope.
+                    scope. (To write changes back, choose <strong>Update an existing record</strong>{" "}
+                    above.)
                   </span>
                 </span>
               </label>

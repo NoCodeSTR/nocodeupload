@@ -26,7 +26,11 @@ import { getAdapter } from "@/lib/providers/registry";
 import { mimeAllowed, fileCategory } from "@/lib/upload-validation";
 import { renderFilename, renderText, splitExt, prefillKey } from "@/lib/filename";
 import { isFieldVisible } from "@/lib/conditional";
-import { getAirtableRecordValues, getAirtableSourceValuesForSubmit } from "@/lib/airtable/record-prefill";
+import {
+  getAirtableRecordValues,
+  getAirtableSourceValuesForSubmit,
+  getUpdateTargetValues,
+} from "@/lib/airtable/record-prefill";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { renderMergeTags } from "@/lib/merge-tags";
 import { hashIp } from "@/lib/slug";
@@ -154,10 +158,13 @@ export async function POST(request: NextRequest) {
   const fields = Array.isArray(link.custom_fields) ? link.custom_fields : [];
   const submitted = input.customValues ?? {};
   const prefillValues = input.prefillValues ?? {};
-  // Airtable single-record personalization (authoritative, server-fetched). For
-  // hidden fields the record value wins over a client-sent URL value so an
-  // uploader can't tamper with owner data; falls back to URL prefill, then default.
-  const recordValues = await getAirtableRecordValues(link, input.recordId);
+  // Airtable record values for hidden-field prefill (authoritative, server-
+  // fetched). In update mode this includes the record being edited so its current
+  // values back-fill hidden/untouched fields instead of blanking them.
+  const recordValues = {
+    ...(await getAirtableRecordValues(link, input.recordId)),
+    ...(await getUpdateTargetValues(link, prefillValues)),
+  };
   // Record-source ids (e.g. ?cleaner=recXXX) → persisted so the Airtable record
   // builder can link them / copy their values into the destination row.
   const sourceRecordIds = resolveSourceRecordIds(link.airtable_config?.recordSources, prefillValues);

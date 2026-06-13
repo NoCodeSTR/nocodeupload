@@ -361,12 +361,32 @@ async function buildAndCreate(args: {
     }
   }
 
-  // Two-way sync: when the link opts in and the submission carries a valid
-  // record id, UPDATE that record; otherwise create a new one.
-  const targetRecordId = uploads[0]?.airtable_record_id ?? null;
-  const doUpdate = Boolean(
-    config.updateRecordWhenPresent && targetRecordId && REC_ID_RE.test(targetRecordId),
-  );
+  // Create vs update. recordAction is authoritative; fall back to the legacy
+  // updateRecordWhenPresent flag. For update, the target record id comes from the
+  // link URL (?record=, persisted as airtable_record_id) or a connected source
+  // alias (?guest=, in source_record_ids). The table is config.tableId — the
+  // editor sets it to the alias's table when an alias source is chosen.
+  const action: "create" | "update" =
+    config.recordAction ?? (config.updateRecordWhenPresent ? "update" : "create");
+  let updateTargetId: string | null = null;
+  if (action === "update") {
+    const src = config.updateRecordSource ?? "url";
+    updateTargetId = src === "url" ? uploads[0]?.airtable_record_id ?? null : sourceRecordIds[src] ?? null;
+  }
+  const doUpdate = action === "update" && !!updateTargetId && REC_ID_RE.test(updateTargetId);
+
+  // Update mode with no record id in the link → skip (never silently create one).
+  if (action === "update" && !doUpdate) {
+    await logDelivery({
+      userId,
+      uploadLinkId,
+      channel: "airtable",
+      result: { status: "skipped", target, detail: "Update mode: no record id was passed in the link" },
+      uploadId,
+      batchId,
+    });
+    return;
+  }
 
   let result: NotifyResult;
   let recordId: string | null = null;
@@ -376,7 +396,7 @@ async function buildAndCreate(args: {
           token,
           baseId: config.baseId,
           tableId: config.tableId,
-          recordId: targetRecordId as string,
+          recordId: updateTargetId as string,
           fields,
         })
       : await createRecord({ token, baseId: config.baseId, tableId: config.tableId, fields });
