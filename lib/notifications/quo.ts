@@ -12,6 +12,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { renderText } from "@/lib/filename";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { submissionUrl } from "@/lib/submissions";
 import { sendQuoMessage } from "@/lib/quo";
 import type { NotifyResult } from "@/lib/notifications/types";
@@ -45,8 +46,15 @@ async function linkName(uploadLinkId: string): Promise<string> {
   return (data as { name: string } | null)?.name ?? "your upload link";
 }
 
-function renderMessage(template: string, u: Row, resultUrl: string | null, count: number): string {
-  return renderText(template, {
+function renderMessage(
+  template: string,
+  u: Row,
+  resultUrl: string | null,
+  count: number,
+  sourceValues: Record<string, string> = {},
+): string {
+  // Two-pass: connected-record {{alias.Field}} tags first, then {token}s.
+  return renderText(renderMergeTags(template, sourceValues), {
     originalFilename: u.original_filename,
     uploaderName: u.uploader_name,
     uploaderEmail: u.uploader_email,
@@ -63,6 +71,7 @@ export async function sendQuoForUpload(
   creds: QuoCreds,
   uploadId: string,
   message?: string,
+  sourceValues: Record<string, string> = {},
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin.from("uploads").select(SELECT).eq("id", uploadId).maybeSingle();
@@ -73,7 +82,7 @@ export async function sendQuoForUpload(
   const subUrl = u.submission_id ? submissionUrl(u.submission_id) : null;
   let content: string;
   if (message && message.trim()) {
-    content = renderMessage(message, u, url, 1) || u.original_filename;
+    content = renderMessage(message, u, url, 1, sourceValues) || u.original_filename;
   } else {
     const name = await linkName(u.upload_link_id);
     const by = u.uploader_name ? ` from ${u.uploader_name}` : "";
@@ -91,6 +100,7 @@ export async function sendQuoForBatch(
   creds: QuoCreds,
   batchId: string,
   message?: string,
+  sourceValues: Record<string, string> = {},
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
@@ -106,7 +116,7 @@ export async function sendQuoForBatch(
   const subUrl = rep.submission_id ? submissionUrl(rep.submission_id) : null;
   let content: string;
   if (message && message.trim()) {
-    content = renderMessage(message, rep, firstUrl, uploads.length) || `${uploads.length} files uploaded`;
+    content = renderMessage(message, rep, firstUrl, uploads.length, sourceValues) || `${uploads.length} files uploaded`;
   } else {
     const name = await linkName(rep.upload_link_id);
     const by = rep.uploader_name ? ` by ${rep.uploader_name}` : "";

@@ -38,6 +38,7 @@ import type {
   CustomFieldDef,
   NotificationRule,
   RuleCondition,
+  DynamicRecipient,
   AirtableConfig,
   FieldConditionOp,
   UploadBox,
@@ -772,6 +773,45 @@ export function LinkForm({
           destinationIds: has ? r.destinationIds.filter((d) => d !== destId) : [...r.destinationIds, destId],
         };
       }),
+    );
+  }
+  // Dynamic recipients — route SMS/email to a value on a connected record.
+  function addDynamicRecipient(id: string) {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              dynamicRecipients: [
+                ...(r.dynamicRecipients ?? []),
+                { id: crypto.randomUUID(), channel: "sms", source: "", field: "", viaDestinationId: null },
+              ],
+            }
+          : r,
+      ),
+    );
+  }
+  function updateDynamicRecipient(id: string, drId: string, patch: Partial<DynamicRecipient>) {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              dynamicRecipients: (r.dynamicRecipients ?? []).map((dr) =>
+                dr.id === drId ? { ...dr, ...patch } : dr,
+              ),
+            }
+          : r,
+      ),
+    );
+  }
+  function removeDynamicRecipient(id: string, drId: string) {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? { ...r, dynamicRecipients: (r.dynamicRecipients ?? []).filter((dr) => dr.id !== drId) }
+          : r,
+      ),
     );
   }
   // Value choices for a rule condition: file-type list, a select field's
@@ -2409,7 +2449,12 @@ export function LinkForm({
         )}
 
         {rules.map((rule) => {
-          const messagePreview = renderText(rule.messageTemplate ?? "", previewCtx);
+          // Two-pass so connected-record {{alias.Field}} tags resolve in the
+          // preview (against sample/Preview-Mode values), then the {token} vocab.
+          const messagePreview = renderText(
+            renderMergeTags(rule.messageTemplate ?? "", mergeSample),
+            previewCtx,
+          );
           return (
             <div key={rule.id} className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
               <input
@@ -2536,6 +2581,105 @@ export function LinkForm({
                 </div>
               </div>
 
+              {/* Dynamic recipients — notify a person pulled from a connected record */}
+              {(airtableConfig?.recordSources ?? []).some((s) => s.tableId && s.alias.trim()) && (
+                <div className="space-y-2 border-t border-ink-100 pt-2 dark:border-ink-800">
+                  <span className="label">
+                    Notify a person from a connected record{" "}
+                    <span className="font-normal text-ink-400">(optional)</span>
+                  </span>
+                  {(rule.dynamicRecipients ?? []).map((dr) => {
+                    const sourceList = (airtableConfig?.recordSources ?? []).filter(
+                      (s) => s.tableId && s.alias.trim(),
+                    );
+                    const src = sourceList.find((s) => prefillKey(s.alias) === dr.source);
+                    const srcTable = src ? airtableSchema.tables.find((t) => t.id === src.tableId) : null;
+                    const quoDests = destinations.filter((d) => d.type === "quo");
+                    return (
+                      <div key={dr.id} className="flex flex-wrap items-center gap-2 text-sm">
+                        <select
+                          className="input w-auto"
+                          value={dr.channel}
+                          onChange={(e) =>
+                            updateDynamicRecipient(rule.id, dr.id, { channel: e.target.value as "sms" | "email" })
+                          }
+                        >
+                          <option value="sms">SMS</option>
+                          <option value="email">Email</option>
+                        </select>
+                        <span className="text-ink-400">to</span>
+                        <select
+                          className="input w-auto"
+                          value={dr.source}
+                          onChange={(e) => updateDynamicRecipient(rule.id, dr.id, { source: e.target.value, field: "" })}
+                          aria-label="Recipient table"
+                        >
+                          <option value="">Table…</option>
+                          {sourceList.map((s) => (
+                            <option key={s.id} value={prefillKey(s.alias)}>
+                              {s.alias.trim()}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="input w-auto"
+                          value={dr.field}
+                          onChange={(e) => updateDynamicRecipient(rule.id, dr.id, { field: e.target.value })}
+                          disabled={!srcTable}
+                          aria-label="Recipient field"
+                        >
+                          <option value="">{dr.channel === "sms" ? "Phone field…" : "Email field…"}</option>
+                          {(srcTable?.fields ?? []).map((f) => (
+                            <option key={f.id} value={f.name}>
+                              {f.name}
+                            </option>
+                          ))}
+                        </select>
+                        {dr.channel === "sms" && (
+                          <>
+                            <span className="text-ink-400">via</span>
+                            <select
+                              className="input w-auto"
+                              value={dr.viaDestinationId ?? ""}
+                              onChange={(e) =>
+                                updateDynamicRecipient(rule.id, dr.id, { viaDestinationId: e.target.value || null })
+                              }
+                              aria-label="Quo account for SMS"
+                            >
+                              <option value="">Quo account…</option>
+                              {quoDests.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.label}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeDynamicRecipient(rule.id, dr.id)}
+                          className="px-2 text-lg leading-none text-ink-400 hover:text-red-600"
+                          aria-label="Remove recipient"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => addDynamicRecipient(rule.id)}
+                    className="text-xs font-medium text-brand hover:underline"
+                  >
+                    + Add a dynamic recipient
+                  </button>
+                  <p className="text-xs text-ink-400">
+                    Sends to the phone/email on the connected record passed into the link (e.g. SMS the
+                    cleaner, email the owner). SMS needs a Quo account in Settings for the sending number.
+                  </p>
+                </div>
+              )}
+
               {/* Custom message (SMS + Slack) */}
               <div className="space-y-1.5 border-t border-ink-100 pt-2 dark:border-ink-800">
                 <span className="label">
@@ -2572,6 +2716,20 @@ export function LinkForm({
                         >
                           {tok}
                         </button>
+                      );
+                    })}
+                  {/* Connected-table tokens — click to pick a field. */}
+                  {(airtableConfig?.recordSources ?? [])
+                    .filter((s) => s.alias.trim())
+                    .map((s) => {
+                      const t = airtableSchema.tables.find((tt) => tt.id === s.tableId);
+                      return (
+                        <TokenFieldPicker
+                          key={s.id}
+                          aliasKey={prefillKey(s.alias)}
+                          fields={(t?.fields ?? []).map((f) => f.name)}
+                          onInsert={(tok) => insertRuleToken(rule.id, tok)}
+                        />
                       );
                     })}
                 </div>

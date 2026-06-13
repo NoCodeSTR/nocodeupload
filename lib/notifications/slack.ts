@@ -11,6 +11,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
 import { renderText } from "@/lib/filename";
+import { renderMergeTags } from "@/lib/merge-tags";
 import { submissionUrl } from "@/lib/submissions";
 import { postChatMessage } from "@/lib/slack";
 import type { NotifyResult } from "@/lib/notifications/types";
@@ -59,8 +60,16 @@ function contextFields(rep: Row): { type: "mrkdwn"; text: string }[] {
   return fields;
 }
 
-function renderMessage(template: string, u: Row, resultUrl: string | null, count: number): string {
-  return renderText(template, {
+function renderMessage(
+  template: string,
+  u: Row,
+  resultUrl: string | null,
+  count: number,
+  sourceValues: Record<string, string> = {},
+): string {
+  // Two-pass: resolve connected-record {{alias.Field}} tags first, then the
+  // {token} / {field:Label} vocabulary.
+  return renderText(renderMergeTags(template, sourceValues), {
     originalFilename: u.original_filename,
     uploaderName: u.uploader_name,
     uploaderEmail: u.uploader_email,
@@ -77,6 +86,7 @@ export async function sendSlackForUpload(
   target: SlackTarget,
   uploadId: string,
   message?: string,
+  sourceValues: Record<string, string> = {},
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin.from("uploads").select(SELECT).eq("id", uploadId).maybeSingle();
@@ -90,7 +100,7 @@ export async function sendSlackForUpload(
 
   const blocks: unknown[] = [];
   if (message && message.trim()) {
-    const rendered = renderMessage(message, u, url, 1).trim();
+    const rendered = renderMessage(message, u, url, 1, sourceValues).trim();
     blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}${esc(rendered)}` } });
   } else {
     blocks.push({
@@ -115,6 +125,7 @@ export async function sendSlackForBatch(
   target: SlackTarget,
   batchId: string,
   message?: string,
+  sourceValues: Record<string, string> = {},
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
@@ -140,7 +151,7 @@ export async function sendSlackForBatch(
   const blocks: unknown[] = [];
   if (message && message.trim()) {
     const firstUrl = resultUrlFor(rep.provider, rep.provider_file_id);
-    const rendered = renderMessage(message, rep, firstUrl, uploads.length).trim();
+    const rendered = renderMessage(message, rep, firstUrl, uploads.length, sourceValues).trim();
     blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}${esc(rendered)}` } });
   } else {
     blocks.push({ type: "section", text: { type: "mrkdwn", text: `${mention}*${uploads.length} files uploaded to ${esc(name)}*` } });

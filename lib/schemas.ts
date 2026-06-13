@@ -61,6 +61,14 @@ export const ruleConditionSchema = z.object({
   value: z.string().max(200).default(""),
 });
 
+const dynamicRecipientSchema = z.object({
+  id: z.string().min(1).max(64),
+  channel: z.enum(["sms", "email"]),
+  source: z.string().min(1).max(80),
+  field: z.string().min(1).max(120),
+  viaDestinationId: z.string().uuid().optional().nullable(),
+});
+
 export const notificationRuleSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().max(80).default(""),
@@ -69,6 +77,7 @@ export const notificationRuleSchema = z.object({
   destinationIds: z.array(z.string().uuid()).max(20).default([]),
   ownerEmail: z.boolean().default(false),
   messageTemplate: z.string().max(1000).optional().nullable(),
+  dynamicRecipients: z.array(dynamicRecipientSchema).max(10).optional(),
 });
 export type NotificationRuleInput = z.infer<typeof notificationRuleSchema>;
 

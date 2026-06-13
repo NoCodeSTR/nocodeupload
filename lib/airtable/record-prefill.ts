@@ -11,12 +11,13 @@
  * record-not-found, so personalization never blocks the page or an upload.
  */
 import "server-only";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getAirtableToken } from "@/lib/airtable/connection";
 import { getRecord } from "@/lib/airtable/client";
 import { getLinkBySlugAdmin } from "@/lib/links";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
-import type { UploadLinkRow } from "@/lib/db-types";
+import type { UploadLinkRow, AirtableConfig } from "@/lib/db-types";
 
 // Airtable record ids look like rec + alphanumerics. Cheap guard before a fetch.
 const REC_ID_RE = /^rec[A-Za-z0-9]{6,}$/;
@@ -291,6 +292,58 @@ export async function getUpdateTargetValues(
   } catch {
     return {};
   }
+}
+
+/**
+ * Connected-record values for a COMPLETED submission, keyed by `${aliasKey}.${
+ * fieldKey}`. Reads the submission's persisted source_record_ids (set at submit)
+ * and fetches each connected record server-side. Used by the notification layer
+ * to resolve {{alias.Field}} tokens in message bodies and to route to a phone /
+ * email pulled from a connected record. Fails closed.
+ */
+export async function getSubmissionSourceValues(uploadId: string): Promise<Record<string, string>> {
+  const admin = getSupabaseAdmin();
+  const { data: up } = await admin
+    .from("uploads")
+    .select("user_id, upload_link_id, source_record_ids")
+    .eq("id", uploadId)
+    .maybeSingle();
+  const upload = up as
+    | { user_id: string; upload_link_id: string; source_record_ids: Record<string, string> | null }
+    | null;
+  const recordIds = upload?.source_record_ids ?? {};
+  if (!upload || Object.keys(recordIds).length === 0) return {};
+
+  const { data: linkData } = await admin
+    .from("upload_links")
+    .select("airtable_config")
+    .eq("id", upload.upload_link_id)
+    .maybeSingle();
+  const cfg = (linkData as { airtable_config: AirtableConfig | null } | null)?.airtable_config;
+  const sources = cfg?.recordSources ?? [];
+  if (!cfg?.baseId || sources.length === 0) return {};
+
+  const token = await getAirtableToken(upload.user_id, { admin: true });
+  if (!token) return {};
+
+  const out: Record<string, string> = {};
+  await Promise.all(
+    sources.map(async (src) => {
+      const aliasKey = prefillKey(src.alias || "");
+      const recordId = recordIds[aliasKey];
+      if (!src.tableId || !recordId) return;
+      try {
+        const rec = await getRecord({ token, baseId: cfg.baseId, tableId: src.tableId, recordId });
+        for (const [field, value] of Object.entries(rec.fields ?? {})) {
+          const s = toStr(value);
+          if (s) out[`${aliasKey}.${prefillKey(field)}`] = s;
+        }
+      } catch {
+        /* fail closed */
+      }
+    }),
+  );
+  return out;
 }
 
 /** getUpdateTargetValues, loading the link by slug (public page). */

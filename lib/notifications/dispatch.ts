@@ -30,8 +30,12 @@ import {
   getSlackBotToken,
   decryptQuoCreds,
 } from "@/lib/notifications/destinations";
+import { getSubmissionSourceValues } from "@/lib/airtable/record-prefill";
+import { prefillKey } from "@/lib/filename";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { NotificationRule, RuleCondition } from "@/lib/db-types";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Senders {
   email: (addr: string) => Promise<NotifyResult>;
@@ -120,11 +124,21 @@ async function dispatchRules(
   alreadyEmailed: Set<string>,
   senders: Senders,
   ids: { uploadId?: string | null; batchId?: string | null },
+  sourceValues: Record<string, string>,
 ): Promise<void> {
   const matched = data.rules.filter((r) => ruleMatches(r, data.customData, data.categories));
   if (matched.length === 0) return;
 
-  const neededIds = Array.from(new Set(matched.flatMap((r) => r.destinationIds ?? [])));
+  // Needed destinations include those referenced by dynamic SMS recipients for
+  // their Quo credentials (only the recipient number is dynamic).
+  const neededIds = Array.from(
+    new Set([
+      ...matched.flatMap((r) => r.destinationIds ?? []),
+      ...matched.flatMap((r) =>
+        (r.dynamicRecipients ?? []).map((dr) => dr.viaDestinationId).filter(Boolean) as string[],
+      ),
+    ]),
+  );
   const destinations = await getDestinationsByIds(data.userId, neededIds);
   const destById = new Map(destinations.map((d) => [d.id, d]));
 
@@ -198,6 +212,39 @@ async function dispatchRules(
         : { status: "skipped", target: to, detail: "Quo credentials unavailable — re-add in Settings" };
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "quo", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
+
+    // Dynamic recipients — SMS/email to a value pulled from a connected record
+    // (e.g. the cleaner's phone, the owner's email). The recipient comes from
+    // the submission's connected-record values; for SMS the Quo credentials come
+    // from the chosen Quo destination (only the to-number is dynamic).
+    for (const dr of rule.dynamicRecipients ?? []) {
+      const recipient = (sourceValues[`${dr.source}.${prefillKey(dr.field)}`] ?? "").trim();
+      const channel = dr.channel === "sms" ? "quo" : "email";
+      if (!recipient) {
+        await logDelivery({
+          userId: data.userId,
+          uploadLinkId: data.uploadLinkId,
+          channel,
+          result: { status: "skipped", target: `${dr.source}.${dr.field}`, detail: "No recipient value on the connected record" },
+          uploadId: ids.uploadId,
+          batchId: ids.batchId,
+        });
+        continue;
+      }
+      if (dr.channel === "email") {
+        if (!EMAIL_RE.test(recipient) || alreadyEmailed.has(recipient)) continue;
+        alreadyEmailed.add(recipient);
+        const result = { ...(await senders.email(recipient)), target: recipient };
+        await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "email", result, uploadId: ids.uploadId, batchId: ids.batchId });
+      } else {
+        const credDest = dr.viaDestinationId ? destById.get(dr.viaDestinationId) : undefined;
+        const baseCreds = credDest?.type === "quo" ? decryptQuoCreds(credDest.config) : null;
+        const result: NotifyResult = baseCreds
+          ? { ...(await senders.quo({ ...baseCreds, to: recipient }, message)), target: recipient }
+          : { status: "skipped", target: recipient, detail: "Pick a Quo account for this SMS recipient" };
+        await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "quo", result, uploadId: ids.uploadId, batchId: ids.batchId });
+      }
+    }
   }
 }
 
@@ -239,15 +286,19 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
   const webhookResult = await sendUploadWebhook(uploadId);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
 
+  // Connected-record values for {{alias.Field}} message tokens + dynamic recipients.
+  const sourceValues = await getSubmissionSourceValues(uploadId);
+
   await dispatchRules(
     ctx,
     emailed,
     {
       email: (addr) => sendUploadEmailTo(addr, uploadId),
-      slack: (target, message) => sendSlackForUpload(target, uploadId, message),
-      quo: (creds, message) => sendQuoForUpload(creds, uploadId, message),
+      slack: (target, message) => sendSlackForUpload(target, uploadId, message, sourceValues),
+      quo: (creds, message) => sendQuoForUpload(creds, uploadId, message, sourceValues),
     },
     { uploadId },
+    sourceValues,
   );
 }
 
@@ -255,10 +306,11 @@ export async function deliverForBatch(batchId: string): Promise<void> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
-    .select("user_id, upload_link_id, custom_data, mime_type")
+    .select("id, user_id, upload_link_id, custom_data, mime_type")
     .eq("batch_id", batchId)
     .eq("status", "complete");
   const uploads = (data ?? []) as Array<{
+    id: string;
     user_id: string;
     upload_link_id: string;
     custom_data: Record<string, string> | null;
@@ -289,14 +341,18 @@ export async function deliverForBatch(batchId: string): Promise<void> {
   const webhookResult = await sendBatchUploadWebhook(batchId);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
 
+  // Connected-record values (same across the batch) — from any row's submission.
+  const sourceValues = await getSubmissionSourceValues(rep.id);
+
   await dispatchRules(
     ctx,
     emailed,
     {
       email: (addr) => sendBatchEmailTo(addr, batchId),
-      slack: (target, message) => sendSlackForBatch(target, batchId, message),
-      quo: (creds, message) => sendQuoForBatch(creds, batchId, message),
+      slack: (target, message) => sendSlackForBatch(target, batchId, message, sourceValues),
+      quo: (creds, message) => sendQuoForBatch(creds, batchId, message, sourceValues),
     },
     { batchId },
+    sourceValues,
   );
 }

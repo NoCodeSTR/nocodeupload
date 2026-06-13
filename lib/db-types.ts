@@ -377,6 +377,22 @@ export interface RuleCondition {
 }
 
 /**
+ * A dynamic recipient: send to a phone (SMS) or email pulled from a connected
+ * record's field at submit time — e.g. SMS to the Cleaning Team's Phone, email
+ * to the Property's Owner Email. `source` is a record-source alias key and
+ * `field` is the column whose value is the recipient. For SMS, `viaDestinationId`
+ * points at a Quo destination supplying the API key + from-number (only the
+ * recipient is dynamic).
+ */
+export interface DynamicRecipient {
+  id: string;
+  channel: "sms" | "email";
+  source: string;
+  field: string;
+  viaDestinationId?: string | null;
+}
+
+/**
  * A per-link routing rule. Empty `conditions` means "always". Matching rules
  * fan out to their destinations (and optionally the owner's account email).
  */
@@ -389,6 +405,8 @@ export interface NotificationRule {
   ownerEmail: boolean;
   /** Optional custom message (tokens) for SMS + Slack. Blank = default summary. */
   messageTemplate?: string;
+  /** Recipients resolved from connected-record fields (SMS/email). */
+  dynamicRecipients?: DynamicRecipient[];
 }
 
 /** One send attempt, logged for observability. */
