@@ -95,6 +95,7 @@ export function UploadCard({
             unlockedPassword={unlockedPassword}
             prefill={prefill}
             formOnly={link.destination_type === "form"}
+            allowEmptySubmission={link.allow_empty_submission}
             boxes={link.upload_boxes}
             recordId={recordId}
             sections={link.sections}

@@ -1,8 +1,10 @@
 /**
  * POST /api/upload/form-submit
  *
- * Anonymous endpoint for FORM-ONLY links (destination_type = 'form'): validates
- * the answers, records a submission (+ a file-less carrier so notifications and
+ * Anonymous endpoint for file-less submissions: FORM-ONLY links
+ * (destination_type = 'form'), and file links whose owner enabled
+ * allow_empty_submission when the visitor has no files this visit. Validates the
+ * answers, records a submission (+ a file-less carrier so notifications and
  * Airtable fire through the existing pipeline), and returns.
  *
  * Body: { slug, uploaderName?, uploaderEmail?, uploaderMessage?, customValues?,
@@ -62,7 +64,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });
   }
   if (!link) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (link.destination_type !== "form") {
+  // Form-only links always use this path. File links may also reach it when the
+  // owner allows a zero-file submission and the visitor has nothing to upload.
+  if (link.destination_type !== "form" && !link.allow_empty_submission) {
     return NextResponse.json({ error: "not_form" }, { status: 400 });
   }
   if (!link.is_active) return NextResponse.json({ error: "inactive" }, { status: 403 });

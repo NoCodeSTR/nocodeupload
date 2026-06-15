@@ -40,6 +40,8 @@ interface PublicUploaderProps {
   prefill?: Record<string, string>;
   /** Form-only link: collect answers, no file upload (posts to form-submit). */
   formOnly?: boolean;
+  /** File link that also permits a zero-file submission (no files this visit). */
+  allowEmptySubmission?: boolean;
   /** Multi-box link: one dropzone per box, each routed to its own destination. */
   boxes?: PublicUploadBox[];
   /** Airtable record id from the URL — sent so the server can prefill hidden fields. */
@@ -170,6 +172,7 @@ export function PublicUploader({
   unlockedPassword = null,
   prefill = {},
   formOnly = false,
+  allowEmptySubmission = false,
   boxes = [],
   recordId = null,
   sections = [],
@@ -406,6 +409,16 @@ export function PublicUploader({
       setFormError(`Please fill in "${missingCustom.label}".`);
       return;
     }
+    const queued = files.filter((f) => f.status === "queued");
+
+    // Empty submission: the owner permits sending the form with no files at all,
+    // and the visitor added none. Route to the file-less form-submit path (the
+    // same one form-only links use). Per-box file requirements don't apply when
+    // nothing is being uploaded.
+    if (queued.length === 0 && allowEmptySubmission) {
+      return handleFormSubmit();
+    }
+
     if (multiBox) {
       for (const box of boxes) {
         if (box.required && !files.some((f) => f.boxId === box.id && f.status === "queued")) {
@@ -414,7 +427,6 @@ export function PublicUploader({
         }
       }
     }
-    const queued = files.filter((f) => f.status === "queued");
     if (queued.length === 0) {
       setFormError("Add at least one file to upload.");
       return;
@@ -831,7 +843,11 @@ export function PublicUploader({
       <button
         type="button"
         onClick={handleUpload}
-        disabled={formOnly ? uploading : uploading || queuedCount === 0}
+        disabled={
+          formOnly
+            ? uploading
+            : uploading || (queuedCount === 0 && !allowEmptySubmission)
+        }
         className="btn w-full text-white"
         style={{ backgroundColor: accent }}
       >
@@ -840,10 +856,14 @@ export function PublicUploader({
             ? "Submitting…"
             : "Submit"
           : uploading
-            ? "Uploading…"
+            ? queuedCount > 0
+              ? "Uploading…"
+              : "Submitting…"
             : queuedCount > 0
               ? `Upload ${queuedCount} ${queuedCount === 1 ? "file" : "files"}`
-              : "Add files to upload"}
+              : allowEmptySubmission
+                ? "Submit without files"
+                : "Add files to upload"}
       </button>
     </div>
   );

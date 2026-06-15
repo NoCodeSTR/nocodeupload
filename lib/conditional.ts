@@ -8,25 +8,28 @@
  * type-aware operator subset. Values are keyed by FIELD ID (the same keys the
  * public form and the initiate route use for customValues).
  */
-import type { FieldCondition } from "@/lib/db-types";
+import type { FieldCondition, FieldConditionOp } from "@/lib/db-types";
 
-export function isFieldVisible(
-  showWhen: FieldCondition | null | undefined,
-  valuesById: Record<string, string>,
+/**
+ * Evaluate one condition operator against a raw field value + comparison values.
+ * Shared by field visibility (showWhen) and notification routing rules so both
+ * support the same operator set (is filled, any of, none of, etc.).
+ */
+export function evalCondition(
+  op: FieldConditionOp | undefined,
+  rawValue: string,
+  values: string[],
 ): boolean {
-  if (!showWhen || !showWhen.fieldId) return true;
-
-  const raw = (valuesById[showWhen.fieldId] ?? "").trim();
-  const op = showWhen.op ?? "has_any_of"; // back-compat default
-  const values = (showWhen.values ?? []).map((v) => v.trim()).filter(Boolean);
-  const first = values[0] ?? "";
+  const raw = (rawValue ?? "").trim();
+  const vals = (values ?? []).map((v) => v.trim()).filter(Boolean);
+  const first = vals[0] ?? "";
   const lc = raw.toLowerCase();
-  // Multiselect controllers store a comma-joined value; treat as a set of parts.
+  // Multiselect values are comma-joined; treat as a set of parts.
   const parts = raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  const wanted = new Set(values.map((v) => v.toLowerCase()));
+  const wanted = new Set(vals.map((v) => v.toLowerCase()));
   const anyOf = parts.some((p) => wanted.has(p));
 
-  switch (op) {
+  switch (op ?? "has_any_of") {
     case "is_filled":
       return raw !== "";
     case "is_empty":
@@ -56,4 +59,12 @@ export function isFieldVisible(
     default:
       return anyOf;
   }
+}
+
+export function isFieldVisible(
+  showWhen: FieldCondition | null | undefined,
+  valuesById: Record<string, string>,
+): boolean {
+  if (!showWhen || !showWhen.fieldId) return true;
+  return evalCondition(showWhen.op, valuesById[showWhen.fieldId] ?? "", showWhen.values ?? []);
 }

@@ -57,8 +57,23 @@ export type CustomFieldInput = z.infer<typeof customFieldSchema>;
 
 export const ruleConditionSchema = z.object({
   field: z.string().min(1).max(80),
-  op: z.enum(["equals", "contains"]),
-  value: z.string().max(200).default(""),
+  op: z
+    .enum([
+      "is_filled",
+      "is_empty",
+      "equals",
+      "not_equals",
+      "contains",
+      "not_contains",
+      "has_any_of",
+      "has_none_of",
+      "greater_than",
+      "less_than",
+    ])
+    .default("has_any_of"),
+  values: z.array(z.string().max(200)).max(20).default([]),
+  // Legacy single value (pre-parity) — still accepted; read as a values fallback.
+  value: z.string().max(200).optional(),
 });
 
 const dynamicRecipientSchema = z.object({
@@ -234,6 +249,8 @@ export const uploadLinkCreateSchema = z.object({
   prefillEmail: z.string().max(255).optional().nullable(),
   hideName: z.boolean().default(false),
   hideEmail: z.boolean().default(false),
+  // Accept a submission with zero files (e.g. a cleaner with no photos).
+  allowEmptySubmission: z.boolean().default(false),
   customFields: z.array(customFieldSchema).max(50).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),

@@ -123,6 +123,8 @@ export interface UploadLinkRow {
   prefill_email: string | null;
   hide_name: boolean;
   hide_email: boolean;
+  /** When true, the public form accepts a submission with zero files. */
+  allow_empty_submission: boolean;
   custom_fields: CustomFieldDef[];
   filename_template: string | null;
   description_template: string | null;
@@ -366,14 +368,22 @@ export interface NotificationDestinationRow {
   created_at: string;
 }
 
+/** Legacy two-op type (pre-parity). Kept for back-compat reads. */
 export type RuleConditionOp = "equals" | "contains";
 
-/** A single condition within a routing rule. */
+/**
+ * A single condition within a routing rule. Uses the same operator set as field
+ * visibility (FieldConditionOp): is_filled, is_empty, equals, not_equals,
+ * contains, not_contains, has_any_of, has_none_of, greater_than, less_than.
+ */
 export interface RuleCondition {
   /** A custom-field label, or the special token "__fileType". */
   field: string;
-  op: RuleConditionOp;
-  value: string;
+  op: FieldConditionOp;
+  /** Comparison values (multiple for any-of / none-of). */
+  values: string[];
+  /** Legacy single value (pre-parity) — read as a values fallback. */
+  value?: string;
 }
 
 /**
@@ -516,6 +526,8 @@ export interface UploadLinkPublicRow {
   show_message_field: boolean;
   hide_name: boolean;
   hide_email: boolean;
+  /** When true, the public form accepts a submission with zero files. */
+  allow_empty_submission: boolean;
   prefill_name: string | null;
   prefill_email: string | null;
   visible_custom_fields: PublicCustomField[];

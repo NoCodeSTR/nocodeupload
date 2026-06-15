@@ -283,6 +283,9 @@ export function LinkForm({
   const [prefillEmail, setPrefillEmail] = useState(initialLink?.prefill_email ?? "");
   const [hideName, setHideName] = useState(initialLink?.hide_name ?? false);
   const [hideEmail, setHideEmail] = useState(initialLink?.hide_email ?? false);
+  const [allowEmptySubmission, setAllowEmptySubmission] = useState(
+    initialLink?.allow_empty_submission ?? false,
+  );
   const [customFields, setCustomFields] = useState<CustomFieldDef[]>(
     initialLink?.custom_fields ?? [],
   );
@@ -736,7 +739,14 @@ export function LinkForm({
       prev.map((r) => {
         if (r.id !== id || r.conditions.length >= 5) return r;
         const firstField = customFields.find((f) => f.label.trim())?.label.trim() ?? "__fileType";
-        return { ...r, conditions: [...r.conditions, { field: firstField, op: "equals", value: "" }] };
+        const t: CustomFieldDef["type"] =
+          firstField === "__fileType"
+            ? "select"
+            : customFields.find((f) => f.label.trim() === firstField)?.type ?? "text";
+        return {
+          ...r,
+          conditions: [...r.conditions, { field: firstField, op: defaultOpForType(t), values: [] }],
+        };
       }),
     );
   }
@@ -926,6 +936,7 @@ export function LinkForm({
       prefillEmail: prefillEmail.trim() || null,
       hideName,
       hideEmail,
+      allowEmptySubmission,
       customFields: customFields
         .filter((f) => f.label.trim())
         .map((f) => {
@@ -974,8 +985,21 @@ export function LinkForm({
           ...r,
           messageTemplate: r.messageTemplate?.trim() || null,
           conditions: r.conditions
-            .filter((c) => c.field && c.value.trim())
-            .map((c) => ({ ...c, value: c.value.trim() })),
+            .filter((c) => {
+              if (!c.field) return false;
+              const op = c.op ?? "has_any_of";
+              const needsValue = op !== "is_filled" && op !== "is_empty";
+              const vals = (c.values?.length ? c.values : c.value ? [c.value] : [])
+                .map((v) => v.trim())
+                .filter(Boolean);
+              return !needsValue || vals.length > 0;
+            })
+            .map((c) => {
+              const vals = (c.values?.length ? c.values : c.value ? [c.value] : [])
+                .map((v) => v.trim())
+                .filter(Boolean);
+              return { ...c, values: vals, value: vals[0] ?? "" };
+            }),
         })),
       successMessage: successMessage.trim() || null,
       successRedirectUrl: successRedirectUrl.trim() || null,
@@ -1596,6 +1620,23 @@ export function LinkForm({
                 <option key={o.mb} value={o.mb}>{o.label}</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {!isFormOnly && (
+          <div className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={allowEmptySubmission}
+                onChange={(e) => setAllowEmptySubmission(e.target.checked)}
+              />
+              Allow submitting the form without files
+            </label>
+            <p className="mt-1.5 text-xs text-ink-400">
+              Lets a visitor send their answers even when they have nothing to upload (e.g. a
+              cleaner with no photos this visit). Required upload boxes are still enforced.
+            </p>
           </div>
         )}
 
@@ -2486,13 +2527,33 @@ export function LinkForm({
                 </div>
 
                 {rule.conditions.map((c, idx) => {
-                  const valueOptions = ruleValueOptions(c.field);
+                  const condType: CustomFieldDef["type"] =
+                    c.field === "__fileType"
+                      ? "select"
+                      : customFields.find((f) => f.label.trim() === c.field)?.type ?? "text";
+                  const condOps = operatorsForType(condType);
+                  const currentOp: FieldConditionOp = c.op ?? condOps[0]?.op ?? "is_filled";
+                  const condMode = conditionValueMode(currentOp, condType);
+                  const optionList = ruleValueOptions(c.field) ?? [];
+                  const selected = c.values?.length ? c.values : c.value ? [c.value] : [];
                   return (
                     <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
                       <select
                         className="input w-auto"
                         value={c.field}
-                        onChange={(e) => updateCondition(rule.id, idx, { field: e.target.value })}
+                        onChange={(e) => {
+                          const field = e.target.value;
+                          const t: CustomFieldDef["type"] =
+                            field === "__fileType"
+                              ? "select"
+                              : customFields.find((f) => f.label.trim() === field)?.type ?? "text";
+                          updateCondition(rule.id, idx, {
+                            field,
+                            op: defaultOpForType(t),
+                            values: [],
+                            value: "",
+                          });
+                        }}
                       >
                         <option value="__fileType">File type</option>
                         {customFields
@@ -2505,34 +2566,82 @@ export function LinkForm({
                       </select>
                       <select
                         className="input w-auto"
-                        value={c.op}
-                        onChange={(e) => updateCondition(rule.id, idx, { op: e.target.value as RuleCondition["op"] })}
+                        value={currentOp}
+                        onChange={(e) =>
+                          updateCondition(rule.id, idx, {
+                            op: e.target.value as FieldConditionOp,
+                            values: [],
+                            value: "",
+                          })
+                        }
                       >
-                        <option value="equals">is</option>
-                        <option value="contains">contains</option>
+                        {condOps.map((o) => (
+                          <option key={o.op} value={o.op}>
+                            {o.label}
+                          </option>
+                        ))}
                       </select>
-                      {valueOptions ? (
+                      {condMode === "text" && (
+                        <input
+                          className="input w-auto"
+                          value={selected[0] ?? ""}
+                          onChange={(e) =>
+                            updateCondition(rule.id, idx, {
+                              values: e.target.value ? [e.target.value] : [],
+                              value: e.target.value,
+                            })
+                          }
+                          placeholder="value"
+                          maxLength={200}
+                        />
+                      )}
+                      {condMode === "single-option" && (
                         <select
                           className="input w-auto"
-                          value={c.value}
-                          onChange={(e) => updateCondition(rule.id, idx, { value: e.target.value })}
+                          value={selected[0] ?? ""}
+                          onChange={(e) =>
+                            updateCondition(rule.id, idx, {
+                              values: e.target.value ? [e.target.value] : [],
+                              value: e.target.value,
+                            })
+                          }
                         >
                           <option value="">Choose…</option>
-                          {valueOptions.map((o) => (
+                          {optionList.map((o) => (
                             <option key={o} value={o}>
                               {o}
                             </option>
                           ))}
                         </select>
-                      ) : (
-                        <input
-                          className="input w-auto"
-                          value={c.value}
-                          onChange={(e) => updateCondition(rule.id, idx, { value: e.target.value })}
-                          placeholder="value"
-                          maxLength={200}
-                        />
                       )}
+                      {condMode === "options" &&
+                        (optionList.length === 0 ? (
+                          <span className="text-ink-400">No options yet.</span>
+                        ) : (
+                          optionList.map((o) => {
+                            const checked = selected.includes(o);
+                            return (
+                              <button
+                                type="button"
+                                key={o}
+                                onClick={() =>
+                                  updateCondition(rule.id, idx, {
+                                    values: checked
+                                      ? selected.filter((v) => v !== o)
+                                      : [...selected, o],
+                                  })
+                                }
+                                className={
+                                  checked
+                                    ? "rounded-md border border-brand bg-brand-50 px-2 py-1 text-brand-700 dark:bg-brand-900/40 dark:text-brand-100"
+                                    : "rounded-md border border-ink-200 px-2 py-1 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300"
+                                }
+                              >
+                                {o}
+                              </button>
+                            );
+                          })
+                        ))}
                       <button
                         type="button"
                         onClick={() => removeCondition(rule.id, idx)}

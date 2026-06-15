@@ -31,6 +31,7 @@ import {
   decryptQuoCreds,
 } from "@/lib/notifications/destinations";
 import { getSubmissionSourceValues } from "@/lib/airtable/record-prefill";
+import { evalCondition } from "@/lib/conditional";
 import { prefillKey } from "@/lib/filename";
 import type { NotifyResult } from "@/lib/notifications/types";
 import type { NotificationRule, RuleCondition } from "@/lib/db-types";
@@ -67,15 +68,10 @@ function conditionMatches(
     const key = Object.keys(customData).find((k) => k.toLowerCase() === c.field.toLowerCase());
     fieldVal = key ? customData[key] : "";
   }
-  const a = fieldVal.toLowerCase();
-  const b = (c.value ?? "").trim().toLowerCase();
-  if (!b) return false;
-  if (c.op === "equals") {
-    // Treat comma-joined values (multiselect, file-type list) as sets.
-    const parts = a.split(",").map((s) => s.trim());
-    return a === b || parts.includes(b);
-  }
-  return a.includes(b); // contains
+  // Use the shared operator evaluator (same set as field visibility). Legacy
+  // rules carried a single `value`; treat it as the first comparison value.
+  const values = c.values?.length ? c.values : c.value != null ? [c.value] : [];
+  return evalCondition(c.op, fieldVal, values);
 }
 
 function ruleMatches(
@@ -200,11 +196,21 @@ async function dispatchRules(
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "slack", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
 
+    // A dynamic SMS recipient that reuses a Quo account OVERRIDES that account's
+    // fixed number for this rule — so the connection texts the dynamic recipient
+    // (e.g. the cleaner) instead of the account's default to-number.
+    const quoOverridden = new Set(
+      (rule.dynamicRecipients ?? [])
+        .filter((dr) => dr.channel === "sms" && dr.viaDestinationId)
+        .map((dr) => dr.viaDestinationId as string),
+    );
+
     // Quo SMS — custom message becomes the text body when present.
     for (const id of rule.destinationIds ?? []) {
       const dest = destById.get(id);
       if (!dest || dest.type !== "quo" || sentQuo.has(id)) continue;
       sentQuo.add(id);
+      if (quoOverridden.has(id)) continue; // a dynamic recipient replaces this default
       const to = (dest.config as { to?: string }).to ?? "sms";
       const creds = decryptQuoCreds(dest.config);
       const result: NotifyResult = creds
