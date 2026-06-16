@@ -52,16 +52,19 @@ function renderMessage(
   resultUrl: string | null,
   count: number,
   sourceValues: Record<string, string> = {},
+  includeFiles = true,
 ): string {
   // Two-pass: connected-record {{alias.Field}} tags first, then {token}s.
+  // When the rule excludes files, {link}/{submission} resolve to empty so the
+  // owner's template can't leak a file/submission URL.
   return renderText(renderMergeTags(template, sourceValues), {
     originalFilename: u.original_filename,
     uploaderName: u.uploader_name,
     uploaderEmail: u.uploader_email,
     uploaderMessage: u.uploader_message,
     customData: u.custom_data ?? {},
-    resultUrl,
-    submissionUrl: u.submission_id ? submissionUrl(u.submission_id) : null,
+    resultUrl: includeFiles ? resultUrl : null,
+    submissionUrl: includeFiles && u.submission_id ? submissionUrl(u.submission_id) : null,
     count,
     date: new Date(),
   });
@@ -72,6 +75,7 @@ export async function sendQuoForUpload(
   uploadId: string,
   message?: string,
   sourceValues: Record<string, string> = {},
+  includeFiles = true,
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin.from("uploads").select(SELECT).eq("id", uploadId).maybeSingle();
@@ -82,14 +86,16 @@ export async function sendQuoForUpload(
   const subUrl = u.submission_id ? submissionUrl(u.submission_id) : null;
   let content: string;
   if (message && message.trim()) {
-    content = renderMessage(message, u, url, 1, sourceValues) || u.original_filename;
+    content = renderMessage(message, u, url, 1, sourceValues, includeFiles) || u.original_filename;
   } else {
     const name = await linkName(u.upload_link_id);
     const by = u.uploader_name ? ` from ${u.uploader_name}` : "";
+    // SMS gets ONE link to keep within the 1500-char cap: prefer the submission
+    // page (shows every file) over a single file URL. Omitted when files excluded.
+    const shareUrl = subUrl ?? url;
     content =
       `New upload to ${name}: ${u.original_filename} (${fileCategory(u.mime_type)})${by}.` +
-      (url ? ` ${url}` : "") +
-      (subUrl ? ` Details: ${subUrl}` : "");
+      (includeFiles && shareUrl ? ` ${shareUrl}` : "");
   }
 
   const res = await sendQuoMessage({ ...creds, content });
@@ -101,6 +107,7 @@ export async function sendQuoForBatch(
   batchId: string,
   message?: string,
   sourceValues: Record<string, string> = {},
+  includeFiles = true,
 ): Promise<NotifyResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
@@ -116,13 +123,15 @@ export async function sendQuoForBatch(
   const subUrl = rep.submission_id ? submissionUrl(rep.submission_id) : null;
   let content: string;
   if (message && message.trim()) {
-    content = renderMessage(message, rep, firstUrl, uploads.length, sourceValues) || `${uploads.length} files uploaded`;
+    content = renderMessage(message, rep, firstUrl, uploads.length, sourceValues, includeFiles) || `${uploads.length} files uploaded`;
   } else {
     const name = await linkName(rep.upload_link_id);
     const by = rep.uploader_name ? ` by ${rep.uploader_name}` : "";
+    // One link for the whole batch: the submission page lists every file.
+    const shareUrl = subUrl ?? firstUrl;
     content =
       `${uploads.length} files uploaded to ${name}${by}.` +
-      (subUrl ? ` Details: ${subUrl}` : firstUrl ? ` First: ${firstUrl}` : "");
+      (includeFiles && shareUrl ? ` ${shareUrl}` : "");
   }
 
   const res = await sendQuoMessage({ ...creds, content });

@@ -125,6 +125,11 @@ export interface UploadLinkRow {
   hide_email: boolean;
   /** When true, the public form accepts a submission with zero files. */
   allow_empty_submission: boolean;
+  /**
+   * When true, each completed Drive file is granted "anyone with the link can
+   * view" so notification file links work for external recipients. Default false.
+   */
+  public_files: boolean;
   custom_fields: CustomFieldDef[];
   filename_template: string | null;
   description_template: string | null;
@@ -417,6 +422,12 @@ export interface NotificationRule {
   messageTemplate?: string;
   /** Recipients resolved from connected-record fields (SMS/email). */
   dynamicRecipients?: DynamicRecipient[];
+  /**
+   * Whether this rule's email/Slack/SMS messages include links to the uploaded
+   * files. Undefined = treat as true (legacy rules always included them). When
+   * false, the rule notifies without exposing file/submission links.
+   */
+  includeFiles?: boolean;
 }
 
 /** One send attempt, logged for observability. */

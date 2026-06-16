@@ -177,6 +177,7 @@ export async function createLink(
       hide_name: input.hideName ?? false,
       hide_email: input.hideEmail ?? false,
       allow_empty_submission: input.allowEmptySubmission ?? false,
+      public_files: input.publicFiles ?? false,
       custom_fields: input.customFields ?? [],
       filename_template: input.filenameTemplate ?? null,
       description_template: input.descriptionTemplate ?? null,
@@ -263,6 +264,7 @@ export async function duplicateLink(args: {
       hide_name: src.hide_name,
       hide_email: src.hide_email,
       allow_empty_submission: src.allow_empty_submission,
+      public_files: src.public_files,
       custom_fields: src.custom_fields,
       filename_template: src.filename_template,
       description_template: src.description_template,
@@ -356,6 +358,7 @@ export async function updateLink(args: {
   if (i.hideName !== undefined) patch.hide_name = i.hideName;
   if (i.hideEmail !== undefined) patch.hide_email = i.hideEmail;
   if (i.allowEmptySubmission !== undefined) patch.allow_empty_submission = i.allowEmptySubmission;
+  if (i.publicFiles !== undefined) patch.public_files = i.publicFiles;
   if (i.customFields !== undefined) patch.custom_fields = i.customFields;
   if (i.filenameTemplate !== undefined) patch.filename_template = i.filenameTemplate;
   if (i.descriptionTemplate !== undefined) patch.description_template = i.descriptionTemplate;

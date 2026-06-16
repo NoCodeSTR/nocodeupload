@@ -39,9 +39,9 @@ import type { NotificationRule, RuleCondition } from "@/lib/db-types";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Senders {
-  email: (addr: string) => Promise<NotifyResult>;
-  slack: (target: SlackTarget, message?: string) => Promise<NotifyResult>;
-  quo: (creds: QuoCreds, message?: string) => Promise<NotifyResult>;
+  email: (addr: string, includeFiles: boolean) => Promise<NotifyResult>;
+  slack: (target: SlackTarget, message: string | undefined, includeFiles: boolean) => Promise<NotifyResult>;
+  quo: (creds: QuoCreds, message: string | undefined, includeFiles: boolean) => Promise<NotifyResult>;
 }
 
 interface DispatchData {
@@ -145,6 +145,9 @@ async function dispatchRules(
 
   for (const rule of matched) {
     const message = rule.messageTemplate?.trim() || undefined;
+    // Undefined = legacy rule → include files (back-compat). Only an explicit
+    // false suppresses file/submission links in this rule's messages.
+    const includeFiles = rule.includeFiles !== false;
 
     // Email (custom message intentionally not applied — email keeps its rich
     // formatted layout). Owner-email opt-in routes to the account address.
@@ -160,7 +163,7 @@ async function dispatchRules(
     for (const addr of emailAddrs) {
       if (alreadyEmailed.has(addr)) continue;
       alreadyEmailed.add(addr);
-      const result = await senders.email(addr);
+      const result = await senders.email(addr, includeFiles);
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "email", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
 
@@ -189,6 +192,7 @@ async function dispatchRules(
           ...(await senders.slack(
             { token, channelId: cfg.channel_id, mentionUserId: cfg.mention_user_id ?? null },
             message,
+            includeFiles,
           )),
           target: channelLabel,
         };
@@ -214,7 +218,7 @@ async function dispatchRules(
       const to = (dest.config as { to?: string }).to ?? "sms";
       const creds = decryptQuoCreds(dest.config);
       const result: NotifyResult = creds
-        ? await senders.quo(creds, message)
+        ? await senders.quo(creds, message, includeFiles)
         : { status: "skipped", target: to, detail: "Quo credentials unavailable — re-add in Settings" };
       await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "quo", result, uploadId: ids.uploadId, batchId: ids.batchId });
     }
@@ -240,13 +244,13 @@ async function dispatchRules(
       if (dr.channel === "email") {
         if (!EMAIL_RE.test(recipient) || alreadyEmailed.has(recipient)) continue;
         alreadyEmailed.add(recipient);
-        const result = { ...(await senders.email(recipient)), target: recipient };
+        const result = { ...(await senders.email(recipient, includeFiles)), target: recipient };
         await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "email", result, uploadId: ids.uploadId, batchId: ids.batchId });
       } else {
         const credDest = dr.viaDestinationId ? destById.get(dr.viaDestinationId) : undefined;
         const baseCreds = credDest?.type === "quo" ? decryptQuoCreds(credDest.config) : null;
         const result: NotifyResult = baseCreds
-          ? { ...(await senders.quo({ ...baseCreds, to: recipient }, message)), target: recipient }
+          ? { ...(await senders.quo({ ...baseCreds, to: recipient }, message, includeFiles)), target: recipient }
           : { status: "skipped", target: recipient, detail: "Pick a Quo account for this SMS recipient" };
         await logDelivery({ userId: data.userId, uploadLinkId: data.uploadLinkId, channel: "quo", result, uploadId: ids.uploadId, batchId: ids.batchId });
       }
@@ -299,9 +303,9 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
     ctx,
     emailed,
     {
-      email: (addr) => sendUploadEmailTo(addr, uploadId),
-      slack: (target, message) => sendSlackForUpload(target, uploadId, message, sourceValues),
-      quo: (creds, message) => sendQuoForUpload(creds, uploadId, message, sourceValues),
+      email: (addr, includeFiles) => sendUploadEmailTo(addr, uploadId, includeFiles),
+      slack: (target, message, includeFiles) => sendSlackForUpload(target, uploadId, message, sourceValues, includeFiles),
+      quo: (creds, message, includeFiles) => sendQuoForUpload(creds, uploadId, message, sourceValues, includeFiles),
     },
     { uploadId },
     sourceValues,
@@ -354,9 +358,9 @@ export async function deliverForBatch(batchId: string): Promise<void> {
     ctx,
     emailed,
     {
-      email: (addr) => sendBatchEmailTo(addr, batchId),
-      slack: (target, message) => sendSlackForBatch(target, batchId, message, sourceValues),
-      quo: (creds, message) => sendQuoForBatch(creds, batchId, message, sourceValues),
+      email: (addr, includeFiles) => sendBatchEmailTo(addr, batchId, includeFiles),
+      slack: (target, message, includeFiles) => sendSlackForBatch(target, batchId, message, sourceValues, includeFiles),
+      quo: (creds, message, includeFiles) => sendQuoForBatch(creds, batchId, message, sourceValues, includeFiles),
     },
     { batchId },
     sourceValues,

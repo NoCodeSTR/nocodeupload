@@ -10,6 +10,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
 import { findOrCreateSubmissionForUpload } from "@/lib/submissions";
+import { getValidAccessToken } from "@/lib/tokens";
+import { setFilePublicRead } from "@/lib/providers/google/drive";
 import type { UploadLinkRow, UploadRow } from "@/lib/db-types";
 
 /**
@@ -114,6 +116,10 @@ export async function listUploadsForLink(args: {
 /**
  * Mark an upload complete (providerFileId) or failed (errorMessage). Scoped
  * to a row currently in 'uploading' so a finalize can't flip an arbitrary row.
+ *
+ * On a successful complete, if the link opts into public files, grant the Drive
+ * file "anyone with the link can view" so notification links open for external
+ * recipients (best-effort — never blocks completion).
  */
 export async function finalizeUpload(args: {
   uploadId: string;
@@ -138,13 +144,61 @@ export async function finalizeUpload(args: {
     .update(patch as never)
     .eq("id", args.uploadId)
     .eq("status", "uploading")
-    .select("id")
+    .select("id, user_id, upload_link_id, storage_connection_id, provider, provider_file_id")
     .maybeSingle();
 
   if (error) {
     throw new Error(formatPgError("Failed to finalize upload", error));
   }
-  return { ok: Boolean(data) };
+  const row = data as {
+    id: string;
+    user_id: string;
+    upload_link_id: string;
+    storage_connection_id: string | null;
+    provider: string | null;
+    provider_file_id: string | null;
+  } | null;
+
+  if (row && args.providerFileId) {
+    await maybeShareDriveFile(row);
+  }
+  return { ok: Boolean(row) };
+}
+
+/**
+ * Best-effort: when the upload's link has public_files on, grant the completed
+ * Drive file an "anyone with the link can view" permission (kept, not revoked).
+ * Drive only — YouTube uploads are already unlisted. Never throws.
+ */
+async function maybeShareDriveFile(row: {
+  user_id: string;
+  upload_link_id: string;
+  storage_connection_id: string | null;
+  provider: string | null;
+  provider_file_id: string | null;
+}): Promise<void> {
+  try {
+    if (row.provider !== "google_drive" || !row.provider_file_id || !row.storage_connection_id) {
+      return;
+    }
+    const admin = getSupabaseAdmin();
+    const { data } = await admin
+      .from("upload_links")
+      .select("public_files")
+      .eq("id", row.upload_link_id)
+      .maybeSingle();
+    if (!(data as { public_files: boolean } | null)?.public_files) return;
+
+    const { accessToken } = await getValidAccessToken({
+      userId: row.user_id,
+      connectionId: row.storage_connection_id,
+    });
+    await setFilePublicRead({ accessToken, fileId: row.provider_file_id });
+  } catch (err) {
+    // Sharing is best-effort: a failure must not fail the upload completion.
+    // eslint-disable-next-line no-console
+    console.warn("[finalizeUpload] public share failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 /**

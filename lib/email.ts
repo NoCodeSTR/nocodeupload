@@ -121,10 +121,15 @@ async function loadLink(uploadLinkId: string): Promise<{ link: LinkEmailRow; log
 
 // --- Renderers ---------------------------------------------------------------
 
-function renderSingle(upload: UploadEmailRow, link: LinkEmailRow, logo: string | null): EmailContent {
+function renderSingle(
+  upload: UploadEmailRow,
+  link: LinkEmailRow,
+  logo: string | null,
+  includeFiles = true,
+): EmailContent {
   const accent = link.branding_color || "#2563eb";
   const appUrl = coreEnv().NEXT_PUBLIC_APP_URL;
-  const resultUrl = resultUrlFor(upload.provider, upload.provider_file_id);
+  const resultUrl = includeFiles ? resultUrlFor(upload.provider, upload.provider_file_id) : null;
   const resultLabel = resultUrlLabel(upload.provider);
 
   const rows: string[] = [];
@@ -137,7 +142,7 @@ function renderSingle(upload: UploadEmailRow, link: LinkEmailRow, logo: string |
   rows.push(row("File", escapeHtml(upload.original_filename)));
   rows.push(row("Type", fileCategory(upload.mime_type)));
 
-  const subUrl = upload.submission_id ? submissionUrl(upload.submission_id) : null;
+  const subUrl = includeFiles && upload.submission_id ? submissionUrl(upload.submission_id) : null;
   const buttons = [
     resultUrl
       ? `<a href="${resultUrl}" style="display:inline-block;background:${accent};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-size:14px;margin:0 8px 8px 0">${resultLabel}</a>`
@@ -165,7 +170,12 @@ function renderSingle(upload: UploadEmailRow, link: LinkEmailRow, logo: string |
   return { subject: `New upload: ${link.name}`, html, replyTo: upload.uploader_email };
 }
 
-function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string | null): EmailContent {
+function renderBatch(
+  uploads: UploadEmailRow[],
+  link: LinkEmailRow,
+  logo: string | null,
+  includeFiles = true,
+): EmailContent {
   const accent = link.branding_color || "#2563eb";
   const appUrl = coreEnv().NEXT_PUBLIC_APP_URL;
   const count = uploads.length;
@@ -181,7 +191,7 @@ function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string
 
   const fileRows = uploads
     .map((u) => {
-      const url = resultUrlFor(u.provider, u.provider_file_id);
+      const url = includeFiles ? resultUrlFor(u.provider, u.provider_file_id) : null;
       const label = resultUrlLabel(u.provider);
       const anchor = url
         ? `<a href="${url}" style="color:${accent};text-decoration:none;font-weight:600">${label}</a>`
@@ -194,7 +204,7 @@ function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string
     })
     .join("");
 
-  const subUrl = rep.submission_id ? submissionUrl(rep.submission_id) : null;
+  const subUrl = includeFiles && rep.submission_id ? submissionUrl(rep.submission_id) : null;
 
   const html = `
   <div style="font-family:Inter,system-ui,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#18181b">
@@ -221,7 +231,7 @@ function renderBatch(uploads: UploadEmailRow[], link: LinkEmailRow, logo: string
 
 // --- Content builders (load + render) ---------------------------------------
 
-async function buildUploadContent(uploadId: string): Promise<
+async function buildUploadContent(uploadId: string, includeFiles = true): Promise<
   { content: EmailContent; link: LinkEmailRow; ownerEmail: string | null } | null
 > {
   const admin = getSupabaseAdmin();
@@ -231,13 +241,13 @@ async function buildUploadContent(uploadId: string): Promise<
   const linkInfo = await loadLink(upload.upload_link_id);
   if (!linkInfo) return null;
   return {
-    content: renderSingle(upload, linkInfo.link, linkInfo.logo),
+    content: renderSingle(upload, linkInfo.link, linkInfo.logo, includeFiles),
     link: linkInfo.link,
     ownerEmail: linkInfo.ownerEmail,
   };
 }
 
-async function buildBatchContent(batchId: string): Promise<
+async function buildBatchContent(batchId: string, includeFiles = true): Promise<
   { content: EmailContent; link: LinkEmailRow; ownerEmail: string | null } | null
 > {
   const admin = getSupabaseAdmin();
@@ -252,7 +262,7 @@ async function buildBatchContent(batchId: string): Promise<
   const linkInfo = await loadLink(uploads[0].upload_link_id);
   if (!linkInfo) return null;
   return {
-    content: renderBatch(uploads, linkInfo.link, linkInfo.logo),
+    content: renderBatch(uploads, linkInfo.link, linkInfo.logo, includeFiles),
     link: linkInfo.link,
     ownerEmail: linkInfo.ownerEmail,
   };
@@ -279,15 +289,15 @@ export async function sendBatchUploadNotification(batchId: string): Promise<Noti
 }
 
 /** Rule destination: send a single-upload email to an explicit address. */
-export async function sendUploadEmailTo(to: string, uploadId: string): Promise<NotifyResult> {
-  const built = await buildUploadContent(uploadId);
+export async function sendUploadEmailTo(to: string, uploadId: string, includeFiles = true): Promise<NotifyResult> {
+  const built = await buildUploadContent(uploadId, includeFiles);
   if (!built) return { status: "skipped", target: to, detail: "upload or link not found" };
   return sendEmail(to, built.content);
 }
 
 /** Rule destination: send a batch email to an explicit address. */
-export async function sendBatchEmailTo(to: string, batchId: string): Promise<NotifyResult> {
-  const built = await buildBatchContent(batchId);
+export async function sendBatchEmailTo(to: string, batchId: string, includeFiles = true): Promise<NotifyResult> {
+  const built = await buildBatchContent(batchId, includeFiles);
   if (!built) return { status: "skipped", target: to, detail: "no completed files in batch" };
   return sendEmail(to, built.content);
 }

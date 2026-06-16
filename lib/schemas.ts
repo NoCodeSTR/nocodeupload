@@ -93,6 +93,8 @@ export const notificationRuleSchema = z.object({
   ownerEmail: z.boolean().default(false),
   messageTemplate: z.string().max(1000).optional().nullable(),
   dynamicRecipients: z.array(dynamicRecipientSchema).max(10).optional(),
+  // Whether this rule's messages include uploaded-file links. Default true.
+  includeFiles: z.boolean().default(true),
 });
 export type NotificationRuleInput = z.infer<typeof notificationRuleSchema>;
 
@@ -251,6 +253,9 @@ export const uploadLinkCreateSchema = z.object({
   hideEmail: z.boolean().default(false),
   // Accept a submission with zero files (e.g. a cleaner with no photos).
   allowEmptySubmission: z.boolean().default(false),
+  // Grant completed Drive files "anyone with the link can view" so notification
+  // links work for external recipients. Default off (sharing is opt-in).
+  publicFiles: z.boolean().default(false),
   customFields: z.array(customFieldSchema).max(50).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),

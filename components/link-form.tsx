@@ -286,6 +286,7 @@ export function LinkForm({
   const [allowEmptySubmission, setAllowEmptySubmission] = useState(
     initialLink?.allow_empty_submission ?? false,
   );
+  const [publicFiles, setPublicFiles] = useState(initialLink?.public_files ?? false);
   const [customFields, setCustomFields] = useState<CustomFieldDef[]>(
     initialLink?.custom_fields ?? [],
   );
@@ -937,6 +938,7 @@ export function LinkForm({
       hideName,
       hideEmail,
       allowEmptySubmission,
+      publicFiles,
       customFields: customFields
         .filter((f) => f.label.trim())
         .map((f) => {
@@ -1636,6 +1638,25 @@ export function LinkForm({
             <p className="mt-1.5 text-xs text-ink-400">
               Lets a visitor send their answers even when they have nothing to upload (e.g. a
               cleaner with no photos this visit). Required upload boxes are still enforced.
+            </p>
+          </div>
+        )}
+
+        {!isFormOnly && !isYouTube && (
+          <div className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={publicFiles}
+                onChange={(e) => setPublicFiles(e.target.checked)}
+              />
+              Let anyone with the link view uploaded files
+            </label>
+            <p className="mt-1.5 text-xs text-ink-400">
+              Files land private in your Drive by default, so the file links in your notifications
+              only open for people with Drive access. Turn this on to grant each uploaded file
+              “anyone with the link can view” — so links sent by email, Slack, or text work for
+              outside recipients (like a cleaner). Leave off to keep files private.
             </p>
           </div>
         )}
@@ -2688,6 +2709,22 @@ export function LinkForm({
                     Email me
                   </label>
                 </div>
+                <label className="mt-1 flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={rule.includeFiles !== false}
+                    onChange={(e) => updateRule(rule.id, { includeFiles: e.target.checked })}
+                  />
+                  <span>
+                    Include links to the uploaded files
+                    <span className="block text-xs font-normal text-ink-400">
+                      On by default. Email &amp; Slack list each file; text messages link to the
+                      submission page (which shows them all). Turn off to notify without exposing
+                      any file links.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {/* Dynamic recipients — notify a person pulled from a connected record */}
