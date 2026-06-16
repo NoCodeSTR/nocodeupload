@@ -176,11 +176,13 @@ export async function POST(request: NextRequest) {
   // and URL params.
   // Source values are needed when a hidden prefill OR the file-name / video
   // templates reference a connected record ({{alias.Field}}). Fetched once.
+  const hasSourceCondition = fields.some((f) => f.showWhen?.source && f.showWhen.fieldId);
   const needsSourceVals =
     (link.hide_name && (link.prefill_name ?? "").includes("{{")) ||
     (link.hide_email && (link.prefill_email ?? "").includes("{{")) ||
     (link.filename_template ?? "").includes("{{") ||
-    (link.description_template ?? "").includes("{{");
+    (link.description_template ?? "").includes("{{") ||
+    hasSourceCondition;
   const sourceVals = needsSourceVals ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
   const prefillCtx = { ...recordValues, ...sourceVals, ...prefillValues };
   const renderPrefill = (tpl: string | null | undefined): string | null =>
@@ -209,7 +211,8 @@ export async function POST(request: NextRequest) {
     let val: string;
     if (f.visible) {
       // Conditionally-hidden fields weren't shown — don't require or store them.
-      if (!isFieldVisible(f.showWhen, submitted)) continue;
+      // Source-controlled conditions read the connected record's values.
+      if (!isFieldVisible(f.showWhen, submitted, sourceVals)) continue;
       const raw = String(submitted[f.id] ?? f.value ?? "").trim();
       val = cleanFieldValue(type, raw, f.options ?? []);
       if (f.required && !val) {

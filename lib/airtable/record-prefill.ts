@@ -140,6 +140,19 @@ function collectReferencedSourceFields(
       refs.get(aliasKey)!.add(fieldKey);
     }
   }
+
+  // Field-visibility conditions controlled by a connected record need their
+  // controlling field's value in the browser to evaluate live — include it
+  // (it's a reference like a merge tag, except it drives show/hide).
+  for (const f of link.custom_fields ?? []) {
+    const sw = f?.showWhen;
+    if (!sw?.source || !sw.fieldId) continue;
+    const aliasKey = prefillKey(sw.source);
+    const fieldKey = prefillKey(sw.fieldId);
+    if (!aliasKeys.has(aliasKey)) continue;
+    if (!refs.has(aliasKey)) refs.set(aliasKey, new Set());
+    refs.get(aliasKey)!.add(fieldKey);
+  }
   return refs;
 }
 

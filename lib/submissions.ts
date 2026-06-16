@@ -13,6 +13,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatPgError } from "@/lib/pg-error";
 import { coreEnv } from "@/lib/env";
+import { encryptToToken } from "@/lib/crypto/tokens";
 import { airtableRecordUrl } from "@/lib/airtable/url";
 import type {
   UploadLinkRow,
@@ -32,6 +33,127 @@ import type { SubmissionUpdateInput } from "@/lib/schemas";
 export function submissionUrl(id: string): string {
   const base = coreEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   return `${base}/dashboard/submissions/${id}`;
+}
+
+/**
+ * Public, login-free share URL for a submission — an AES-GCM-signed token over
+ * the submission id (unguessable, no expiry). Only resolves while the link's
+ * share_page_mode is not 'off'. Used for the branded share page + the proxied
+ * file links it renders.
+ */
+export function shareUrl(id: string): string {
+  const base = coreEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  return `${base}/s/${encryptToToken(id)}`;
+}
+
+/** Per-file signed token for the share-page file proxy (/api/file/<token>). */
+export function shareFileToken(uploadId: string): string {
+  return encryptToToken(uploadId);
+}
+
+export type SharePageMode = "off" | "files" | "files_and_answers";
+
+export interface ShareViewFile {
+  id: string;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  /** YouTube watch URL (public), else null — Drive files stream via the proxy. */
+  externalUrl: string | null;
+  /** Signed proxy path for Drive files, else null. */
+  proxyToken: string | null;
+  isImage: boolean;
+}
+
+export interface ShareView {
+  mode: SharePageMode;
+  linkName: string;
+  brandingColor: string | null;
+  logo: string | null;
+  uploaderName: string | null;
+  uploaderEmail: string | null;
+  uploaderMessage: string | null;
+  customData: Record<string, string> | null;
+  createdAt: string;
+  files: ShareViewFile[];
+}
+
+/**
+ * Load the public share view for a submission (service role — no user session).
+ * Returns null when the submission is unknown or its link has sharing off, so
+ * the page can 404. Excludes the form-only "__form" carrier from the file list.
+ */
+export async function getShareView(submissionId: string): Promise<ShareView | null> {
+  const admin = getSupabaseAdmin();
+  const { data: sData } = await admin
+    .from("submissions")
+    .select("*, upload_links(name, branding_color, branding_logo_url, share_page_mode, user_id)")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (!sData) return null;
+
+  type LinkJoin = {
+    name: string;
+    branding_color: string | null;
+    branding_logo_url: string | null;
+    share_page_mode: SharePageMode | null;
+    user_id: string;
+  };
+  const sub = sData as unknown as SubmissionRow & { upload_links: LinkJoin | LinkJoin[] | null };
+  const link = Array.isArray(sub.upload_links) ? sub.upload_links[0] : sub.upload_links;
+  const mode = (link?.share_page_mode ?? "off") as SharePageMode;
+  if (!link || mode === "off") return null;
+
+  // Owner logo falls back to their profile logo (same precedence as email).
+  let logo = link.branding_logo_url ?? null;
+  if (!logo && link.user_id) {
+    const { data: prof } = await admin.from("profiles").select("logo_url").eq("id", link.user_id).maybeSingle();
+    logo = (prof as { logo_url: string | null } | null)?.logo_url ?? null;
+  }
+
+  const { data: filesData } = await admin
+    .from("uploads")
+    .select("id, original_filename, mime_type, file_size_bytes, provider, provider_file_id, source_block_id, status")
+    .eq("submission_id", submissionId)
+    .eq("status", "complete")
+    .order("created_at", { ascending: true });
+  const rawFiles = (filesData ?? []) as Array<{
+    id: string;
+    original_filename: string;
+    mime_type: string | null;
+    file_size_bytes: number | null;
+    provider: StorageProvider | null;
+    provider_file_id: string | null;
+    source_block_id: string | null;
+  }>;
+
+  const files: ShareViewFile[] = rawFiles
+    .filter((f) => f.source_block_id !== "__form" && f.provider_file_id)
+    .map((f) => {
+      const isYouTube = f.provider === "youtube";
+      return {
+        id: f.id,
+        filename: f.original_filename,
+        mimeType: f.mime_type,
+        sizeBytes: f.file_size_bytes,
+        externalUrl: isYouTube ? `https://www.youtube.com/watch?v=${f.provider_file_id}` : null,
+        proxyToken: isYouTube ? null : shareFileToken(f.id),
+        isImage: (f.mime_type ?? "").startsWith("image/"),
+      };
+    });
+
+  return {
+    mode,
+    linkName: link.name ?? "Submission",
+    brandingColor: link.branding_color,
+    logo,
+    uploaderName: sub.uploader_name,
+    uploaderEmail: sub.uploader_email,
+    uploaderMessage: sub.uploader_message,
+    customData: sub.custom_data,
+    createdAt: sub.created_at,
+    files,
+  };
 }
 
 /**
@@ -128,6 +250,8 @@ export interface SubmissionDetail {
   deliveries: NotificationDeliveryRow[];
   /** The Airtable record this submission created/updated (null if none). */
   airtable: { recordId: string; url: string | null } | null;
+  /** The link's share-page setting, so the detail page can offer a share link. */
+  sharePageMode: SharePageMode;
 }
 
 /** Sanitize a search term for a PostgREST or() filter (strip its delimiters). */
@@ -208,14 +332,14 @@ export async function getSubmissionDetail(
   const supabase = createSupabaseServerClient();
   const { data: sData, error } = await supabase
     .from("submissions")
-    .select("*, upload_links(name, airtable_config)")
+    .select("*, upload_links(name, airtable_config, share_page_mode)")
     .eq("id", submissionId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(formatPgError("Failed to load submission", error));
   if (!sData) return null;
 
-  type LinkJoin = { name: string; airtable_config: AirtableConfig | null };
+  type LinkJoin = { name: string; airtable_config: AirtableConfig | null; share_page_mode: SharePageMode | null };
   const subRaw = sData as unknown as SubmissionRow & {
     upload_links: LinkJoin | LinkJoin[] | null;
   };
@@ -296,6 +420,7 @@ export async function getSubmissionDetail(
     files,
     deliveries,
     airtable,
+    sharePageMode: (link?.share_page_mode ?? "off") as SharePageMode,
   };
 }
 

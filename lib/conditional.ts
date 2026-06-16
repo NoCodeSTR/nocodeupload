@@ -64,7 +64,17 @@ export function evalCondition(
 export function isFieldVisible(
   showWhen: FieldCondition | null | undefined,
   valuesById: Record<string, string>,
+  /**
+   * Connected-record values keyed `${aliasKey}.${fieldKey}` — supplied when a
+   * condition is controlled by an Airtable record field (showWhen.source set).
+   * The uploader passes its prefill map; server routes pass the fetched source
+   * values. Absent for plain field-to-field conditions.
+   */
+  sourceValues: Record<string, string> = {},
 ): boolean {
   if (!showWhen || !showWhen.fieldId) return true;
-  return evalCondition(showWhen.op, valuesById[showWhen.fieldId] ?? "", showWhen.values ?? []);
+  const raw = showWhen.source
+    ? sourceValues[`${showWhen.source}.${showWhen.fieldId}`] ?? ""
+    : valuesById[showWhen.fieldId] ?? "";
+  return evalCondition(showWhen.op, raw, showWhen.values ?? []);
 }

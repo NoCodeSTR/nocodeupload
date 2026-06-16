@@ -102,6 +102,31 @@ function conditionValueMode(
 
 const FILE_TYPE_CHOICES = ["image", "video", "pdf", "audio", "document", "other"];
 
+/** Map an Airtable field type → our condition field type, for operator choice. */
+function airtableTypeToFieldType(t: string | undefined): CustomFieldDef["type"] {
+  switch (t) {
+    case "checkbox":
+      return "checkbox";
+    case "singleSelect":
+      return "select";
+    case "multipleSelects":
+      return "multiselect";
+    case "currency":
+      return "currency";
+    case "number":
+    case "percent":
+    case "duration":
+    case "rating":
+      return "number";
+    case "email":
+      return "email";
+    case "phoneNumber":
+      return "phone";
+    default:
+      return "text";
+  }
+}
+
 // Sentinel folder id for YouTube links. YouTube has no folders — videos land on
 // the connected channel — but upload_links.folder_id is NOT NULL and the upload
 // pipeline passes it through to the (folder-ignoring) YouTube adapter, so we
@@ -287,6 +312,9 @@ export function LinkForm({
     initialLink?.allow_empty_submission ?? false,
   );
   const [publicFiles, setPublicFiles] = useState(initialLink?.public_files ?? false);
+  const [sharePageMode, setSharePageMode] = useState<"off" | "files" | "files_and_answers">(
+    initialLink?.share_page_mode ?? "off",
+  );
   const [customFields, setCustomFields] = useState<CustomFieldDef[]>(
     initialLink?.custom_fields ?? [],
   );
@@ -315,6 +343,10 @@ export function LinkForm({
   // One shared Airtable schema loader for both Connected Data (source) and
   // Airtable Mapping (destination) so bases/tables are fetched once.
   const airtableSchema = useAirtableSchema(airtableConnected, airtableConfig?.baseId);
+  // Connected sources usable for merge tags / conditions (have a table + alias).
+  const prefillSources = (airtableConfig?.recordSources ?? []).filter(
+    (s) => s.tableId && s.alias.trim(),
+  );
   // Preview Mode: real connected-record values (keyed `${aliasKey}.${fieldKey}`)
   // chosen via the per-source pickers, plus the picked record's display label.
   const [previewValues, setPreviewValues] = useState<Record<string, string>>({});
@@ -693,6 +725,22 @@ export function LinkForm({
       }),
     );
   }
+  // Controller = a field on a CONNECTED record (alias + field key). Clears the
+  // sibling-field controller; type drives the default operator.
+  function setShowWhenSource(
+    id: string,
+    aliasKey: string,
+    fieldKey: string,
+    fieldType: CustomFieldDef["type"],
+  ) {
+    setCustomFields((prev) =>
+      prev.map((f) =>
+        f.id === id
+          ? { ...f, showWhen: { source: aliasKey, fieldId: fieldKey, op: defaultOpForType(fieldType), values: [] } }
+          : f,
+      ),
+    );
+  }
   function setShowWhenOp(id: string, op: FieldConditionOp) {
     setCustomFields((prev) =>
       prev.map((f) => (f.id === id && f.showWhen ? { ...f, showWhen: { ...f.showWhen, op, values: [] } } : f)),
@@ -939,6 +987,7 @@ export function LinkForm({
       hideEmail,
       allowEmptySubmission,
       publicFiles,
+      sharePageMode,
       customFields: customFields
         .filter((f) => f.label.trim())
         .map((f) => {
@@ -954,12 +1003,13 @@ export function LinkForm({
           if (showWhen) {
             const op = showWhen.op ?? "has_any_of";
             const needsValue = op !== "is_filled" && op !== "is_empty";
-            if (
-              !f.visible ||
-              !showWhen.fieldId ||
-              !keptFieldIds.has(showWhen.fieldId) ||
-              (needsValue && showWhen.values.length === 0)
-            ) {
+            // A connected-record controller (source set) points at an Airtable
+            // field key, not a sibling custom-field id — so skip the kept-field
+            // check for it (the source is validated by the airtableConfig).
+            const controllerMissing = showWhen.source
+              ? !showWhen.fieldId
+              : !showWhen.fieldId || !keptFieldIds.has(showWhen.fieldId);
+            if (!f.visible || controllerMissing || (needsValue && showWhen.values.length === 0)) {
               showWhen = null;
             }
           }
@@ -1661,6 +1711,25 @@ export function LinkForm({
           </div>
         )}
 
+        <div className="rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+          <label className="label mb-1" htmlFor="share-page">Public share page</label>
+          <select
+            id="share-page"
+            className="input"
+            value={sharePageMode}
+            onChange={(e) => setSharePageMode(e.target.value as "off" | "files" | "files_and_answers")}
+          >
+            <option value="off">Off — no public page</option>
+            <option value="files">Files only</option>
+            <option value="files_and_answers">Files + form answers</option>
+          </select>
+          <p className="mt-1.5 text-xs text-ink-400">
+            Gives each submission a clean, branded page you can forward to anyone — no login. Files
+            stream through a secure link, so your Drive stays private either way. “Files + answers”
+            also shows what the submitter filled in.
+          </p>
+        </div>
+
         {isFormOnly ? null : isYouTube ? (
           <div>
             <span className="label mb-1 block">Allowed file types</span>
@@ -1950,6 +2019,19 @@ export function LinkForm({
           <div>
             <label className="label mb-1" htmlFor="prefill-name">Prefill name (optional)</label>
             <input id="prefill-name" className="input" value={prefillName} onChange={(e) => setPrefillName(e.target.value)} placeholder="e.g. Maria" />
+            {prefillSources.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-ink-400">Pull from a connected record:</span>
+                {prefillSources.map((s) => (
+                  <TokenFieldPicker
+                    key={s.id}
+                    aliasKey={prefillKey(s.alias)}
+                    fields={(airtableSchema.tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                    onInsert={(tok) => setPrefillName((v) => (v.trim() ? `${v} ${tok}` : tok))}
+                  />
+                ))}
+              </div>
+            )}
             <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
               <input type="checkbox" checked={hideName} onChange={(e) => setHideName(e.target.checked)} />
               Hide from uploader (attach silently)
@@ -1958,12 +2040,32 @@ export function LinkForm({
           <div>
             <label className="label mb-1" htmlFor="prefill-email">Prefill email (optional)</label>
             <input id="prefill-email" className="input" value={prefillEmail} onChange={(e) => setPrefillEmail(e.target.value)} placeholder="e.g. maria@example.com" />
+            {prefillSources.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-ink-400">Pull from a connected record:</span>
+                {prefillSources.map((s) => (
+                  <TokenFieldPicker
+                    key={s.id}
+                    aliasKey={prefillKey(s.alias)}
+                    fields={(airtableSchema.tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                    onInsert={(tok) => setPrefillEmail((v) => (v.trim() ? `${v} ${tok}` : tok))}
+                  />
+                ))}
+              </div>
+            )}
             <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
               <input type="checkbox" checked={hideEmail} onChange={(e) => setHideEmail(e.target.checked)} />
               Hide from uploader (attach silently)
             </label>
           </div>
         </div>
+        {prefillSources.length > 0 && (
+          <p className="mt-2 text-xs text-ink-400">
+            Tip: prefill the name with a connected field like{" "}
+            <code className="rounded bg-ink-100 px-1 py-0.5 dark:bg-ink-900">{`{{cleaner.Name}}`}</code>{" "}
+            so submissions show who filled them in instead of “Anonymous”.
+          </p>
+        )}
       </CollapsibleSection>
 
       {/* Custom fields */}
@@ -1985,15 +2087,31 @@ export function LinkForm({
 
         {customFields.map((f, idx) => {
           const controllers = customFields.filter((c) => isController(c, f.id));
-          const controller = f.showWhen ? customFields.find((c) => c.id === f.showWhen!.fieldId) ?? null : null;
-          const controllerType = controller?.type ?? "text";
+          const sw = f.showWhen;
+          // Resolve the controller's TYPE + options. A connected-record controller
+          // (sw.source set) derives its type from the Airtable field; otherwise it's
+          // the controlling custom field.
+          let controllerType: CustomFieldDef["type"] = "text";
+          let controllerOptions: string[] = [];
+          if (sw?.source) {
+            const src = prefillSources.find((s) => prefillKey(s.alias) === sw.source);
+            const tbl = src ? airtableSchema.tables.find((t) => t.id === src.tableId) : null;
+            const fld = tbl?.fields.find((ff) => prefillKey(ff.name) === sw.fieldId) ?? null;
+            controllerType = airtableTypeToFieldType(fld?.type);
+            controllerOptions = fld?.options ?? [];
+          } else if (sw) {
+            const controller = customFields.find((c) => c.id === sw.fieldId) ?? null;
+            controllerType = controller?.type ?? "text";
+            controllerOptions =
+              controllerType === "select" || controllerType === "multiselect"
+                ? (controller?.options ?? []).map((o) => o.trim()).filter(Boolean)
+                : [];
+          }
           const conditionOps = operatorsForType(controllerType);
-          const currentOp: FieldConditionOp = f.showWhen?.op ?? conditionOps[0]?.op ?? "is_filled";
+          const currentOp: FieldConditionOp = sw?.op ?? conditionOps[0]?.op ?? "is_filled";
           const conditionMode = conditionValueMode(currentOp, controllerType);
-          const controllerOptions =
-            controllerType === "select" || controllerType === "multiselect"
-              ? (controller?.options ?? []).map((o) => o.trim()).filter(Boolean)
-              : [];
+          // Whether any controller exists at all (sibling field or connected source).
+          const hasAnyController = controllers.length > 0 || prefillSources.length > 0;
           const fieldInvalid = invalidFieldIds.has(f.id);
           return (
           <div
@@ -2134,24 +2252,57 @@ export function LinkForm({
                   Only show this field conditionally
                 </label>
                 {f.showWhen &&
-                  (controllers.length === 0 ? (
+                  (!hasAnyController ? (
                     <p className="mt-1 text-xs text-ink-400">
-                      Add another field above to control this one.
+                      Add another field above — or connect a data source — to control this one.
                     </p>
                   ) : (
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       <span className="text-ink-500">Show when</span>
                       <select
                         className="input w-auto py-1 text-xs"
-                        value={f.showWhen.fieldId}
-                        onChange={(e) => setShowWhenController(f.id, e.target.value)}
+                        value={f.showWhen.source ? `src:${f.showWhen.source}:${f.showWhen.fieldId}` : f.showWhen.fieldId}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v.startsWith("src:")) {
+                            const rest = v.slice(4);
+                            const sep = rest.indexOf(":");
+                            const aliasKey = rest.slice(0, sep);
+                            const fieldKey = rest.slice(sep + 1);
+                            const src = prefillSources.find((s) => prefillKey(s.alias) === aliasKey);
+                            const tbl = src ? airtableSchema.tables.find((t) => t.id === src.tableId) : null;
+                            const fld = tbl?.fields.find((ff) => prefillKey(ff.name) === fieldKey) ?? null;
+                            setShowWhenSource(f.id, aliasKey, fieldKey, airtableTypeToFieldType(fld?.type));
+                          } else {
+                            setShowWhenController(f.id, v);
+                          }
+                        }}
                       >
                         <option value="">Choose field…</option>
-                        {controllers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.label.trim()}
-                          </option>
-                        ))}
+                        {controllers.length > 0 && (
+                          <optgroup label="Another answer on this form">
+                            {controllers.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.label.trim()}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {prefillSources.map((s) => {
+                          const aliasKey = prefillKey(s.alias);
+                          const tbl = airtableSchema.tables.find((t) => t.id === s.tableId);
+                          const flds = tbl?.fields ?? [];
+                          if (flds.length === 0) return null;
+                          return (
+                            <optgroup key={s.id} label={`${s.label || s.alias} (connected record)`}>
+                              {flds.map((ff) => (
+                                <option key={ff.id} value={`src:${aliasKey}:${prefillKey(ff.name)}`}>
+                                  {ff.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
                       </select>
                       <select
                         className="input w-auto py-1 text-xs"

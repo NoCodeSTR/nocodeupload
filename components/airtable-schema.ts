@@ -19,6 +19,8 @@ export interface ApiField {
   id: string;
   name: string;
   type: string;
+  /** Choice names for singleSelect / multipleSelects fields (else absent). */
+  options?: string[];
 }
 export interface ApiTable {
   id: string;

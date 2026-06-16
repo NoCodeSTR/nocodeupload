@@ -342,7 +342,7 @@ export function PublicUploader({
       return "Please enter a valid email.";
     }
     const missing = customFields.find(
-      (f) => f.required && isFieldVisible(f.showWhen, customValues) && !(customValues[f.id] ?? "").trim(),
+      (f) => f.required && isFieldVisible(f.showWhen, customValues, prefill) && !(customValues[f.id] ?? "").trim(),
     );
     return missing ? `Please fill in "${missing.label}".` : null;
   }
@@ -402,7 +402,7 @@ export function PublicUploader({
     const missingCustom = customFields.find(
       (f) =>
         f.required &&
-        isFieldVisible(f.showWhen, customValues) &&
+        isFieldVisible(f.showWhen, customValues, prefill) &&
         !(customValues[f.id] ?? "").trim(),
     );
     if (missingCustom) {
@@ -759,7 +759,7 @@ export function PublicUploader({
       {/* Owner-defined fields, respecting conditional visibility + sections.
           Ungrouped fields first, then each non-empty section (heading + text). */}
       {(() => {
-        const visibleFields = customFields.filter((f) => isFieldVisible(f.showWhen, customValues));
+        const visibleFields = customFields.filter((f) => isFieldVisible(f.showWhen, customValues, prefill));
         const sectionIds = new Set(sections.map((s) => s.id));
         const showBoxes = !formOnly;
         const ungroupedFields = visibleFields.filter((f) => !f.sectionId || !sectionIds.has(f.sectionId));

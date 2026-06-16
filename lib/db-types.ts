@@ -130,6 +130,12 @@ export interface UploadLinkRow {
    * view" so notification file links work for external recipients. Default false.
    */
   public_files: boolean;
+  /**
+   * Branded public share page per submission: 'off' (none), 'files' (files
+   * only), or 'files_and_answers' (files + form answers). Files stream through a
+   * signed proxy so Drive stays private. Default 'off'.
+   */
+  share_page_mode: "off" | "files" | "files_and_answers";
   custom_fields: CustomFieldDef[];
   filename_template: string | null;
   description_template: string | null;
@@ -321,6 +327,13 @@ export interface FieldCondition {
   fieldId: string;
   op?: FieldConditionOp;
   values: string[];
+  /**
+   * When set, the controller is a connected-record field rather than another
+   * custom field: `source` is the connected source's alias key and `fieldId`
+   * holds the source field key (prefillKey of the Airtable field name). The
+   * controlling value is read from the resolved `${source}.${fieldId}` map.
+   */
+  source?: string;
 }
 
 /** A form section — groups fields under a heading + intro text. */

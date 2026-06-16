@@ -33,7 +33,7 @@ export const customFieldSchema = z.object({
   // (by id) holds one of these values.
   showWhen: z
     .object({
-      fieldId: z.string().min(1).max(64),
+      fieldId: z.string().min(1).max(120),
       op: z
         .enum([
           "is_filled",
@@ -49,6 +49,9 @@ export const customFieldSchema = z.object({
         ])
         .optional(),
       values: z.array(z.string().max(200)).max(20).default([]),
+      // When set, the controller is a connected-record field: source = alias key,
+      // fieldId = the source field key. Absent = controlled by another field.
+      source: z.string().max(120).optional(),
     })
     .nullable()
     .optional(),
@@ -256,6 +259,8 @@ export const uploadLinkCreateSchema = z.object({
   // Grant completed Drive files "anyone with the link can view" so notification
   // links work for external recipients. Default off (sharing is opt-in).
   publicFiles: z.boolean().default(false),
+  // Branded public share page per submission. Default off (opt-in).
+  sharePageMode: z.enum(["off", "files", "files_and_answers"]).default("off"),
   customFields: z.array(customFieldSchema).max(50).optional(),
   filenameTemplate: z.string().max(200).optional().nullable(),
   descriptionTemplate: z.string().max(2000).optional().nullable(),

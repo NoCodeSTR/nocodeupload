@@ -94,10 +94,12 @@ export async function POST(request: NextRequest) {
   // Built-in name/email (honor hide + prefill). Hidden prefills may be dynamic
   // (e.g. {{guest.First Name}}) — resolve tokens against the single record,
   // connected sources (fetched only when a hidden token needs it), and URL params.
+  const hasSourceCondition = fields.some((f) => f.showWhen?.source && f.showWhen.fieldId);
   const dynamicHidden =
     (link.hide_name && (link.prefill_name ?? "").includes("{{")) ||
     (link.hide_email && (link.prefill_email ?? "").includes("{{"));
-  const sourceVals = dynamicHidden ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
+  const sourceVals =
+    dynamicHidden || hasSourceCondition ? await getAirtableSourceValuesForSubmit(link, prefillValues) : {};
   const prefillCtx = { ...recordValues, ...sourceVals, ...prefillValues };
   const renderPrefill = (tpl: string | null | undefined): string | null =>
     tpl ? renderMergeTags(tpl, prefillCtx).trim() || null : null;
@@ -116,7 +118,7 @@ export async function POST(request: NextRequest) {
     const type = f.type ?? "text";
     let val: string;
     if (f.visible) {
-      if (!isFieldVisible(f.showWhen, submitted)) continue; // conditionally hidden
+      if (!isFieldVisible(f.showWhen, submitted, sourceVals)) continue; // conditionally hidden
       const raw = String(submitted[f.id] ?? f.value ?? "").trim();
       val = cleanFieldValue(type, raw, f.options ?? []);
       if (f.required && !val) {

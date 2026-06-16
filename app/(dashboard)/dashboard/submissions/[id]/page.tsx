@@ -9,8 +9,9 @@ import { ArrowLeft, ExternalLink, CheckCircle2, XCircle, Clock, Table2 } from "l
 import { Topbar } from "@/components/topbar";
 import { SubmissionStatusControl } from "@/components/submission-status-control";
 import { SubmissionRetryButton } from "@/components/submission-retry-button";
+import { ShareLinkButton } from "@/components/share-link-button";
 import { requireUser } from "@/lib/auth";
-import { getSubmissionDetail, type SubmissionDetail } from "@/lib/submissions";
+import { getSubmissionDetail, shareUrl, type SubmissionDetail } from "@/lib/submissions";
 import { resultUrlFor, resultUrlLabel } from "@/lib/result-url";
 import { formatBytes, fileCategory } from "@/lib/upload-validation";
 import type { NotificationDeliveryRow } from "@/lib/db-types";
@@ -28,7 +29,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   }
   if (!detail) notFound();
 
-  const { submission, linkName, files, deliveries, airtable } = detail;
+  const { submission, linkName, files, deliveries, airtable, sharePageMode } = detail;
   const who = submission.uploader_name || submission.uploader_email || "Anonymous";
 
   return (
@@ -53,6 +54,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {sharePageMode !== "off" && <ShareLinkButton url={shareUrl(submission.id)} />}
               <SubmissionStatusControl submissionId={submission.id} initialStatus={submission.status} />
               <SubmissionRetryButton submissionId={submission.id} />
             </div>
