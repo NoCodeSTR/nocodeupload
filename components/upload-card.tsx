@@ -49,7 +49,7 @@ export function UploadCard({
           <img src={link.branding_logo_url} alt="" className="mb-4 h-10 object-contain" />
         )}
 
-        <h1 className="font-display text-2xl font-bold">{link.name}</h1>
+        {!link.hide_title && <h1 className="font-display text-2xl font-bold">{link.name}</h1>}
         {link.description && <p className="mt-2 text-ink-500">{link.description}</p>}
 
         {link.content_blocks.length > 0 && (

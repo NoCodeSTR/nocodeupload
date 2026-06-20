@@ -74,6 +74,7 @@ export function AirtableImport({ onImport, defaultBaseId = "", defaultBaseName =
   const [baseId, setBaseId] = useState(defaultBaseId);
   const [tableId, setTableId] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [fieldQuery, setFieldQuery] = useState("");
   const [loadingBases, setLoadingBases] = useState(false);
   const [loadingTables, setLoadingTables] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +142,12 @@ export function AirtableImport({ onImport, defaultBaseId = "", defaultBaseName =
   const table = tables.find((t) => t.id === tableId);
   const importable = (table?.fields ?? []).filter((f) => TYPE_MAP[f.type]);
   const skipped = (table?.fields ?? []).length - importable.length;
+  // Search filter — large tables can have hundreds of columns; let the owner
+  // narrow to the few they want instead of scrolling a giant list.
+  const fieldNeedle = fieldQuery.trim().toLowerCase();
+  const filteredImportable = fieldNeedle
+    ? importable.filter((f) => f.name.toLowerCase().includes(fieldNeedle))
+    : importable;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -257,14 +264,28 @@ export function AirtableImport({ onImport, defaultBaseId = "", defaultBaseName =
                   </button>
                 </div>
               </div>
+              {importable.length > 8 && (
+                <input
+                  type="search"
+                  value={fieldQuery}
+                  onChange={(e) => setFieldQuery(e.target.value)}
+                  placeholder={`Search ${importable.length} columns…`}
+                  className="input mb-1.5 h-8 text-sm"
+                  aria-label="Search Airtable columns"
+                />
+              )}
               <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-ink-200 p-2 dark:border-ink-700">
-                {importable.map((f) => (
-                  <label key={f.id} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
-                    <span className="text-ink-700 dark:text-ink-200">{f.name}</span>
-                    <span className="text-xs text-ink-400">({TYPE_MAP[f.type]})</span>
-                  </label>
-                ))}
+                {filteredImportable.length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-ink-400">No columns match “{fieldQuery}”.</p>
+                ) : (
+                  filteredImportable.map((f) => (
+                    <label key={f.id} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
+                      <span className="text-ink-700 dark:text-ink-200">{f.name}</span>
+                      <span className="text-xs text-ink-400">({TYPE_MAP[f.type]})</span>
+                    </label>
+                  ))
+                )}
               </div>
               {skipped > 0 && (
                 <p className="mt-1 text-xs text-ink-400">

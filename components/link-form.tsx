@@ -29,6 +29,7 @@ import { renderFilename, renderText, prefillKey } from "@/lib/filename";
 import { renderMergeTags } from "@/lib/merge-tags";
 import { getFieldMappings } from "@/lib/airtable/sources";
 import { uploadLinkCreateSchema } from "@/lib/schemas";
+import { LinkLogoField } from "@/components/link-logo-field";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
@@ -220,6 +221,8 @@ interface LinkFormProps {
   initialTags?: string[];
   /** Whether the user has connected Airtable (gates the Airtable section). */
   airtableConnected?: boolean;
+  /** The account's default logo, shown as the fallback preview for per-link logo. */
+  accountLogoUrl?: string | null;
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -262,6 +265,7 @@ export function LinkForm({
   allTags = [],
   initialTags = [],
   airtableConnected = false,
+  accountLogoUrl = null,
 }: LinkFormProps) {
   const router = useRouter();
 
@@ -285,6 +289,7 @@ export function LinkForm({
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>(initialLink?.content_blocks ?? []);
   const [sections, setSections] = useState<FormSection[]>(initialLink?.sections ?? []);
   const [name, setName] = useState(initialLink?.name ?? "");
+  const [hideTitle, setHideTitle] = useState(initialLink?.hide_title ?? false);
   const [description, setDescription] = useState(initialLink?.description ?? "");
   const [projectId, setProjectId] = useState(initialLink?.project_id ?? "");
   const [projectList, setProjectList] = useState<ProjectSummary[]>(projects);
@@ -321,6 +326,7 @@ export function LinkForm({
   const [expiresAt, setExpiresAt] = useState(isoToDateInput(initialLink?.expires_at ?? null));
   const [useCustomColor, setUseCustomColor] = useState(Boolean(initialLink?.branding_color));
   const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(initialLink?.branding_logo_url ?? null);
   const [webhookUrl, setWebhookUrl] = useState(initialLink?.webhook_url ?? "");
   const [filenameTemplate, setFilenameTemplate] = useState(initialLink?.filename_template ?? "");
   const [descriptionTemplate, setDescriptionTemplate] = useState(
@@ -965,6 +971,7 @@ export function LinkForm({
 
     const payload = {
       name: name.trim(),
+      hideTitle,
       description: description.trim() || null,
       destinationType,
       storageConnectionId,
@@ -1024,6 +1031,7 @@ export function LinkForm({
       })),
       expiresAt: expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : null,
       brandingColor: useCustomColor ? brandingColor : null,
+      brandingLogoUrl: brandingLogoUrl || null,
       webhookUrl: webhookUrl.trim() || null,
       filenameTemplate: filenameTemplate.trim() || null,
       // Only meaningful for YouTube (video description). Null elsewhere.
@@ -1513,6 +1521,10 @@ export function LinkForm({
             maxLength={120}
             required
           />
+          <label className="mt-1.5 flex items-center gap-2 text-xs text-ink-500">
+            <input type="checkbox" checked={hideTitle} onChange={(e) => setHideTitle(e.target.checked)} />
+            Hide this title on the public form (it still shows in your dashboard)
+          </label>
         </div>
         <div>
           <label className="label mb-1" htmlFor="description">
@@ -1634,21 +1646,24 @@ export function LinkForm({
           </p>
         </div>
 
-        {/* Branding (accent color) — part of the link's presentation */}
-        <div className="mt-4 border-t border-ink-100 pt-4 dark:border-ink-800">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={useCustomColor} onChange={(e) => setUseCustomColor(e.target.checked)} />
-            Custom accent color
-          </label>
-          {useCustomColor && (
-            <input
-              type="color"
-              value={brandingColor}
-              onChange={(e) => setBrandingColor(e.target.value)}
-              className="mt-2 h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
-              aria-label="Accent color"
-            />
-          )}
+        {/* Branding (logo + accent color) — part of the link's presentation */}
+        <div className="mt-4 space-y-4 border-t border-ink-100 pt-4 dark:border-ink-800">
+          <LinkLogoField value={brandingLogoUrl} onChange={setBrandingLogoUrl} fallbackUrl={accountLogoUrl} />
+          <div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={useCustomColor} onChange={(e) => setUseCustomColor(e.target.checked)} />
+              Custom accent color
+            </label>
+            {useCustomColor && (
+              <input
+                type="color"
+                value={brandingColor}
+                onChange={(e) => setBrandingColor(e.target.value)}
+                className="mt-2 h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
+                aria-label="Accent color"
+              />
+            )}
+          </div>
         </div>
       </CollapsibleSection>
 
@@ -3070,11 +3085,26 @@ export function LinkForm({
             className="input"
             value={successMessage}
             onChange={(e) => setSuccessMessage(e.target.value)}
-            placeholder="Thanks! Your photos were received."
+            placeholder="Thanks {{guest.First Name}}! Your photos were received."
             maxLength={500}
           />
+          {prefillSources.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-ink-400">Personalize with a connected field:</span>
+              {prefillSources.map((s) => (
+                <TokenFieldPicker
+                  key={s.id}
+                  aliasKey={prefillKey(s.alias)}
+                  fields={(airtableSchema.tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                  onInsert={(tok) => setSuccessMessage((v) => (v ? `${v}${tok}` : tok))}
+                />
+              ))}
+            </div>
+          )}
           <p className="mt-1 text-xs text-ink-400">
-            Replaces the default confirmation text on the success screen.
+            Replaces the default confirmation text on the success screen. Use{" "}
+            <code className="rounded bg-ink-100 px-1 py-0.5 dark:bg-ink-900">{`{{name}}`}</code> or a
+            connected field to greet by name.
           </p>
         </div>
         <div>

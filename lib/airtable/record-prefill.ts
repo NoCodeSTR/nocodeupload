@@ -125,6 +125,8 @@ function collectReferencedSourceFields(
   // values into the browser payload here.
   if (link.prefill_name && !link.hide_name) strings.push(link.prefill_name);
   if (link.prefill_email && !link.hide_email) strings.push(link.prefill_email);
+  // The success screen can greet by connected data ("Thanks {{guest.First Name}}!").
+  if (link.success_message) strings.push(link.success_message);
 
   const tagRe = /\{\{([^}]+)\}\}/g;
   for (const str of strings) {

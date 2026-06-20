@@ -5,6 +5,32 @@
  */
 import { z } from "zod";
 
+/**
+ * A string→string map that NEVER hard-fails validation on an oversized value.
+ *
+ * Submit payloads carry customValues + prefillValues. In update mode the public
+ * page preloads the target record's columns into the prefill the form posts
+ * back, and a long-text custom answer can be lengthy too — so a single value
+ * over a fixed cap used to reject the WHOLE submission (surfaced to the uploader
+ * as the opaque "Couldn't start the upload"). This preprocesses instead:
+ * coerces each value to a string, drops nullish entries, caps key + value
+ * length, so the submission always validates and oversized values are simply
+ * truncated (the server re-fetches authoritative record values anyway).
+ */
+function boundedStringRecord(maxValue: number) {
+  return z.preprocess((raw) => {
+    if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (v == null) continue;
+      const s = typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : "";
+      if (!s) continue;
+      out[String(k).slice(0, 200)] = s.slice(0, maxValue);
+    }
+    return out;
+  }, z.record(z.string()));
+}
+
 export const storageProviderSchema = z.enum([
   "google_drive",
   "youtube",
@@ -256,6 +282,8 @@ export const uploadLinkCreateSchema = z.object({
   hideEmail: z.boolean().default(false),
   // Accept a submission with zero files (e.g. a cleaner with no photos).
   allowEmptySubmission: z.boolean().default(false),
+  // Hide the link-name heading on the public form (logo/content carry the brand).
+  hideTitle: z.boolean().default(false),
   // Grant completed Drive files "anyone with the link can view" so notification
   // links work for external recipients. Default off (sharing is opt-in).
   publicFiles: z.boolean().default(false),
@@ -314,11 +342,12 @@ export const uploadInitiateSchema = z.object({
   // require_email, the initiate route enforces a valid format server-side.
   uploaderEmail: z.string().max(255).optional().nullable(),
   uploaderMessage: z.string().max(2000).optional().nullable(),
-  // Visible custom-field values, keyed by field id.
-  customValues: z.record(z.string().max(500)).optional(),
+  // Visible custom-field values, keyed by field id. Long-text answers allowed;
+  // oversized values are truncated, never rejected (see boundedStringRecord).
+  customValues: boundedStringRecord(10000).optional(),
   // Raw URL-prefill values, keyed by each field's prefill key (slug of its
   // label). Used to populate hidden fields server-side (owner-generated links).
-  prefillValues: z.record(z.string().max(500)).optional(),
+  prefillValues: boundedStringRecord(2000).optional(),
   // Batch grouping: the browser sets a shared id (and the count) when more than
   // one file is uploaded in a single submission.
   batchId: z.string().uuid().optional().nullable(),
@@ -339,8 +368,8 @@ export const uploadFormSubmitSchema = z.object({
   uploaderName: z.string().max(120).optional().nullable(),
   uploaderEmail: z.string().max(255).optional().nullable(),
   uploaderMessage: z.string().max(2000).optional().nullable(),
-  customValues: z.record(z.string().max(500)).optional(),
-  prefillValues: z.record(z.string().max(500)).optional(),
+  customValues: boundedStringRecord(10000).optional(),
+  prefillValues: boundedStringRecord(2000).optional(),
   password: z.string().max(100).optional().nullable(),
   recordId: z.string().max(40).optional().nullable(),
 });

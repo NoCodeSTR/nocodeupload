@@ -482,6 +482,16 @@ export function PublicUploader({
 
   // Success state — replaces the form once a session finishes successfully.
   if (sessionDone) {
+    // Personalize the success message: {{cleaner.Name}} / {{guest.First Name}}
+    // resolve from the connected-record prefill; {{name}} / {{email}} too.
+    const renderedSuccess = successMessage?.trim()
+      ? renderMergeTags(successMessage, {
+          ...prefill,
+          name: name.trim(),
+          email: email.trim(),
+          message: message.trim(),
+        }).trim()
+      : "";
     // Owner opted to send uploaders to their own page: show a brief hand-off.
     if (redirectUrl) {
       return (
@@ -508,7 +518,7 @@ export function PublicUploader({
               : `${doneCount} ${doneCount === 1 ? "file" : "files"} uploaded`}
           </h2>
           <p className="mt-1 text-ink-500">
-            {successMessage?.trim() ||
+            {renderedSuccess ||
               (formOnly
                 ? "Thank you! Your response was received."
                 : "Thank you! Your upload was received.")}
@@ -919,6 +929,9 @@ function humanizeInitiateError(code: string | undefined, maxMb: number): string 
     case "missing_email": return "Please enter a valid email.";
     case "provider_unavailable": return "The destination isn't reachable right now. The owner may need to reconnect their storage.";
     case "rate_limited": return "Too many uploads in a short time. Please wait a few minutes and try again.";
+    case "missing_custom_field": return "Please fill in all required fields, then try again.";
+    case "invalid_request": return "Some of your answers couldn't be processed. Please review the form and try again.";
+    case "internal_error": return "Something went wrong on our end. Please try again in a moment.";
     default: return "Couldn't start the upload. Please try again.";
   }
 }

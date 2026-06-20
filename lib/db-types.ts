@@ -125,6 +125,8 @@ export interface UploadLinkRow {
   hide_email: boolean;
   /** When true, the public form accepts a submission with zero files. */
   allow_empty_submission: boolean;
+  /** When true, the link name is not shown as the heading on the public form. */
+  hide_title: boolean;
   /**
    * When true, each completed Drive file is granted "anyone with the link can
    * view" so notification file links work for external recipients. Default false.
@@ -552,6 +554,8 @@ export interface UploadLinkPublicRow {
   hide_email: boolean;
   /** When true, the public form accepts a submission with zero files. */
   allow_empty_submission: boolean;
+  /** When true, hide the link name heading on the public form. */
+  hide_title: boolean;
   prefill_name: string | null;
   prefill_email: string | null;
   visible_custom_fields: PublicCustomField[];
