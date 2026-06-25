@@ -75,7 +75,6 @@ export default async function PublicUploadPage({
           <UploadGate
             slug={link.slug}
             name={link.name}
-            description={link.description}
             accent={link.branding_color ?? "#2563eb"}
             brandingLogoUrl={link.branding_logo_url}
             prefill={mergedPrefill}

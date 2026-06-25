@@ -388,6 +388,26 @@ async function buildAndCreate(args: {
     return;
   }
 
+  // Update mode with nothing mapped to write is a silent no-op on Airtable's side
+  // (a PATCH with empty fields changes nothing but returns 200). Surface it so the
+  // owner sees WHY the record didn't change instead of a misleading "Updated".
+  if (doUpdate && Object.keys(fields).length === 0) {
+    await logDelivery({
+      userId,
+      uploadLinkId,
+      channel: "airtable",
+      result: {
+        status: "skipped",
+        target,
+        detail:
+          "No fields were mapped to write — set a Source on the destination fields under Airtable mapping.",
+      },
+      uploadId,
+      batchId,
+    });
+    return;
+  }
+
   let result: NotifyResult;
   let recordId: string | null = null;
   try {

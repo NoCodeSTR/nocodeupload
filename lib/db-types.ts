@@ -354,6 +354,8 @@ export interface CustomFieldDef {
   required: boolean; // only meaningful when visible
   type?: CustomFieldType; // defaults to "text" when absent (back-compat)
   options?: string[]; // choices for select / multiselect
+  /** Single-select render: "dropdown" (default) or "buttons" (click-to-pick). */
+  optionStyle?: "dropdown" | "buttons";
   showWhen?: FieldCondition | null; // optional conditional visibility
   sectionId?: string | null; // optional grouping into a form section
 }
@@ -467,6 +469,7 @@ export interface PublicCustomField {
   required: boolean;
   type?: CustomFieldType;
   options?: string[];
+  optionStyle?: "dropdown" | "buttons";
   showWhen?: FieldCondition | null;
   sectionId?: string | null;
 }
@@ -540,7 +543,8 @@ export interface UploadLinkPublicRow {
   id: string;
   slug: string;
   name: string;
-  description: string | null;
+  // NOTE: the link's `description` is a PRIVATE internal note — intentionally
+  // NOT exposed here. Public intro copy lives in content_blocks / sections.
   /** drive | youtube | form | multi — drives how the public page renders. */
   destination_type: "drive" | "youtube" | "form" | "multi";
   is_active: boolean;

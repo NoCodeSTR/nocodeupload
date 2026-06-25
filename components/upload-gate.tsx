@@ -2,8 +2,8 @@
 
 /**
  * Password gate for a protected upload link. Renders ONLY the brand header,
- * link name/description, and a password prompt — the upload form and its custom
- * fields are not fetched until the password is verified by /api/upload/unlock.
+ * link name, and a password prompt — the upload form and its custom fields are
+ * not fetched until the password is verified by /api/upload/unlock.
  * On success we render the real UploadCard with the returned config and pass the
  * verified password through so the uploader doesn't re-enter it.
  */
@@ -15,7 +15,6 @@ import type { UploadLinkPublicRow } from "@/lib/db-types";
 export function UploadGate({
   slug,
   name,
-  description,
   accent,
   brandingLogoUrl,
   showBrandHeader = true,
@@ -24,7 +23,6 @@ export function UploadGate({
 }: {
   slug: string;
   name: string;
-  description: string | null;
   accent: string;
   brandingLogoUrl: string | null;
   showBrandHeader?: boolean;
@@ -102,7 +100,6 @@ export function UploadGate({
         )}
 
         <h1 className="font-display text-2xl font-bold">{name}</h1>
-        {description && <p className="mt-2 text-ink-500">{description}</p>}
 
         <div className="mt-6">
           <div className="mb-3 flex items-center gap-2 text-sm text-ink-500">

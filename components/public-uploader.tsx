@@ -580,7 +580,30 @@ export function PublicUploader({
           {f.label} {f.required && <span className="text-red-500">*</span>}
         </label>
 
-        {type === "select" ? (
+        {type === "select" && f.optionStyle === "buttons" ? (
+          <div className="flex flex-wrap gap-2">
+            {(f.options ?? []).map((o) => {
+              const checked = cur === o;
+              return (
+                <button
+                  type="button"
+                  key={o}
+                  disabled={uploading}
+                  // Click to pick; click the selected one again to clear (unless required).
+                  onClick={() => setVal(checked && !f.required ? "" : o)}
+                  className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    checked
+                      ? "border-current bg-ink-50 dark:bg-ink-900"
+                      : "border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-900"
+                  }`}
+                  style={checked ? { color: accent } : undefined}
+                >
+                  {o}
+                </button>
+              );
+            })}
+          </div>
+        ) : type === "select" ? (
           <select
             id={`cf-${f.id}`}
             className="input"

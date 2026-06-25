@@ -1022,7 +1022,9 @@ export function LinkForm({
           }
           let sectionId = f.sectionId ?? null;
           if (sectionId && !keptSectionIds.has(sectionId)) sectionId = null;
-          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, showWhen, sectionId };
+          // optionStyle only applies to single-select; drop it elsewhere.
+          const optionStyle = type === "select" ? f.optionStyle : undefined;
+          return { ...f, label: f.label.trim(), value: f.value.trim(), type, options, optionStyle, showWhen, sectionId };
         }),
       sections: sections.map((s) => ({
         id: s.id,
@@ -1538,6 +1540,10 @@ export function LinkForm({
             placeholder="Only you see this. e.g. 'Cleaners use this after each turnover.'"
             maxLength={2000}
           />
+          <p className="mt-1 text-xs text-ink-400">
+            Private — never shown on the public form. To add intro text uploaders see, use a
+            heading or text block in “Form intro &amp; content”.
+          </p>
         </div>
         <div>
           <label className="label mb-1" htmlFor="project">
@@ -2235,6 +2241,21 @@ export function LinkForm({
                   }
                   maxLength={500}
                 />
+                {f.type === "select" && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-ink-500">Display as</span>
+                    <select
+                      className="input w-auto py-1 text-xs"
+                      value={f.optionStyle ?? "dropdown"}
+                      onChange={(e) =>
+                        updateCustomField(f.id, { optionStyle: e.target.value as "dropdown" | "buttons" })
+                      }
+                    >
+                      <option value="dropdown">Dropdown</option>
+                      <option value="buttons">Buttons (click to pick)</option>
+                    </select>
+                  </div>
+                )}
               </div>
             )}
 

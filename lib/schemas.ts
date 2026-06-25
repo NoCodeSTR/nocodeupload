@@ -53,6 +53,8 @@ export const customFieldSchema = z.object({
     .default("text"),
   // Choices for select / multiselect. Capped to keep the public payload sane.
   options: z.array(z.string().min(1).max(80)).max(20).optional(),
+  // Single-select render style on the public form.
+  optionStyle: z.enum(["dropdown", "buttons"]).optional(),
   // Optional grouping into a form section.
   sectionId: z.string().max(64).optional().nullable(),
   // Optional conditional visibility: show only when the controlling field
