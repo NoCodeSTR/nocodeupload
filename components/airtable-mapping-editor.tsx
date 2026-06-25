@@ -31,7 +31,11 @@ import {
   getFieldMappings,
 } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
+import { TokenFieldPicker } from "@/components/token-field-picker";
 import type { AirtableConfig, CustomFieldDef } from "@/lib/db-types";
+
+/** Strings that read as "checked" for a checkbox constant (mirrors the writer). */
+const CHECKBOX_TRUE = new Set(["1", "true", "yes", "y", "checked", "x", "on"]);
 
 interface AirtableMappingEditorProps {
   connected: boolean;
@@ -432,35 +436,67 @@ export function AirtableMappingEditor({
                 A fixed value, or a template mixing text + tokens —{" "}
                 <code className="rounded bg-ink-100 px-1 dark:bg-ink-900">{"Cleaning for {{property.Name}}"}</code>.
               </p>
-              {(value?.staticValues ?? []).map((sv, idx) => (
-                <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
-                  <SearchableSelect
-                    className="w-auto min-w-[9rem]"
-                    value={sv.field}
-                    onChange={(v) => updateStatic(idx, { field: v })}
-                    options={mappingOptions}
-                    placeholder="Choose field…"
-                    searchPlaceholder="Search fields…"
-                    ariaLabel="Constant field"
-                  />
-                  <span className="text-ink-400">=</span>
-                  <input
-                    className="input w-auto flex-1"
-                    value={sv.value}
-                    onChange={(e) => updateStatic(idx, { value: e.target.value })}
-                    placeholder="e.g. Guest upload, or Cleaning for {{property.Name}}"
-                    maxLength={1000}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeStatic(idx)}
-                    className="px-2 text-lg leading-none text-ink-400 hover:text-red-600"
-                    aria-label="Remove constant"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
+              {(value?.staticValues ?? []).map((sv, idx) => {
+                const svType = selectedTable?.fields.find((f) => f.name === sv.field)?.type;
+                const isCheckbox = svType === "checkbox";
+                const checkboxChecked = CHECKBOX_TRUE.has((sv.value ?? "").trim().toLowerCase());
+                const constSources = recordSources.filter((s) => s.tableId && s.alias.trim());
+                return (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <SearchableSelect
+                        className="w-auto min-w-[9rem]"
+                        value={sv.field}
+                        onChange={(v) => updateStatic(idx, { field: v })}
+                        options={mappingOptions}
+                        placeholder="Choose field…"
+                        searchPlaceholder="Search fields…"
+                        ariaLabel="Constant field"
+                      />
+                      <span className="text-ink-400">=</span>
+                      {isCheckbox ? (
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checkboxChecked}
+                            onChange={(e) => updateStatic(idx, { value: e.target.checked ? "true" : "false" })}
+                          />
+                          <span className="text-ink-500">{checkboxChecked ? "Checked" : "Unchecked"}</span>
+                        </label>
+                      ) : (
+                        <input
+                          className="input w-auto flex-1"
+                          value={sv.value}
+                          onChange={(e) => updateStatic(idx, { value: e.target.value })}
+                          placeholder="e.g. Guest upload, or Cleaning for {{property.Name}}"
+                          maxLength={1000}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeStatic(idx)}
+                        className="px-2 text-lg leading-none text-ink-400 hover:text-red-600"
+                        aria-label="Remove constant"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                    {!isCheckbox && constSources.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pl-1">
+                        <span className="text-xs text-ink-400">Insert a connected field:</span>
+                        {constSources.map((s) => (
+                          <TokenFieldPicker
+                            key={s.id}
+                            aliasKey={prefillKey(s.alias)}
+                            fields={(tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                            onInsert={(tok) => updateStatic(idx, { value: (sv.value ?? "") + tok })}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               <button type="button" onClick={addStatic} className="text-xs font-medium text-brand hover:underline">
                 + Add constant value
               </button>

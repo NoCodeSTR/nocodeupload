@@ -26,7 +26,7 @@ import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { logDelivery } from "@/lib/notifications/deliveries";
 import { getAirtableToken } from "@/lib/airtable/connection";
-import { createRecord, updateRecord, getRecord, type AirtableFieldValue } from "@/lib/airtable/client";
+import { createRecord, updateRecord, getRecord, listTables, type AirtableFieldValue } from "@/lib/airtable/client";
 import { parseRecordSourceKey, getFieldMappings } from "@/lib/airtable/sources";
 import { renderMergeTags } from "@/lib/merge-tags";
 import { prefillKey } from "@/lib/filename";
@@ -177,6 +177,60 @@ function cellToStr(v: unknown): string {
     return String(o.name ?? o.text ?? o.email ?? o.url ?? o.id ?? "");
   }
   return "";
+}
+
+/** Truthy strings that mean "checked" for an Airtable checkbox column. */
+const CHECKBOX_TRUE = new Set(["1", "true", "yes", "y", "checked", "x", "on", "✓"]);
+
+/** Coerce a string value to the shape Airtable expects for a given column type. */
+function coerceForType(type: string | undefined, val: AirtableFieldValue): AirtableFieldValue {
+  // Only coerce plain string values; arrays (attachments, linked records) pass through.
+  if (typeof val !== "string") return val;
+  if (type === "checkbox") return CHECKBOX_TRUE.has(val.trim().toLowerCase());
+  return val; // numbers/dates/selects: Airtable typecast handles string coercion
+}
+
+/**
+ * Resolve the built field map (keyed by the mapping's stored destination NAMES)
+ * against the table's LIVE schema, so a write survives whitespace/case drift and
+ * a renamed/removed column never sinks the whole atomic PATCH:
+ *   - match each key to a live field (exact, then trimmed + case-insensitive),
+ *   - rewrite the key to the field's EXACT current name,
+ *   - coerce the value to the column's type (e.g. checkbox → boolean),
+ *   - collect any keys with no matching column so the caller can report them.
+ * Fails open (returns the original fields) if the schema can't be read.
+ */
+async function resolveWriteFields(args: {
+  token: string;
+  baseId: string;
+  tableId: string;
+  fields: Record<string, AirtableFieldValue>;
+}): Promise<{ fields: Record<string, AirtableFieldValue>; dropped: string[] }> {
+  const keys = Object.keys(args.fields);
+  if (keys.length === 0) return { fields: args.fields, dropped: [] };
+  let liveFields: Array<{ name: string; type: string }> = [];
+  try {
+    const tables = await listTables(args.token, args.baseId);
+    liveFields = tables.find((t) => t.id === args.tableId)?.fields ?? [];
+  } catch {
+    return { fields: args.fields, dropped: [] }; // can't read schema → write as-is
+  }
+  if (liveFields.length === 0) return { fields: args.fields, dropped: [] };
+
+  const byNorm = new Map<string, { name: string; type: string }>();
+  for (const f of liveFields) byNorm.set(f.name.trim().toLowerCase(), f);
+
+  const out: Record<string, AirtableFieldValue> = {};
+  const dropped: string[] = [];
+  for (const [key, val] of Object.entries(args.fields)) {
+    const live = liveFields.find((f) => f.name === key) ?? byNorm.get(key.trim().toLowerCase());
+    if (!live) {
+      dropped.push(key);
+      continue;
+    }
+    out[live.name] = coerceForType(live.type, val);
+  }
+  return { fields: out, dropped };
 }
 
 /** Resolve a mapping source key to a string value for the given upload set. */
@@ -388,10 +442,24 @@ async function buildAndCreate(args: {
     return;
   }
 
-  // Update mode with nothing mapped to write is a silent no-op on Airtable's side
-  // (a PATCH with empty fields changes nothing but returns 200). Surface it so the
-  // owner sees WHY the record didn't change instead of a misleading "Updated".
-  if (doUpdate && Object.keys(fields).length === 0) {
+  // Resolve destination names against the LIVE schema (tolerant to whitespace/
+  // case), coerce each value to its column type (e.g. checkbox → boolean), and
+  // drop columns the table no longer has — so a stale/renamed field name can't
+  // fail the entire atomic write (the "Unknown field name" 422 class of bug).
+  const { fields: writeFields, dropped } = await resolveWriteFields({
+    token,
+    baseId: config.baseId,
+    tableId: config.tableId,
+    fields,
+  });
+  const droppedNote = dropped.length
+    ? ` (skipped ${dropped.length} unknown field${dropped.length === 1 ? "" : "s"}: ${dropped.join(", ")})`
+    : "";
+
+  // Update mode with nothing left to write is a silent no-op on Airtable's side
+  // (a PATCH with empty fields changes nothing but returns 200). Surface it —
+  // including any unknown fields — instead of a misleading "Updated".
+  if (doUpdate && Object.keys(writeFields).length === 0) {
     await logDelivery({
       userId,
       uploadLinkId,
@@ -399,8 +467,9 @@ async function buildAndCreate(args: {
       result: {
         status: "skipped",
         target,
-        detail:
-          "No fields were mapped to write — set a Source on the destination fields under Airtable mapping.",
+        detail: dropped.length
+          ? `No writable fields matched the table — unknown field(s): ${dropped.join(", ")}. Re-pick them under Airtable mapping.`
+          : "No fields were mapped to write — set a Source on the destination fields under Airtable mapping.",
       },
       uploadId,
       batchId,
@@ -417,11 +486,17 @@ async function buildAndCreate(args: {
           baseId: config.baseId,
           tableId: config.tableId,
           recordId: updateTargetId as string,
-          fields,
+          fields: writeFields,
         })
-      : await createRecord({ token, baseId: config.baseId, tableId: config.tableId, fields });
+      : await createRecord({ token, baseId: config.baseId, tableId: config.tableId, fields: writeFields });
     recordId = record.id ?? null;
-    result = { status: "sent", target, detail: `${doUpdate ? "Updated" : "Created"} record ${record.id}` };
+    // A partial write (some fields skipped) still succeeded for the rest — report
+    // it as sent but name the skipped fields so the owner can fix the mapping.
+    result = {
+      status: "sent",
+      target,
+      detail: `${doUpdate ? "Updated" : "Created"} record ${record.id}${droppedNote}`,
+    };
   } catch (err) {
     result = {
       status: "failed",
