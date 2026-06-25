@@ -403,7 +403,10 @@ export async function getSubmissionDetail(
       .eq("batch_id", subRaw.batch_id);
     pushAll((data ?? []) as NotificationDeliveryRow[]);
   }
-  const uploadIds = files.map((f) => f.id);
+  // Use the RAW upload ids (incl. the form-only "__form" carrier) — deliveries
+  // for a form submission are logged against the carrier, which `files` hides.
+  // Without this, form submissions always showed "No delivery attempts recorded."
+  const uploadIds = rawFiles.map((f) => f.id);
   if (uploadIds.length > 0) {
     const { data } = await supabase
       .from("notification_deliveries")
