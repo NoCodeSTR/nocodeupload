@@ -22,13 +22,13 @@
 |---|---|
 | Product name | **NoCode Upload** |
 | Production domain | `nocodeupload.com` |
-| Canonical hostname | **⚠️ CONFIRM WITH SEAN.** Intended canonical is **`www.nocodeupload.com`** (Sean's shared upload links use `www.`). **But the code/env currently uses the apex** (`GOOGLE_REDIRECT_URI` and `NEXT_PUBLIC_APP_URL` examples use `https://nocodeupload.com/...`). Pick one and make it consistent — the Google OAuth **redirect URI must exactly match** the host the app runs on, or Drive/YouTube connect will fail with `redirect_uri_mismatch`. |
-| GitHub repository | **⚠️ CONFIRM WITH SEAN** (repo name/URL not stored in the code). Deploys flow from GitHub `main`. |
+| Canonical hostname | **`www.nocodeupload.com`** (apex `nocodeupload.com` 307-redirects to www). Sean's shared upload links use `www.`, and the Supabase Auth Site URL + `/auth/callback` were verified working on www. **Action item:** confirm the Google OAuth **redirect URI in Google Cloud Console uses the www host** so it matches, or Drive/YouTube connect fails with `redirect_uri_mismatch`. Any apex examples in `.env.local.example` are illustrative only — production uses www. |
+| GitHub repository | **`https://github.com/NoCodeSTR/nocodeupload`** → `main`. Deploys flow from GitHub `main`. |
 | Production branch | `main` (source of truth). |
 | Vercel | Hosts the Next.js app; auto-deploys from GitHub `main`. Env vars set in Vercel project settings. |
 | Supabase | Postgres (with RLS) + Auth. Migrations are applied **manually** via the Supabase SQL editor (see `MIGRATIONS.md`). |
-| Current production commit SHA | **⚠️ CONFIRM WITH SEAN.** Not derivable here. The workspace git `HEAD` (`c5e09d9…`) is a **stale base commit** with a large uncommitted working tree; it does **not** represent current code or production. |
-| Latest archive represented by this handoff | **`nocodeupload-batch13.tar.gz`** (contains everything through Batch 13). |
+| Current production commit SHA | **`e495bbd`** (as of 2026-07-13, this docs commit). Note: the *workspace* SHA `c5e09d9…` that produced the `final-handoff` archive was a stale base — do not use it; `main` is truth. |
+| Latest deployed batch | **Batch 13** (`0d9f349`). Batch 12b (`440e647`) and Batch 13 are both deployed to production. |
 
 ---
 
@@ -76,10 +76,10 @@ Status legend: **LIVE** (in code, and Sean confirmed working in production) · *
 DB migration that is likely not yet applied) · **FLAG-OFF** (built but disabled by feature flag)
 · **STUB** (partial/placeholder) · **PLANNED** (not built).
 
-> Deploy reality (⚠️ confirm): Batches ~1–11 appear deployed (Sean confirmed the Airtable
-> update working in prod — "Huzzah, we got it"). **Batch 12** (dynamic folders; migrations
-> 34–35) and **Batch 13** (YouTube feature-flag + privacy strengthening) are **built in this
-> archive but not confirmed deployed**.
+> Deploy reality (confirmed 2026-07-13): Batches 1–11 deployed. **Batch 12b** (dynamic folders;
+> migrations 34–35) is deployed (`440e647`) and **migrations 34 & 35 have been applied** to
+> production Supabase. **Batch 13** (YouTube feature-flag + privacy strengthening) is deployed
+> (`0d9f349`). Production HEAD is `e495bbd`.
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -89,8 +89,8 @@ DB migration that is likely not yet applied) · **FLAG-OFF** (built but disabled
 | Google Drive uploads | LIVE | Server-relayed resumable (see ARCHITECTURE). |
 | Chunk relay (`/api/upload/chunk`) | LIVE | 4 MB chunks, browser → same-origin API → Google. |
 | Multiple upload boxes | LIVE | Per-box destination (legacy) + shared-master mode (see folders). |
-| Dynamic submission folders | BUILT/DEPLOY? · MIGRATION-PENDING | Batch 12; needs migration **34**. Single-Drive + multi-box (Model B default / Model C opt-in). |
-| Per-property folders (Airtable-driven) | BUILT/DEPLOY? · MIGRATION-PENDING | Batch 12; migration **34**. App creates + caches property folder id in Airtable. |
+| Dynamic submission folders | LIVE | Batch 12b (`440e647`); migration **34 applied**. Single-Drive + multi-box (Model B default / Model C opt-in). |
+| Per-property folders (Airtable-driven) | LIVE | Batch 12b (`440e647`); migration **34 applied**. App creates + caches property folder id in Airtable. |
 | Form-only submissions | LIVE | Migration 21; file-less "`__form`" carrier row. |
 | Sections & content blocks | LIVE | Migrations 23, 25, 26. |
 | Custom fields | LIVE | Up to 50; many types incl. `longtext`, `select`, `checkbox`. |
@@ -125,37 +125,31 @@ DB migration that is likely not yet applied) · **FLAG-OFF** (built but disabled
 | Public share pages (`/s/[token]`) | BUILT/DEPLOY? · MIGRATION-PENDING | Batch 6; migration **30**. Off / Files only / Files + answers. Files streamed via signed proxy. |
 | Branding (logo + accent, per-link) | LIVE/DEPLOY? | Per-link logo override + accent; falls back to account logo. Per-link logo UI added later batch — confirm deploy. |
 | Success screens & redirects | LIVE | Success message supports tokens; redirect URL validated (http(s) only). |
-| Hide form title | BUILT/DEPLOY? · MIGRATION-PENDING | Migration **31**. |
-| YouTube uploads | FLAG-OFF | `lib/features.ts → YOUTUBE_ENABLED = false` (Batch 13). Destination hidden, connect route blocked, Settings shows "Coming soon". Requires YouTube API audit + quota before re-enabling. **Note:** in code the scope is `youtube.upload`; the archive currently still ships the adapter. |
+| Hide form title | LIVE | Migration **31 applied**. |
+| YouTube uploads | FLAG-OFF (deployed) | `lib/features.ts → YOUTUBE_ENABLED = false`, deployed in Batch 13 (`0d9f349`). Destination hidden, connect route blocked, Settings shows "Coming soon". Requires YouTube API audit + quota before re-enabling. **Note:** the adapter still ships in code (scope `youtube.upload`); only the flag gates it. |
 | Billing | PLANNED | No code. Direction: submission-based (see VISION/ROADMAP). |
 | Templates | PLANNED | No code. |
 | Dropbox / Box / OneDrive | STUB | Provider dirs exist under `lib/providers/`; `PROVIDER_INFO` marks them `coming_soon`. Not usable. |
 
 ---
 
-## 4. Current production state — ⚠️ mostly CONFIRM WITH SEAN
+## 4. Current production state — confirmed 2026-07-13
 
-The repository cannot prove what is deployed. Do **not** infer. Known/likely:
+Confirmed against GitHub `main` and Sean during the deploy handoff:
 
-- **What is live:** Core upload + connections + Airtable create/update + notifications +
-  submissions inbox appear to be **live and production-tested** (Sean confirmed the Airtable
-  update flow working end-to-end). Treat Batches 1–11 as deployed **pending Sean's confirmation**.
-- **Latest archive not yet deployed:** `nocodeupload-batch13.tar.gz` (this handoff) — includes
-  **Batch 12** (dynamic folders) and **Batch 13** (YouTube flag + privacy). **Assume NOT deployed
-  until Sean confirms.**
-- **Migrations already applied:** Migrations **28–33** were handed to Sean as copy/paste SQL and
-  he indicated running them — **CONFIRM**. Everything ≤ 27 underpins features that are working in
-  prod, so ≤ 27 is very likely applied — **CONFIRM**.
-- **Migrations still pending:** **34** and **35** (dynamic folders / multi-box folders) —
-  **almost certainly NOT applied** (Batch 12 not deployed). Must run before the folder features
-  work. See `MIGRATIONS.md`.
-- **Are 34 & 35 confirmed applied?** **No — assume NOT applied. CONFIRM WITH SEAN.**
-- **Is Batch 13 deployed?** **⚠️ CONFIRM — assume no.** Therefore, in **production**, YouTube may
-  still be **enabled** (the flag ships in Batch 13). Verify before relying on it being off.
-- **Is YouTube disabled?** In **code (this archive):** yes (`YOUTUBE_ENABLED = false`). In
-  **production:** only once Batch 13 is deployed — **CONFIRM**.
-- **Google OAuth verification submitted?** **No / in progress.** Sean was starting the process at
-  handoff time. **CONFIRM current status.**
+- **Production HEAD:** `e495bbd`. Deployed batches include **Batch 12b** (`440e647`) and
+  **Batch 13** (`0d9f349`). Batches 1–11 deployed and production-tested (Airtable update flow
+  confirmed end-to-end).
+- **Migrations:** everything **through 35 is applied** in production Supabase. **34 & 35 were
+  applied by Sean** this session (column existence verified). See `MIGRATIONS.md`.
+- **Dynamic folders (Batch 12b):** deployed and live — migration 34 applied.
+- **YouTube:** disabled in production. `YOUTUBE_ENABLED = false` shipped in Batch 13 (`0d9f349`),
+  so the destination is hidden, the connect route rejects `target=youtube`, and Settings shows
+  "Coming soon". Do **not** flip to `true` until the YouTube API compliance audit + quota
+  increase are approved.
+- **Google OAuth verification:** in progress (drive.file-only round; sensitive scope, no CASA).
+  Confirm current submission status with Sean. Ensure the Google Cloud redirect URI uses the
+  **www** host to match production before submitting.
 - **YouTube audit / quota requests submitted?** **No** (deliberately deferred until the YouTube
   feature ships). **CONFIRM.**
 

@@ -158,9 +158,9 @@ when it becomes urgent · recommended fix. Risk = **Low / Med / High**.
 ---
 
 ## If you came back after 6 months — the 10 things to know first
-1. **The workspace git HEAD is a stale base commit.** Current code lives as uncommitted working-tree
-   changes / in the latest archive (`nocodeupload-batch13.tar.gz`). **GitHub `main` is the real
-   source of truth** — start from there, not this SHA.
+1. **GitHub `main` is the real source of truth** — production HEAD is `e495bbd` (2026-07-13). Some
+   archives (e.g. the `final-handoff` one) were generated from a stale base commit; never treat an
+   archive's SHA as production. Always start from `main`.
 2. **The submission is the product; files are optional.** `submissions` is first-class; form-only
    submissions use a file-less `__form` carrier. Don't "simplify" it back to files.
 3. **`drive.file` only — never add `drive`/`drive.readonly`.** It's the whole reason verification
@@ -169,12 +169,13 @@ when it becomes urgent · recommended fix. Risk = **Low / Med / High**.
    Don't "optimize" back to browser-direct without approval (ADR-4).
 5. **`include_granted_scopes` must be `false` in production** — the archive ships `"true"`. This is
    a recurring post-deploy patch; check it after every deploy (Debt #10).
-6. **Migrations are manual SQL** in Supabase, applied in order. **34 & 35 are likely NOT applied**;
-   the init schema lags the upgrades. See `MIGRATIONS.md`; confirm applied-state with Sean.
+6. **Migrations are manual SQL** in Supabase, applied in order. **01→35 are all applied** as of
+   2026-07-13; the init schema still lags the upgrades (Debt #9). See `MIGRATIONS.md`.
 7. **Airtable writes are resilient by design:** live-schema tolerant field match + type coercion +
    drop-unknown. If a record isn't updating, read the **delivery log** first (it names the reason).
 8. **Notifications for form-only submissions log against the `__form` carrier** — the submission
    detail must gather deliveries across all upload rows incl. the carrier (Batch 10 fix).
 9. **YouTube is intentionally off** behind `YOUTUBE_ENABLED`. Don't enable without the audit/quota.
-10. **Canonical host (www vs apex) is unresolved** and the Google OAuth redirect URI must match it —
-    reconcile before verification/launch (ADR-15).
+10. **Canonical host is `www.nocodeupload.com`** (apex 307-redirects to www); Supabase Site URL +
+    `/auth/callback` verified on www. Before OAuth verification, confirm the Google Cloud redirect
+    URI uses the www host so it matches (ADR-15).
