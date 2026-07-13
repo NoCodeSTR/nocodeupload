@@ -39,19 +39,25 @@ export async function createUploadRecord(args: {
   airtableRecordId?: string | null;
   // Resolved record-source ids for this submission: { aliasKey: recordId }.
   sourceRecordIds?: Record<string, string> | null;
+  // Pre-resolved submission id (the initiate route resolves it early when it
+  // needs a per-submission Drive folder). When omitted, resolved here.
+  submissionId?: string | null;
 }): Promise<string> {
   const admin = getSupabaseAdmin();
 
   // Group this file under its submission (one per batch; one per single file).
   // Best-effort: a null id just means the file isn't linked yet (column nullable).
-  const submissionId = await findOrCreateSubmissionForUpload({
-    link: args.link,
-    batchId: args.batchId ?? null,
-    uploaderName: args.uploaderName ?? null,
-    uploaderEmail: args.uploaderEmail ?? null,
-    uploaderMessage: args.uploaderMessage ?? null,
-    customData: args.customData ?? {},
-  });
+  const submissionId =
+    args.submissionId !== undefined
+      ? args.submissionId
+      : await findOrCreateSubmissionForUpload({
+          link: args.link,
+          batchId: args.batchId ?? null,
+          uploaderName: args.uploaderName ?? null,
+          uploaderEmail: args.uploaderEmail ?? null,
+          uploaderMessage: args.uploaderMessage ?? null,
+          customData: args.customData ?? {},
+        });
 
   const row = {
     upload_link_id: args.link.id,

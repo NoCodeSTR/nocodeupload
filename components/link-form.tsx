@@ -302,6 +302,20 @@ export function LinkForm({
       ? { folderId: initialLink.folder_id, folderName: initialLink.folder_name ?? "Selected folder" }
       : null,
   );
+  // Dynamic Drive folders: a new subfolder per submission, optionally inside a
+  // per-property folder resolved from a connected record.
+  const [subfolderPerSubmission, setSubfolderPerSubmission] = useState(
+    initialLink?.subfolder_per_submission ?? false,
+  );
+  const [subfolderTemplate, setSubfolderTemplate] = useState(initialLink?.subfolder_template ?? "");
+  const [propertyFolderAlias, setPropertyFolderAlias] = useState(initialLink?.property_folder_alias ?? "");
+  const [propertyFolderIdField, setPropertyFolderIdField] = useState(
+    initialLink?.property_folder_id_field ?? "",
+  );
+  const [propertyFolderTemplate, setPropertyFolderTemplate] = useState(
+    initialLink?.property_folder_template ?? "",
+  );
+  const [multiboxOwnFolders, setMultiboxOwnFolders] = useState(initialLink?.multibox_own_folders ?? false);
   const [maxFileSizeMb, setMaxFileSizeMb] = useState(initialLink?.max_file_size_mb ?? 1024);
   const [typePresets, setTypePresets] = useState<Set<string>>(
     presetsFromMimeList(initialLink?.allowed_mime_types ?? null),
@@ -943,14 +957,27 @@ export function LinkForm({
         setError("Add at least one upload box.");
         return;
       }
-      for (const b of labeled) {
-        if (!b.connectionId) {
-          setError(`Pick a destination account for "${b.label.trim()}".`);
+      // Model B (shared master): boxes use one master folder, so they don't each
+      // need their own folder — but the master must be picked.
+      const sharedMaster = subfolderPerSubmission && !multiboxOwnFolders;
+      if (sharedMaster) {
+        if (!connectionId || !folder) {
+          setError("Pick a master folder for the per-submission folders.");
           return;
         }
-        if (b.destinationType === "drive" && !b.folderId) {
-          setError(`Choose a folder for "${b.label.trim()}".`);
-          return;
+        storageConnectionId = connectionId;
+        folderId = folder.folderId;
+        folderName = folder.folderName;
+      } else {
+        for (const b of labeled) {
+          if (!b.connectionId) {
+            setError(`Pick a destination account for "${b.label.trim()}".`);
+            return;
+          }
+          if (b.destinationType === "drive" && !b.folderId) {
+            setError(`Choose a folder for "${b.label.trim()}".`);
+            return;
+          }
         }
       }
     }
@@ -972,6 +999,13 @@ export function LinkForm({
     const payload = {
       name: name.trim(),
       hideTitle,
+      subfolderPerSubmission:
+        destinationType === "drive" || destinationType === "multi" ? subfolderPerSubmission : false,
+      subfolderTemplate: subfolderTemplate.trim() || null,
+      propertyFolderAlias: propertyFolderAlias || null,
+      propertyFolderIdField: propertyFolderIdField || null,
+      propertyFolderTemplate: propertyFolderTemplate.trim() || null,
+      multiboxOwnFolders: destinationType === "multi" ? multiboxOwnFolders : false,
       description: description.trim() || null,
       destinationType,
       storageConnectionId,
@@ -1149,6 +1183,183 @@ export function LinkForm({
     .filter((n) => !selectedTagsLower.has(n.toLowerCase()) && (!tagQuery || n.toLowerCase().includes(tagQuery)))
     .slice(0, 8);
 
+  // Shared "new folder per submission" config, used by single-Drive and
+  // multi-box. Plain function returning JSX (NOT a component) so inputs keep
+  // focus across re-renders.
+  function renderSubfolderConfig(forMulti: boolean) {
+    const driveConns = connections.filter((c) => c.provider === "google_drive");
+    const modelC = forMulti && multiboxOwnFolders;
+    const showProperty = !modelC && prefillSources.length > 0;
+    const propSrc = prefillSources.find((s) => prefillKey(s.alias) === propertyFolderAlias);
+    return (
+      <div className="mt-4 space-y-3 border-t border-ink-100 pt-4 dark:border-ink-800">
+        <label className="flex items-start gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={subfolderPerSubmission}
+            onChange={(e) => setSubfolderPerSubmission(e.target.checked)}
+          />
+          <span>
+            Create a new folder for each submission
+            <span className="block text-xs font-normal text-ink-400">
+              {forMulti
+                ? "Each submission gets its own folder; your boxes become subfolders inside it (Kitchen, Living Room, …)."
+                : "The folder above becomes the “master”; every submission gets its own subfolder inside it, so each clean’s photos stay together."}
+            </span>
+          </span>
+        </label>
+
+        {subfolderPerSubmission && (
+          <div className="space-y-3 pl-6">
+            {forMulti && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={multiboxOwnFolders}
+                  onChange={(e) => setMultiboxOwnFolders(e.target.checked)}
+                />
+                <span>
+                  Let each box upload to its own Drive folder
+                  <span className="block text-xs font-normal text-ink-400">
+                    Off (recommended): all boxes share one master folder and become subfolders inside
+                    each submission’s folder. On: each box keeps its own folder (set on the box), with
+                    a new per-submission subfolder inside it.
+                  </span>
+                </span>
+              </label>
+            )}
+
+            <div>
+              <label className="label mb-1" htmlFor="subfolder-tpl">Folder name for each submission</label>
+              <input
+                id="subfolder-tpl"
+                className="input"
+                value={subfolderTemplate}
+                onChange={(e) => setSubfolderTemplate(e.target.value)}
+                placeholder="{date} {name}"
+                maxLength={200}
+              />
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-ink-400">
+                  Tokens: {"{date}"}, {"{name}"}, {"{field:Label}"}. Connected field:
+                </span>
+                {prefillSources.map((s) => (
+                  <TokenFieldPicker
+                    key={s.id}
+                    aliasKey={prefillKey(s.alias)}
+                    fields={(airtableSchema.tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                    onInsert={(tok) => setSubfolderTemplate((v) => (v ? `${v} ${tok}` : tok))}
+                  />
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-ink-400">Blank uses date + uploader name.</p>
+            </div>
+
+            {/* Multi Model B needs a single master folder (single-Drive uses the folder above). */}
+            {forMulti && !multiboxOwnFolders && (
+              <div>
+                <span className="label mb-1 block">
+                  Master folder <span className="font-normal text-ink-400">(all boxes upload here)</span>
+                </span>
+                <select
+                  className="input mb-2"
+                  value={connectionId ?? ""}
+                  onChange={(e) => setConnectionId(e.target.value)}
+                >
+                  <option value="">Choose a Google Drive account…</option>
+                  {driveConns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.provider_email ?? c.id}
+                    </option>
+                  ))}
+                </select>
+                {connectionId ? (
+                  <FolderPicker
+                    connectionId={connectionId}
+                    config={pickerConfig}
+                    onPick={setFolder}
+                    initialFolder={folder}
+                  />
+                ) : (
+                  <p className="text-sm text-ink-500">Pick a Drive account to choose the master folder.</p>
+                )}
+              </div>
+            )}
+
+            {showProperty && (
+              <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+                <span className="label block">
+                  Nest inside a per-property folder{" "}
+                  <span className="font-normal text-ink-400">(optional)</span>
+                </span>
+                <p className="text-xs text-ink-400">
+                  Put each submission’s folder inside a folder for its property. NoCodeUpload creates
+                  the property folder under the master on first use and stores its ID in Airtable, so
+                  one form runs hundreds of properties.
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-ink-500">Property record</span>
+                  <select
+                    className="input w-auto py-1 text-xs"
+                    value={propertyFolderAlias}
+                    onChange={(e) => {
+                      setPropertyFolderAlias(e.target.value);
+                      setPropertyFolderIdField("");
+                    }}
+                  >
+                    <option value="">— off —</option>
+                    {prefillSources.map((s) => (
+                      <option key={s.id} value={prefillKey(s.alias)}>
+                        {s.alias.trim()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {propertyFolderAlias && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="text-ink-500">Drive folder ID field</span>
+                      <select
+                        className="input w-auto py-1 text-xs"
+                        value={propertyFolderIdField}
+                        onChange={(e) => setPropertyFolderIdField(e.target.value)}
+                      >
+                        <option value="">Choose field…</option>
+                        {(airtableSchema.tables.find((t) => t.id === propSrc?.tableId)?.fields ?? []).map((f) => (
+                          <option key={f.id} value={f.name}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label mb-1" htmlFor="prop-folder-tpl">Property folder name</label>
+                      <input
+                        id="prop-folder-tpl"
+                        className="input"
+                        value={propertyFolderTemplate}
+                        onChange={(e) => setPropertyFolderTemplate(e.target.value)}
+                        placeholder={`{{${prefillKey(propSrc?.alias ?? "property")}.Name}}`}
+                        maxLength={200}
+                      />
+                      <p className="mt-1 text-xs text-ink-400">
+                        Used only when a property folder doesn’t exist yet. Pick the field that stores
+                        each property’s Drive folder ID — it starts empty and fills in automatically
+                        after the first submission.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {/* Destination */}
@@ -1249,6 +1460,13 @@ export function LinkForm({
               </div>
             ) : (
               <>
+                {renderSubfolderConfig(true)}
+                {subfolderPerSubmission && !multiboxOwnFolders && (
+                  <p className="text-xs text-ink-400">
+                    Each box below becomes a subfolder (named by its label) inside every submission’s
+                    folder — so you only set the box labels here, not per-box destinations.
+                  </p>
+                )}
                 {uploadBoxes.map((b, idx) => {
                   const conn = connections.find((c) => c.id === b.connectionId);
                   return (
@@ -1297,35 +1515,40 @@ export function LinkForm({
                         placeholder="Instructions (optional) — e.g. Get the whole counter in frame"
                         maxLength={500}
                       />
-                      <div>
-                        <label className="label mb-1 block">Destination</label>
-                        <select
-                          className="input"
-                          value={b.connectionId}
-                          onChange={(e) => setBoxConnection(b.id, e.target.value)}
-                        >
-                          {connections.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {providerLabel(c.provider)} — {c.provider_email ?? c.id}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {b.destinationType === "youtube" ? (
-                        <p className="text-xs text-ink-500">
-                          Videos in this box upload to {conn?.provider_email ?? "your channel"} as
-                          unlisted YouTube videos.
-                        </p>
-                      ) : (
-                        <FolderPicker
-                          key={b.id}
-                          connectionId={b.connectionId}
-                          config={pickerConfig}
-                          onPick={(f) => updateBox(b.id, { folderId: f.folderId, folderName: f.folderName })}
-                          initialFolder={
-                            b.folderId ? { folderId: b.folderId, folderName: b.folderName ?? "Selected folder" } : null
-                          }
-                        />
+                      {/* Per-box destination — hidden in Model B (all boxes share the master). */}
+                      {!(subfolderPerSubmission && !multiboxOwnFolders) && (
+                        <>
+                          <div>
+                            <label className="label mb-1 block">Destination</label>
+                            <select
+                              className="input"
+                              value={b.connectionId}
+                              onChange={(e) => setBoxConnection(b.id, e.target.value)}
+                            >
+                              {connections.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {providerLabel(c.provider)} — {c.provider_email ?? c.id}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {b.destinationType === "youtube" ? (
+                            <p className="text-xs text-ink-500">
+                              Videos in this box upload to {conn?.provider_email ?? "your channel"} as
+                              unlisted YouTube videos.
+                            </p>
+                          ) : (
+                            <FolderPicker
+                              key={b.id}
+                              connectionId={b.connectionId}
+                              config={pickerConfig}
+                              onPick={(f) => updateBox(b.id, { folderId: f.folderId, folderName: f.folderName })}
+                              initialFolder={
+                                b.folderId ? { folderId: b.folderId, folderName: b.folderName ?? "Selected folder" } : null
+                              }
+                            />
+                          )}
+                        </>
                       )}
                       <ImageUploader
                         value={b.referenceImageUrl}
@@ -1400,6 +1623,129 @@ export function LinkForm({
                 Files upload to this folder in {selectedConnection.provider_email}&apos;s Drive.
               </p>
             )}
+
+            {/* Dynamic folders — a new subfolder per submission (Master = the folder above) */}
+            <div className="mt-4 space-y-3 border-t border-ink-100 pt-4 dark:border-ink-800">
+              <label className="flex items-start gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={subfolderPerSubmission}
+                  onChange={(e) => setSubfolderPerSubmission(e.target.checked)}
+                />
+                <span>
+                  Create a new folder for each submission
+                  <span className="block text-xs font-normal text-ink-400">
+                    The folder above becomes the “master”; every submission gets its own subfolder
+                    inside it, so each clean’s photos stay together.
+                  </span>
+                </span>
+              </label>
+
+              {subfolderPerSubmission && (
+                <div className="space-y-3 pl-6">
+                  <div>
+                    <label className="label mb-1" htmlFor="subfolder-tpl">Folder name for each submission</label>
+                    <input
+                      id="subfolder-tpl"
+                      className="input"
+                      value={subfolderTemplate}
+                      onChange={(e) => setSubfolderTemplate(e.target.value)}
+                      placeholder="{date} {name}"
+                      maxLength={200}
+                    />
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs text-ink-400">
+                        Tokens: {"{date}"}, {"{name}"}, {"{field:Label}"}. Connected field:
+                      </span>
+                      {prefillSources.map((s) => (
+                        <TokenFieldPicker
+                          key={s.id}
+                          aliasKey={prefillKey(s.alias)}
+                          fields={(airtableSchema.tables.find((t) => t.id === s.tableId)?.fields ?? []).map((f) => f.name)}
+                          onInsert={(tok) => setSubfolderTemplate((v) => (v ? `${v} ${tok}` : tok))}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1 text-xs text-ink-400">
+                      Blank uses date + uploader name.
+                    </p>
+                  </div>
+
+                  {/* Phase 2 — per-property folders (needs a connected data source) */}
+                  {prefillSources.length > 0 && (
+                    <div className="space-y-2 rounded-lg border border-ink-200 p-3 dark:border-ink-700">
+                      <span className="label block">
+                        Nest inside a per-property folder{" "}
+                        <span className="font-normal text-ink-400">(optional)</span>
+                      </span>
+                      <p className="text-xs text-ink-400">
+                        Put each submission’s folder inside a folder for its property. NoCodeUpload
+                        creates the property folder under the master on first use and stores its ID
+                        in Airtable, so one form runs hundreds of properties.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="text-ink-500">Property record</span>
+                        <select
+                          className="input w-auto py-1 text-xs"
+                          value={propertyFolderAlias}
+                          onChange={(e) => {
+                            setPropertyFolderAlias(e.target.value);
+                            setPropertyFolderIdField("");
+                          }}
+                        >
+                          <option value="">— off —</option>
+                          {prefillSources.map((s) => (
+                            <option key={s.id} value={prefillKey(s.alias)}>
+                              {s.alias.trim()}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {propertyFolderAlias && (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="text-ink-500">Drive folder ID field</span>
+                            <select
+                              className="input w-auto py-1 text-xs"
+                              value={propertyFolderIdField}
+                              onChange={(e) => setPropertyFolderIdField(e.target.value)}
+                            >
+                              <option value="">Choose field…</option>
+                              {(() => {
+                                const src = prefillSources.find((s) => prefillKey(s.alias) === propertyFolderAlias);
+                                const flds = airtableSchema.tables.find((t) => t.id === src?.tableId)?.fields ?? [];
+                                return flds.map((f) => (
+                                  <option key={f.id} value={f.name}>
+                                    {f.name}
+                                  </option>
+                                ));
+                              })()}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label mb-1" htmlFor="prop-folder-tpl">Property folder name</label>
+                            <input
+                              id="prop-folder-tpl"
+                              className="input"
+                              value={propertyFolderTemplate}
+                              onChange={(e) => setPropertyFolderTemplate(e.target.value)}
+                              placeholder={`{{${prefillKey(prefillSources.find((s) => prefillKey(s.alias) === propertyFolderAlias)?.alias ?? "property")}.Name}}`}
+                              maxLength={200}
+                            />
+                            <p className="mt-1 text-xs text-ink-400">
+                              Used only when a property folder doesn’t exist yet. Pick the field that
+                              stores each property’s Drive folder ID — it starts empty and fills in
+                              automatically after the first submission.
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </CollapsibleSection>

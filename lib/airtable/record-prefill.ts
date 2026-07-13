@@ -13,7 +13,7 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getAirtableToken } from "@/lib/airtable/connection";
-import { getRecord } from "@/lib/airtable/client";
+import { getRecord, updateRecord } from "@/lib/airtable/client";
 import { getLinkBySlugAdmin } from "@/lib/links";
 import { resolveSourceRecordIds } from "@/lib/airtable/sources";
 import { prefillKey } from "@/lib/filename";
@@ -374,4 +374,34 @@ export async function getUpdateTargetValuesBySlug(
   }
   if (!link) return {};
   return getUpdateTargetValues(link, params);
+}
+
+/**
+ * Write a single value into one field of a connected-source Airtable record.
+ * Used to cache an app-created Drive folder id back onto the property record so
+ * later submissions reuse the same folder. Best-effort — never throws.
+ */
+export async function writeAirtableField(args: {
+  userId: string;
+  baseId: string;
+  tableId: string;
+  recordId: string;
+  field: string;
+  value: string;
+}): Promise<boolean> {
+  try {
+    if (!args.baseId || !args.tableId || !args.recordId || !args.field) return false;
+    const token = await getAirtableToken(args.userId, { admin: true });
+    if (!token) return false;
+    await updateRecord({
+      token,
+      baseId: args.baseId,
+      tableId: args.tableId,
+      recordId: args.recordId,
+      fields: { [args.field]: args.value },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

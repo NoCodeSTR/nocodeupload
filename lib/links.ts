@@ -178,6 +178,12 @@ export async function createLink(
       hide_email: input.hideEmail ?? false,
       allow_empty_submission: input.allowEmptySubmission ?? false,
       hide_title: input.hideTitle ?? false,
+      subfolder_per_submission: input.subfolderPerSubmission ?? false,
+      subfolder_template: input.subfolderTemplate ?? null,
+      property_folder_alias: input.propertyFolderAlias ?? null,
+      property_folder_id_field: input.propertyFolderIdField ?? null,
+      property_folder_template: input.propertyFolderTemplate ?? null,
+      multibox_own_folders: input.multiboxOwnFolders ?? false,
       public_files: input.publicFiles ?? false,
       share_page_mode: input.sharePageMode ?? "off",
       custom_fields: input.customFields ?? [],
@@ -267,6 +273,12 @@ export async function duplicateLink(args: {
       hide_email: src.hide_email,
       allow_empty_submission: src.allow_empty_submission,
       hide_title: src.hide_title,
+      subfolder_per_submission: src.subfolder_per_submission,
+      subfolder_template: src.subfolder_template,
+      property_folder_alias: src.property_folder_alias,
+      property_folder_id_field: src.property_folder_id_field,
+      property_folder_template: src.property_folder_template,
+      multibox_own_folders: src.multibox_own_folders,
       public_files: src.public_files,
       share_page_mode: src.share_page_mode,
       custom_fields: src.custom_fields,
@@ -363,6 +375,12 @@ export async function updateLink(args: {
   if (i.hideEmail !== undefined) patch.hide_email = i.hideEmail;
   if (i.allowEmptySubmission !== undefined) patch.allow_empty_submission = i.allowEmptySubmission;
   if (i.hideTitle !== undefined) patch.hide_title = i.hideTitle;
+  if (i.subfolderPerSubmission !== undefined) patch.subfolder_per_submission = i.subfolderPerSubmission;
+  if (i.subfolderTemplate !== undefined) patch.subfolder_template = i.subfolderTemplate;
+  if (i.propertyFolderAlias !== undefined) patch.property_folder_alias = i.propertyFolderAlias;
+  if (i.propertyFolderIdField !== undefined) patch.property_folder_id_field = i.propertyFolderIdField;
+  if (i.propertyFolderTemplate !== undefined) patch.property_folder_template = i.propertyFolderTemplate;
+  if (i.multiboxOwnFolders !== undefined) patch.multibox_own_folders = i.multiboxOwnFolders;
   if (i.publicFiles !== undefined) patch.public_files = i.publicFiles;
   if (i.sharePageMode !== undefined) patch.share_page_mode = i.sharePageMode;
   if (i.customFields !== undefined) patch.custom_fields = i.customFields;

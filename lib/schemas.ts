@@ -286,6 +286,15 @@ export const uploadLinkCreateSchema = z.object({
   allowEmptySubmission: z.boolean().default(false),
   // Hide the link-name heading on the public form (logo/content carry the brand).
   hideTitle: z.boolean().default(false),
+  // Dynamic Drive folders: a new subfolder per submission, optionally nested in a
+  // per-property folder resolved from a connected Airtable record.
+  subfolderPerSubmission: z.boolean().default(false),
+  subfolderTemplate: z.string().max(200).optional().nullable(),
+  propertyFolderAlias: z.string().max(120).optional().nullable(),
+  propertyFolderIdField: z.string().max(200).optional().nullable(),
+  propertyFolderTemplate: z.string().max(200).optional().nullable(),
+  // Multi-box: false = shared master + box subfolders; true = each box own folder.
+  multiboxOwnFolders: z.boolean().default(false),
   // Grant completed Drive files "anyone with the link can view" so notification
   // links work for external recipients. Default off (sharing is opt-in).
   publicFiles: z.boolean().default(false),

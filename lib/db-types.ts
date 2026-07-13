@@ -127,6 +127,22 @@ export interface UploadLinkRow {
   allow_empty_submission: boolean;
   /** When true, the link name is not shown as the heading on the public form. */
   hide_title: boolean;
+  /** Create a new Drive folder per submission inside the link's master folder. */
+  subfolder_per_submission: boolean;
+  /** Name template for the per-submission subfolder (tokens + merge tags). */
+  subfolder_template: string | null;
+  /** Connected-source alias key whose record supplies the per-property folder. */
+  property_folder_alias: string | null;
+  /** Airtable field on that record holding (and receiving) the Drive folder id. */
+  property_folder_id_field: string | null;
+  /** Name template for a newly-created per-property folder. */
+  property_folder_template: string | null;
+  /**
+   * Multi-box folder shape when subfolder_per_submission is on: false = one
+   * shared master folder with a subfolder per box (Model B); true = each box
+   * uploads to its own folder, with a per-submission subfolder inside (Model C).
+   */
+  multibox_own_folders: boolean;
   /**
    * When true, each completed Drive file is granted "anyone with the link can
    * view" so notification file links work for external recipients. Default false.
