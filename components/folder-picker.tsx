@@ -31,6 +31,7 @@ interface PickerBuilder {
   setAppId(appId: string): PickerBuilder;
   setOAuthToken(token: string): PickerBuilder;
   setDeveloperKey(key: string): PickerBuilder;
+  setOrigin(origin: string): PickerBuilder;
   addView(view: PickerDocsView): PickerBuilder;
   setTitle(title: string): PickerBuilder;
   setCallback(cb: (data: PickerCallbackData) => void): PickerBuilder;
@@ -181,6 +182,10 @@ export function FolderPicker({
         .setAppId(config.projectNumber)
         .setOAuthToken(accessToken)
         .setDeveloperKey(config.apiKey)
+        // Pin the Picker to the current page origin. Without this the Picker
+        // infers the origin, which can mismatch the allowlisted host (e.g. apex
+        // vs www) and surface Google's "403 — no access to this page".
+        .setOrigin(window.location.origin)
         .addView(folderView)
         .setTitle("Choose a Drive folder")
         .setCallback((data: PickerCallbackData) => {
