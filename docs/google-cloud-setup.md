@@ -2,6 +2,15 @@
 
 This is a one-time setup. Total time: ~15 minutes. You'll end up with five env vars to drop into `.env.local` (and later into Vercel).
 
+> **Verification round (current):** request **only** `drive.file` (+ `openid`, `email`, `profile`)
+> on the consent screen. **Do not add `youtube.upload`** — YouTube is feature-flagged off
+> (`lib/features.ts → YOUTUBE_ENABLED = false`) pending its separate API audit/quota, and including
+> it would require a YouTube demo you can't yet show. See `docs/youtube-setup.md`.
+>
+> **Canonical host:** the OAuth **redirect URI must exactly match** the canonical production host
+> (www vs apex). This is currently unresolved — reconcile DNS + `NEXT_PUBLIC_APP_URL` +
+> `GOOGLE_REDIRECT_URI` + this Google config before submitting. See `docs/DECISIONS.md` ADR-15.
+
 ## What you're creating
 
 | Thing | What it does | Becomes env var |

@@ -1,19 +1,36 @@
 # NoCode Upload
 
-Public upload links that drop files straight into your storage. Built for vacation rental hosts collecting media from guests, cleaners, owners, and sponsors.
+**Submission infrastructure** for operational workflows: public links that collect **files,
+structured answers, and hidden context**, then **trigger actions** — notifications, Airtable
+record writes, and webhooks — into systems the customer already owns. Files land in the customer's
+own storage (Google Drive today). Beachhead market: Short-Term Rentals (cleaner reports, damage
+reports, maintenance, owner walkthroughs).
 
-> **Storage-agnostic by design.** Google Drive is the first integration. Dropbox, Box, OneDrive, and webhook destinations are on the roadmap. Your NoCode Upload account is independent from whichever storage provider you connect.
+> **New agent or developer? Start with [`docs/HANDOFF.md`](./docs/HANDOFF.md) and
+> [`AGENTS.md`](./AGENTS.md).** Also see [`docs/VISION.md`](./docs/VISION.md),
+> [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), [`docs/DECISIONS.md`](./docs/DECISIONS.md),
+> [`docs/ROADMAP.md`](./docs/ROADMAP.md), [`docs/TECHNICAL-DEBT.md`](./docs/TECHNICAL-DEBT.md),
+> [`docs/MIGRATIONS.md`](./docs/MIGRATIONS.md), [`docs/SMOKE-TESTS.md`](./docs/SMOKE-TESTS.md).
+
+> **The first-class object is the submission** (files are optional parts of it). Airtable is both a
+> **source** of context (Connected Data) and an optional **destination** (create/update records).
+
+> **Storage-agnostic by design.** Google Drive is the live integration. Dropbox, Box, and OneDrive
+> are stubs (roadmap). YouTube is implemented but **feature-flagged off** (`lib/features.ts →
+> YOUTUBE_ENABLED = false`) pending its API audit/quota. Your NoCode Upload account is independent
+> from whichever storage provider you connect.
 
 ## Stack
 
 - **Next.js 14** (App Router) + React 18 + TypeScript
 - **Tailwind CSS** for styling
 - **Supabase** — Auth + Postgres (with RLS)
-- **Google OAuth + Drive API + Picker API**
-- **Resumable uploads** — browser → Drive directly (no server middleman)
+- **Google OAuth + Drive API + Picker API** (`drive.file` scope only)
+- **Airtable** (Personal Access Token) — Connected Data source + record destination
+- **Resumable uploads** — **server-relayed** (browser → same-origin `/api/upload/chunk` → Drive, 4 MB chunks); OAuth tokens/session URLs never reach the browser
 - **Vercel** for hosting
-- **Upstash Redis** (optional) for rate limiting
-- **Resend** (optional) for email notifications
+- **DB-based rate limiting** (`lib/rate-limit.ts`; counts `uploads` rows — no external infra)
+- **Resend** (optional) for email · **Slack** / **Quo (OpenPhone) SMS** / **webhooks** for notifications
 
 ## Architecture at a glance
 
@@ -47,7 +64,18 @@ Public upload links that drop files straight into your storage. Built for vacati
 └────────────┘
 ```
 
-OAuth tokens never leave the server. The browser uploads chunks directly to a provider-issued resumable session URL, which sidesteps Vercel's 4.5 MB body / 300 s function limits and keeps tokens private. Each storage provider lives behind a uniform adapter interface (`lib/providers/<provider>/`) so the dashboard and upload pipeline don't know — or care — which one a given link uses.
+OAuth tokens never leave the server. Uploads are **server-relayed**: the backend opens a
+provider resumable session with the owner's token, encrypts the session URL into an opaque token,
+and the browser streams **4 MB chunks to the same-origin `/api/upload/chunk`** endpoint, which
+relays them to the provider. This keeps tokens/session URLs private, works inside the embed
+iframe, and sidesteps Vercel's request body limit (tradeoff: chunk bandwidth transits the
+function — see `docs/TECHNICAL-DEBT.md`). Each storage provider lives behind a uniform adapter
+interface (`lib/providers/<provider>/`) so the dashboard and upload pipeline don't know — or care —
+which one a given link uses.
+
+> The diagram above is a simplified early view (profiles · storage_connections · upload_links ·
+> uploads). The current model also includes **submissions** (first-class), **Airtable** (source +
+> destination), **notifications/deliveries**, projects, and tags. See `docs/ARCHITECTURE.md`.
 
 ## Local setup
 

@@ -1,5 +1,12 @@
 # YouTube as an upload destination — setup & approval
 
+> **🚩 CURRENTLY DISABLED (as of Batch 13).** YouTube is gated off by
+> `lib/features.ts → YOUTUBE_ENABLED = false`: the destination option is hidden, the connect route
+> (`/api/google/connect?target=youtube`) is blocked, and Settings shows "Coming soon". **Do not
+> re-enable** (flip the flag to `true`) until the **YouTube API Services audit + quota extension**
+> below are approved. While disabled, the Google OAuth consent screen should **not** list
+> `youtube.upload` (keeps Drive verification clean — see `docs/google-cloud-setup.md`).
+
 NoCode Upload can send uploaded **videos** straight to a connected YouTube
 channel as **unlisted**, with a title and description built from the upload's
 details (uploader name, message, custom fields, date). The result is a
