@@ -30,6 +30,7 @@ import { renderMergeTags } from "@/lib/merge-tags";
 import { getFieldMappings } from "@/lib/airtable/sources";
 import { uploadLinkCreateSchema } from "@/lib/schemas";
 import { LinkLogoField } from "@/components/link-logo-field";
+import { YOUTUBE_ENABLED } from "@/lib/features";
 import type { ConnectionSummary } from "@/lib/connections";
 import type { ProjectSummary } from "@/lib/projects";
 import type { TagSummary } from "@/lib/tags";
@@ -1373,7 +1374,11 @@ export function LinkForm({
               { key: "youtube", label: "YouTube" },
               { key: "multi", label: "Multiple upload boxes" },
               { key: "form", label: "Form only (no files)" },
-            ] as const).map((opt) => (
+            ] as const)
+              // YouTube is gated off during Drive-only verification — hide the
+              // option unless this link is already a YouTube link (edit mode).
+              .filter((opt) => opt.key !== "youtube" || YOUTUBE_ENABLED || initialDestType === "youtube")
+              .map((opt) => (
               <button
                 type="button"
                 key={opt.key}

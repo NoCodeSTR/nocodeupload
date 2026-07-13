@@ -30,6 +30,7 @@ import {
   YOUTUBE_SCOPES,
 } from "@/lib/providers/google/oauth";
 import { publicEnv } from "@/lib/env";
+import { YOUTUBE_ENABLED } from "@/lib/features";
 
 export async function GET(request: NextRequest) {
   // Forces redirect to /login if not signed in.
@@ -39,6 +40,17 @@ export async function GET(request: NextRequest) {
     new URL(request.url).searchParams.get("target") === "youtube"
       ? "youtube"
       : "google_drive";
+
+  // YouTube is gated off (deferred until the YouTube API audit + quota are
+  // approved). Never request the youtube.upload scope while disabled.
+  if (target === "youtube" && !YOUTUBE_ENABLED) {
+    const env = publicEnv();
+    return NextResponse.redirect(
+      `${env.NEXT_PUBLIC_APP_URL}/settings?error=${encodeURIComponent(
+        "YouTube uploads are coming soon and can't be connected yet.",
+      )}`,
+    );
+  }
 
   try {
     const state = generateState();

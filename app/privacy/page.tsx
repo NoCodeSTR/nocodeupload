@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "How NoCode Upload collects, uses, and protects your data, including Google user data.",
 };
 
-const UPDATED = "June 2026";
+const UPDATED = "July 2026";
 const CONTACT = "support@nocodeupload.com";
 
 export default function PrivacyPage() {
@@ -75,6 +75,20 @@ export default function PrivacyPage() {
               </a>
               , including the Limited Use requirements.
             </p>
+            <p>Specifically, information received from Google APIs:</p>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>is used only to provide and improve the upload features you actively use;</li>
+              <li>
+                is never transferred to others except as needed to provide the service, to comply
+                with applicable law, or as part of a merger or acquisition with appropriate notice;
+              </li>
+              <li>is never used for advertising purposes; and</li>
+              <li>
+                is never read by humans unless we have your explicit consent for specific items, it
+                is necessary for security purposes (such as investigating abuse) or to comply with
+                the law, or the data has been aggregated and anonymized for internal operations.
+              </li>
+            </ul>
           </section>
 
           <section className="space-y-3">

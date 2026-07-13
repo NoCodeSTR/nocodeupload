@@ -27,6 +27,7 @@ import {
 import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { LogoUploader } from "@/components/logo-uploader";
+import { YOUTUBE_ENABLED } from "@/lib/features";
 import { DestinationsManager, type DestinationSummary } from "@/components/destinations-manager";
 import { AirtableConnection } from "@/components/airtable-connection";
 import { CollapsibleSection } from "@/components/collapsible-section";
@@ -182,7 +183,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           {PROVIDER_DISPLAY_ORDER.map((id) => {
             const info = PROVIDER_INFO[id];
             const Icon = ICONS[info.iconName] ?? HardDrive;
-            const isAvailable = info.status === "available";
+            // YouTube is gated off during Drive-only Google verification — show it
+            // as "Coming soon" so no new youtube.upload grants are requested.
+            const isAvailable =
+              info.status === "available" && !(id === "youtube" && !YOUTUBE_ENABLED);
             const envReady = isAvailable && isProviderEnvConfigured(id);
             const connectUrl = getConnectUrl(id);
             const connections = byProvider[id];

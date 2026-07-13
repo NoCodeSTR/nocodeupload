@@ -12,6 +12,9 @@ import { uploadLinkUpdateSchema } from "@/lib/schemas";
 import { updateLink, deleteLink } from "@/lib/links";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+
 function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -20,8 +23,6 @@ function isHttpUrl(value: string): boolean {
     return false;
   }
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function PATCH(
   request: NextRequest,
@@ -57,6 +58,7 @@ export async function PATCH(
   if (parsed.data.successRedirectUrl && !isHttpUrl(parsed.data.successRedirectUrl)) {
     return NextResponse.json({ error: "invalid_redirect" }, { status: 400 });
   }
+
 
   try {
     const link = await updateLink({ userId: user.id, linkId: params.id, input: parsed.data });
