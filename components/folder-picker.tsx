@@ -83,6 +83,8 @@ interface GapiSdk {
 
 interface TokenResponse {
   access_token?: string;
+  /** Lifetime in seconds (Google issues ~1h). */
+  expires_in?: number;
   error?: string;
   error_description?: string;
 }
@@ -100,6 +102,51 @@ interface GisOAuth2 {
     /** Preselects this account in Google's chooser. */
     hint?: string;
   }): TokenClient;
+}
+
+// ----- Token cache ----------------------------------------------------------
+//
+// Google tokens last ~1h. Caching one lets a returning user pick a folder with
+// no prompt at all: if the browser already has a Google session and prior
+// consent (e.g. they just connected Drive in Settings), the silent warm-up below
+// gets a token without showing any UI. Module-level so the multi-box form's
+// several pickers share one token instead of each prompting.
+
+interface CachedToken {
+  key: string;
+  token: string;
+  expiresAt: number;
+}
+
+let cachedToken: CachedToken | null = null;
+
+/** Refresh a minute early so we never hand the Picker a token mid-expiry. */
+const TOKEN_EARLY_REFRESH_MS = 60_000;
+const TOKEN_FALLBACK_TTL_MS = 55 * 60_000;
+
+function tokenCacheKey(clientId: string, hint?: string | null): string {
+  return `${clientId}|${hint ?? ""}`;
+}
+
+function readCachedToken(clientId: string, hint?: string | null): string | null {
+  if (!cachedToken) return null;
+  if (cachedToken.key !== tokenCacheKey(clientId, hint)) return null;
+  if (Date.now() >= cachedToken.expiresAt) return null;
+  return cachedToken.token;
+}
+
+function writeCachedToken(
+  clientId: string,
+  hint: string | null | undefined,
+  token: string,
+  expiresInSeconds?: number,
+): void {
+  const ttl = expiresInSeconds ? expiresInSeconds * 1000 : TOKEN_FALLBACK_TTL_MS;
+  cachedToken = {
+    key: tokenCacheKey(clientId, hint),
+    token,
+    expiresAt: Date.now() + Math.max(0, ttl - TOKEN_EARLY_REFRESH_MS),
+  };
 }
 
 declare global {
@@ -173,8 +220,17 @@ async function loadGisSdk(): Promise<void> {
  * Mint a drive.file access token in the browser. This is what gives the Picker
  * a signed-in Google session to render the user's Drive against — see the file
  * header for why a server-minted token can't work here.
+ *
+ * `silent: true` asks Google for a token with no UI at all. It succeeds only if
+ * the browser already has a Google session for `hint` AND the user previously
+ * granted drive.file — which is exactly the state right after connecting Drive
+ * in Settings. It fails harmlessly otherwise, and the click path then prompts.
  */
-function requestDriveToken(clientId: string, hint?: string | null): Promise<string> {
+function requestDriveToken(
+  clientId: string,
+  hint: string | null | undefined,
+  opts: { silent: boolean },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const oauth2 = window.google?.accounts?.oauth2;
     if (!oauth2) {
@@ -191,6 +247,7 @@ function requestDriveToken(clientId: string, hint?: string | null): Promise<stri
         if (settled) return;
         settled = true;
         if (response.access_token) {
+          writeCachedToken(clientId, hint, response.access_token, response.expires_in);
           resolve(response.access_token);
           return;
         }
@@ -217,7 +274,8 @@ function requestDriveToken(clientId: string, hint?: string | null): Promise<stri
       },
     });
 
-    client.requestAccessToken();
+    // prompt:"" = "issue a token only if you can do it with no UI".
+    client.requestAccessToken(opts.silent ? { prompt: "" } : undefined);
   });
 }
 
@@ -268,17 +326,37 @@ export function FolderPicker({
     [onPick],
   );
 
-  // Warm the SDKs up front. Google's token popup must be opened from the user's
-  // click; if we were still awaiting a script load at that moment the browser
-  // would treat the popup as unsolicited and block it.
+  // Warm the SDKs and, if possible, a token up front.
+  //
+  // Two reasons this happens on mount rather than on click:
+  //  1. Google's token popup must be opened from the user's click. If we were
+  //     still awaiting a script load at that moment the browser would treat the
+  //     popup as unsolicited and block it.
+  //  2. The silent token attempt has to happen OFF the click. If it fails we
+  //     need to prompt, and prompting from inside that async callback would have
+  //     lost the user-gesture context. Warming here means the click either finds
+  //     a cached token (no prompt at all) or prompts immediately with the
+  //     gesture intact.
+  //
+  // Failures here are deliberately swallowed — they're re-surfaced on click.
   useEffect(() => {
-    void loadPickerSdk().catch(() => {
-      /* surfaced on click instead */
-    });
-    void loadGisSdk().catch(() => {
-      /* surfaced on click instead */
-    });
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      try {
+        await Promise.all([loadPickerSdk(), loadGisSdk()]);
+        if (cancelled) return;
+        if (readCachedToken(config.clientId, accountEmail)) return;
+        await requestDriveToken(config.clientId, accountEmail, { silent: true }).catch(
+          () => null,
+        );
+      } catch {
+        /* surfaced on click instead */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.clientId, accountEmail]);
 
   // ---- Primary: open Google Picker ---------------------------------------
 
@@ -290,8 +368,12 @@ export function FolderPicker({
       await Promise.all([loadPickerSdk(), loadGisSdk()]);
 
       // Browser-minted token — gives the Picker a real Google session and lets
-      // the user land on the connected account. See the file header.
-      const accessToken = await requestDriveToken(config.clientId, accountEmail);
+      // the user land on the connected account. See the file header. Reuses the
+      // silently-warmed token when there is one, so a user who already has a
+      // Google session sees no prompt at all.
+      const accessToken =
+        readCachedToken(config.clientId, accountEmail) ??
+        (await requestDriveToken(config.clientId, accountEmail, { silent: false }));
 
       const { google } = window;
       if (!google?.picker) {
