@@ -3,19 +3,39 @@
 /**
  * FolderPicker — "Pick a folder" via the Google Picker.
  *
- *   1. Lazy-load https://apis.google.com/js/api.js on first click.
- *   2. Load the 'picker' gapi module.
- *   3. POST /api/google/picker-token to mint a fresh access token for this
- *      connection (held in memory for the picker session, not persisted).
- *   4. Build a folder-only picker. Selecting a folder grants the app per-folder
- *      access under drive.file — no broad read scope needed.
- *   5. On selection, fire `onPick({folderId, folderName})`.
+ *   1. Lazy-load the Picker SDK (apis.google.com) + Google Identity Services.
+ *   2. Ask GIS for a drive.file access token IN THE BROWSER.
+ *   3. Build a folder-only picker with that token. Selecting a folder grants the
+ *      app per-folder access under drive.file — no broad read scope needed.
+ *   4. On selection, fire `onPick({folderId, folderName})`.
+ *
+ * WHY THE TOKEN IS MINTED IN THE BROWSER (do not "optimize" this back to a
+ * server-minted token):
+ * The Picker renders the user's Drive using the BROWSER'S Google session — not
+ * the OAuth token we hand it. The token only authorizes the API calls. NoCode
+ * Upload signs users in with Supabase (email/password), which never creates a
+ * Google session, so a server-minted token left the Picker with no signed-in
+ * Google user and it failed with "403 — you do not have access to this page":
+ * a white, unclosable overlay. It only ever worked for people who happened to
+ * be signed into Google in that browser as the connected account.
+ *
+ * Requesting the token via GIS fixes both failure modes at once — it signs the
+ * user into Google as part of the flow, and `hint` preselects the account that's
+ * actually connected, so the session and the token always agree.
+ *
+ * The picked folder grants access to the APP (the OAuth client), not to this one
+ * token — so the server-side uploader keeps working with its own stored token.
+ * Still drive.file; no scope change.
+ *
+ * Requires the app origin to be listed under the OAuth client's "Authorized
+ * JavaScript origins" in Google Cloud, or GIS refuses to issue a token.
  *
  * (The old manual "paste folder ID" fallback was removed with the drive.file
  * scope swap — drive.file can't access arbitrary folders the user didn't pick,
- * so the Picker is now the only selection path.)
+ * so the Picker is now the only selection path for pre-existing folders.
+ * "New folder" goes through our server and needs no Google session at all.)
  */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Folder, FolderPlus, Check, AlertCircle } from "lucide-react";
 
 // ----- Picker SDK types (loose; we only use a handful of fields) ----------
@@ -59,37 +79,71 @@ interface GapiSdk {
   ) => void;
 }
 
+// ----- Google Identity Services types (browser-side OAuth token) ------------
+
+interface TokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface TokenClient {
+  requestAccessToken(overrides?: { prompt?: string }): void;
+}
+
+interface GisOAuth2 {
+  initTokenClient(config: {
+    client_id: string;
+    scope: string;
+    callback: (response: TokenResponse) => void;
+    error_callback?: (err: { type?: string; message?: string }) => void;
+    /** Preselects this account in Google's chooser. */
+    hint?: string;
+  }): TokenClient;
+}
+
 declare global {
   interface Window {
     gapi?: GapiSdk;
-    google?: { picker: PickerSdk };
+    google?: {
+      picker?: PickerSdk;
+      accounts?: { oauth2: GisOAuth2 };
+    };
   }
 }
 
 const GAPI_SCRIPT_SRC = "https://apis.google.com/js/api.js";
+const GIS_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+const BLOCKED_HINT =
+  "An ad blocker or corporate proxy may be blocking Google. Disable it for this site and try again.";
 
 let gapiScriptPromise: Promise<void> | null = null;
 let pickerModulePromise: Promise<void> | null = null;
+let gisScriptPromise: Promise<void> | null = null;
+
+function loadScript(src: string, failureMessage: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(failureMessage));
+    document.head.appendChild(script);
+  });
+}
 
 /** Ensure both the apis.google.com script and the picker module are loaded. */
 async function loadPickerSdk(): Promise<void> {
   if (typeof window === "undefined") return;
 
   if (!window.gapi) {
-    gapiScriptPromise ??= new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = GAPI_SCRIPT_SRC;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = () =>
-        reject(
-          new Error(
-            "Couldn't load Google's picker script. An ad blocker or corporate proxy may be blocking apis.google.com.",
-          ),
-        );
-      document.head.appendChild(script);
-    });
+    gapiScriptPromise ??= loadScript(
+      GAPI_SCRIPT_SRC,
+      `Couldn't load Google's picker script. ${BLOCKED_HINT}`,
+    );
     await gapiScriptPromise;
   }
 
@@ -104,6 +158,69 @@ async function loadPickerSdk(): Promise<void> {
   }
 }
 
+/** Ensure Google Identity Services (the browser-side token client) is loaded. */
+async function loadGisSdk(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (window.google?.accounts?.oauth2) return;
+  gisScriptPromise ??= loadScript(
+    GIS_SCRIPT_SRC,
+    `Couldn't load Google sign-in. ${BLOCKED_HINT}`,
+  );
+  await gisScriptPromise;
+}
+
+/**
+ * Mint a drive.file access token in the browser. This is what gives the Picker
+ * a signed-in Google session to render the user's Drive against — see the file
+ * header for why a server-minted token can't work here.
+ */
+function requestDriveToken(clientId: string, hint?: string | null): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const oauth2 = window.google?.accounts?.oauth2;
+    if (!oauth2) {
+      reject(new Error(`Google sign-in didn't load. ${BLOCKED_HINT}`));
+      return;
+    }
+
+    let settled = false;
+    const client = oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE_FILE_SCOPE,
+      ...(hint ? { hint } : {}),
+      callback: (response) => {
+        if (settled) return;
+        settled = true;
+        if (response.access_token) {
+          resolve(response.access_token);
+          return;
+        }
+        reject(
+          new Error(
+            response.error === "access_denied"
+              ? "Google access was declined. Approve access to choose a folder, or use “New folder” instead."
+              : "Google didn't return access. Please try again.",
+          ),
+        );
+      },
+      error_callback: (err) => {
+        if (settled) return;
+        settled = true;
+        if (err?.type === "popup_closed") {
+          reject(new Error("The Google sign-in window closed before an account was chosen."));
+        } else if (err?.type === "popup_failed_to_open") {
+          reject(
+            new Error("Your browser blocked Google's sign-in popup. Allow popups for this site, then try again."),
+          );
+        } else {
+          reject(new Error("Google sign-in failed. Please try again, or use “New folder” instead."));
+        }
+      },
+    });
+
+    client.requestAccessToken();
+  });
+}
+
 // ----- Component -----------------------------------------------------------
 
 export interface FolderPickerProps {
@@ -112,7 +229,13 @@ export interface FolderPickerProps {
   config: {
     apiKey: string;
     projectNumber: string;
+    clientId: string;
   };
+  /**
+   * Email of the connected Google account. Preselects it in Google's account
+   * chooser so the picker session matches the account files upload to.
+   */
+  accountEmail?: string | null;
   /** Fires when the user successfully picks (or pastes) a folder. */
   onPick: (folder: { folderId: string; folderName: string }) => void;
   /** Pre-selected folder, if any — shown in the "Currently selected" pill. */
@@ -124,6 +247,7 @@ type Mode = "idle" | "loading" | "error";
 export function FolderPicker({
   connectionId,
   config,
+  accountEmail,
   onPick,
   initialFolder,
 }: FolderPickerProps) {
@@ -144,6 +268,18 @@ export function FolderPicker({
     [onPick],
   );
 
+  // Warm the SDKs up front. Google's token popup must be opened from the user's
+  // click; if we were still awaiting a script load at that moment the browser
+  // would treat the popup as unsolicited and block it.
+  useEffect(() => {
+    void loadPickerSdk().catch(() => {
+      /* surfaced on click instead */
+    });
+    void loadGisSdk().catch(() => {
+      /* surfaced on click instead */
+    });
+  }, []);
+
   // ---- Primary: open Google Picker ---------------------------------------
 
   const openPicker = useCallback(async () => {
@@ -151,63 +287,58 @@ export function FolderPicker({
     setError(null);
 
     try {
-      await loadPickerSdk();
+      await Promise.all([loadPickerSdk(), loadGisSdk()]);
 
-      const tokenRes = await fetch("/api/google/picker-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId }),
-      });
-      if (!tokenRes.ok) {
-        const body = (await tokenRes.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Picker token request failed (${tokenRes.status})`);
-      }
-      const { accessToken } = (await tokenRes.json()) as { accessToken: string };
+      // Browser-minted token — gives the Picker a real Google session and lets
+      // the user land on the connected account. See the file header.
+      const accessToken = await requestDriveToken(config.clientId, accountEmail);
 
       const { google } = window;
       if (!google?.picker) {
         throw new Error("Picker SDK didn't initialize as expected.");
       }
+      const picker = google.picker;
 
       // Single folders view. (We previously added a second "shared with me"
       // view, but both render with the label "Folders", producing a confusing
       // duplicate tab. One view covering the user's Drive folders is what STR
       // hosts need; revisit shared-drive support if requested.)
-      const folderView = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+      const folderView = new picker.DocsView(picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
         .setIncludeFolders(true)
         .setMimeTypes("application/vnd.google-apps.folder");
 
-      const picker = new google.picker.PickerBuilder()
+      const built = new picker.PickerBuilder()
         .setAppId(config.projectNumber)
         .setOAuthToken(accessToken)
         .setDeveloperKey(config.apiKey)
-        // Pin the Picker to the current page origin. Without this the Picker
-        // infers the origin, which can mismatch the allowlisted host (e.g. apex
-        // vs www) and surface Google's "403 — no access to this page".
         .setOrigin(window.location.origin)
         .addView(folderView)
         .setTitle("Choose a Drive folder")
         .setCallback((data: PickerCallbackData) => {
-          if (data.action === google.picker.Action.PICKED) {
+          if (data.action === picker.Action.PICKED) {
             const doc = data.docs?.[0];
             if (doc) {
               fireOnPick({ folderId: doc.id, folderName: doc.name });
             }
             setMode("idle");
-          } else if (data.action === google.picker.Action.CANCEL) {
+          } else if (data.action === picker.Action.CANCEL) {
             setMode("idle");
           }
         })
         .build();
 
-      picker.setVisible(true);
+      built.setVisible(true);
+      // Recover the button as soon as the picker is up rather than waiting on a
+      // callback — if the picker ever fails to render, the control stays usable
+      // instead of stranding the user on "Opening…" with no way back.
+      setMode("idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to open picker.";
       setError(message);
       setMode("error");
     }
-  }, [connectionId, config, fireOnPick]);
+  }, [config, accountEmail, fireOnPick]);
 
   // ---- Create a new folder (Drive API; nested under the current selection) --
 

@@ -51,6 +51,7 @@ export default async function NewLinkPage() {
   const env = publicGoogleEnv();
   const pickerConfig = {
     apiKey: env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY,
+    clientId: env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
     projectNumber: env.NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER,
   };
 

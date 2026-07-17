@@ -214,7 +214,7 @@ function describeLinkIssues(
 interface LinkFormProps {
   mode: "create" | "edit";
   connections: ConnectionSummary[];
-  pickerConfig: { apiKey: string; projectNumber: string };
+  pickerConfig: { apiKey: string; projectNumber: string; clientId: string };
   initialLink?: UploadLinkRow;
   destinations?: DestinationSummary[];
   projects?: ProjectSummary[];
@@ -1280,6 +1280,7 @@ export function LinkForm({
                   <FolderPicker
                     connectionId={connectionId}
                     config={pickerConfig}
+                    accountEmail={selectedConnection?.provider_email}
                     onPick={setFolder}
                     initialFolder={folder}
                   />
@@ -1547,6 +1548,7 @@ export function LinkForm({
                               key={b.id}
                               connectionId={b.connectionId}
                               config={pickerConfig}
+                              accountEmail={conn?.provider_email}
                               onPick={(f) => updateBox(b.id, { folderId: f.folderId, folderName: f.folderName })}
                               initialFolder={
                                 b.folderId ? { folderId: b.folderId, folderName: b.folderName ?? "Selected folder" } : null
@@ -1617,6 +1619,7 @@ export function LinkForm({
               <FolderPicker
                 connectionId={connectionId}
                 config={pickerConfig}
+                accountEmail={selectedConnection?.provider_email}
                 onPick={setFolder}
                 initialFolder={folder}
               />
