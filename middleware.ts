@@ -19,20 +19,6 @@ const PROTECTED_PREFIXES = ["/dashboard", "/settings"];
 const AUTH_ONLY_PREFIXES = ["/login", "/signup"];
 
 export async function middleware(request: NextRequest) {
-  // Canonical host: force the bare apex (nocodeupload.com) to www. `www` is the
-  // canonical host — Supabase Site URL, the Google OAuth authorized JS origins,
-  // and the Picker API key's HTTP-referrer restrictions are all registered for
-  // www. A visitor who lands on the apex would otherwise hit the Google Picker's
-  // "403 — you do not have access to this page" because the apex origin isn't
-  // allowlisted. Explicit apex-only check → no redirect loop, env-independent,
-  // and preview/localhost hosts are untouched.
-  if (request.headers.get("host") === "nocodeupload.com") {
-    const url = request.nextUrl.clone();
-    url.protocol = "https:";
-    url.host = "www.nocodeupload.com";
-    return NextResponse.redirect(url, 308);
-  }
-
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
