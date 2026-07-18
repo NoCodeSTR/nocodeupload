@@ -31,10 +31,35 @@ export interface ConnectionSummary {
   connected_at: string;
   last_refreshed_at: string | null;
   provider_metadata: Record<string, unknown>;
+  scopes: string[] | null;
+  /**
+   * True when the granted scopes lack the one this provider needs to upload
+   * (the Drive/YouTube permission checkbox was skipped on Google's consent
+   * screen). Such a connection looks active but can't actually save uploads —
+   * the fix is to disconnect and reconnect with the box checked. Connections
+   * created before scope-at-connect validation may be in this state.
+   */
+  needs_reconnect: boolean;
 }
 
 const SAFE_COLUMNS =
-  "id, provider, provider_email, status, connected_at, last_refreshed_at, provider_metadata";
+  "id, provider, provider_email, status, connected_at, last_refreshed_at, provider_metadata, scopes";
+
+/** The scope each provider must have been granted to upload. */
+const REQUIRED_UPLOAD_SCOPE: Record<string, string> = {
+  google_drive: "https://www.googleapis.com/auth/drive.file",
+  youtube: "https://www.googleapis.com/auth/youtube.upload",
+};
+
+/** True if the connection is missing the upload scope its provider requires. */
+export function connectionNeedsReconnect(conn: {
+  provider: string;
+  scopes: string[] | null;
+}): boolean {
+  const required = REQUIRED_UPLOAD_SCOPE[conn.provider];
+  if (!required) return false; // provider with no known scope requirement
+  return !(conn.scopes ?? []).includes(required);
+}
 
 /**
  * Format a Supabase/PostgREST error into something actually debuggable.
@@ -76,7 +101,10 @@ export async function listUserConnections(
   if (error) {
     throw new Error(formatPgError("Failed to list connections", error));
   }
-  return (data ?? []) as ConnectionSummary[];
+  return (data ?? []).map((row) => {
+    const c = row as Omit<ConnectionSummary, "needs_reconnect">;
+    return { ...c, needs_reconnect: connectionNeedsReconnect(c) };
+  }) as ConnectionSummary[];
 }
 
 /**
