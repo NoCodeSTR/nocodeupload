@@ -133,8 +133,12 @@ export function SearchableSelect({
                     className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-ink-50 dark:hover:bg-ink-900"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate">{o.label}</span>
-                      {o.hint && <span className="block truncate text-xs text-ink-400">{o.hint}</span>}
+                      <span className="block truncate" title={o.label}>{o.label}</span>
+                      {o.hint && (
+                        <span className="block truncate text-xs text-ink-400" title={o.hint}>
+                          {o.hint}
+                        </span>
+                      )}
                     </span>
                     {o.value === value && <Check className="h-3.5 w-3.5 flex-shrink-0 text-brand" />}
                   </button>
