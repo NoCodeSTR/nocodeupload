@@ -148,8 +148,26 @@ rationale → rejected alternatives → consequences → reversibility.
 - **Decision (intended):** `www.nocodeupload.com` is the canonical host.
 - **Why:** Sean's shared upload links use `www.`; picking one canonical host avoids duplicate-URL
   and cookie/redirect issues.
-- **⚠️ Status:** **Not yet consistent in code.** `GOOGLE_REDIRECT_URI` / `NEXT_PUBLIC_APP_URL`
-  examples use the **apex** (`nocodeupload.com`). The Google OAuth **redirect URI must match** the
-  canonical host or connect fails. **Confirm with Sean and make env + Google Cloud + DNS consistent.**
+- **Status (confirmed 2026-07):** `www` is canonical and consistent. The apex 307-redirects to
+  `www` at the Vercel edge; Supabase Site URL + `/auth/callback` and the Google OAuth
+  origins/redirect URI all use `www`. (Chrome hides the `www.` prefix in the omnibox, which once
+  looked like users were stranded on the apex — they weren't.)
 - **Rejected:** Serving both equally (SEO/cookie/redirect ambiguity).
 - **Reversible:** Yes (config/DNS), but must be done deliberately and consistently.
+
+### ADR-16 — Google OAuth verification complete (non-sensitive scope profile)
+- **Decision:** Published to production and **verified** (2026-07). Branding verified + shown to
+  users; **no data-access verification required** because the app requests no sensitive or
+  restricted scopes.
+- **Scope profile:** `openid`, `userinfo.email`, `userinfo.profile`, and **`drive.file`** — which
+  Google now classifies as **non-sensitive**. No `drive.readonly` (removed — it's RESTRICTED and
+  would have triggered a CASA assessment). No `youtube.upload` (YouTube is flag-gated off).
+- **Consequences:** No unverified-app warning, no 100-user cap, no CASA, no demo video, no annual
+  re-review — as long as the scope profile stays non-sensitive.
+- **⚠️ Re-triggers verification:** Adding ANY sensitive or restricted scope re-opens verification.
+  The concrete case is enabling YouTube (`youtube.upload` is sensitive) — which also needs the
+  separate YouTube API Services audit. Do that deliberately, not incidentally.
+- **Guardrails in code:** the OAuth callback rejects a connection whose granted scopes lack
+  `drive.file` (commit 52616eb), and Settings flags any pre-existing scope-less connection
+  (`connectionNeedsReconnect`, commit 1f63a97).
+- **Reversible:** Publishing status can revert to Testing, but there's no reason to.
