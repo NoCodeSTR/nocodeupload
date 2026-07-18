@@ -65,6 +65,25 @@ export async function GET(request: NextRequest) {
     return settingsRedirect(`error=${encodeURIComponent(message)}`);
   }
 
+  // Google's granular consent screen shows the Drive (or YouTube) permission
+  // UNCHECKED by default. If the user clicks Continue without ticking it, we get
+  // tokens with no usable scope — the picker (which mints its own browser token)
+  // still works, but folder creation and real uploads fail with permission
+  // errors. Rather than store a connection that looks fine but is silently
+  // broken, reject it here with a precise, actionable message.
+  const requiredScope =
+    target === "youtube"
+      ? "https://www.googleapis.com/auth/youtube.upload"
+      : "https://www.googleapis.com/auth/drive.file";
+  if (!result.scopes.includes(requiredScope)) {
+    const what = target === "youtube" ? "YouTube upload" : "Google Drive";
+    return settingsRedirect(
+      `error=${encodeURIComponent(
+        `${what} access wasn't granted. Please connect again and make sure to check the ${what} permission checkbox on Google's screen — without it, uploads can't be saved.`,
+      )}`,
+    );
+  }
+
   try {
     await upsertConnection({
       userId: user.id,
