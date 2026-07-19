@@ -28,6 +28,7 @@ import {
 import { Topbar } from "@/components/topbar";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { LogoUploader } from "@/components/logo-uploader";
+import { DefaultAccentField } from "@/components/default-accent-field";
 import { YOUTUBE_ENABLED } from "@/lib/features";
 import { DestinationsManager, type DestinationSummary } from "@/components/destinations-manager";
 import { AirtableConnection } from "@/components/airtable-connection";
@@ -123,12 +124,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     /* non-fatal */
   }
 
-  // Current account logo (best-effort).
+  // Current account logo + default accent color (best-effort).
   let logoUrl: string | null = null;
+  let defaultAccentColor: string | null = null;
   try {
     const supabase = createSupabaseServerClient();
-    const { data } = await supabase.from("profiles").select("logo_url").eq("id", user.id).maybeSingle();
-    logoUrl = (data as { logo_url: string | null } | null)?.logo_url ?? null;
+    const { data } = await supabase
+      .from("profiles")
+      .select("logo_url, default_accent_color")
+      .eq("id", user.id)
+      .maybeSingle();
+    const p = data as { logo_url: string | null; default_accent_color: string | null } | null;
+    logoUrl = p?.logo_url ?? null;
+    defaultAccentColor = p?.default_accent_color ?? null;
   } catch {
     /* non-fatal */
   }
@@ -277,6 +285,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             defaultOpen
           >
             <LogoUploader currentLogoUrl={logoUrl} />
+            <div className="mt-6 border-t border-ink-100 pt-6 dark:border-ink-800">
+              <DefaultAccentField currentColor={defaultAccentColor} />
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection

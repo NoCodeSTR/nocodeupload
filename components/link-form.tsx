@@ -16,6 +16,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { FolderPicker } from "@/components/folder-picker";
+import { AccentColorInput } from "@/components/accent-color-input";
 import { CopyButton } from "@/components/copy-button";
 import { CollapsibleSection } from "@/components/collapsible-section";
 import { ConnectedDataEditor } from "@/components/connected-data-editor";
@@ -224,6 +225,8 @@ interface LinkFormProps {
   airtableConnected?: boolean;
   /** The account's default logo, shown as the fallback preview for per-link logo. */
   accountLogoUrl?: string | null;
+  /** The account's default accent color (#rrggbb). Seeds the brand color on new links. */
+  defaultAccentColor?: string | null;
 }
 
 // File-type presets → stored as wildcard mime patterns (M8 enforces at upload).
@@ -267,6 +270,7 @@ export function LinkForm({
   initialTags = [],
   airtableConnected = false,
   accountLogoUrl = null,
+  defaultAccentColor = null,
 }: LinkFormProps) {
   const router = useRouter();
 
@@ -339,8 +343,15 @@ export function LinkForm({
     initialLink?.custom_fields ?? [],
   );
   const [expiresAt, setExpiresAt] = useState(isoToDateInput(initialLink?.expires_at ?? null));
-  const [useCustomColor, setUseCustomColor] = useState(Boolean(initialLink?.branding_color));
-  const [brandingColor, setBrandingColor] = useState(initialLink?.branding_color ?? "#2563eb");
+  // New links inherit the account default accent color (applied + editable);
+  // existing links keep whatever they were saved with. If a link has no color
+  // and the user turns it on, they start from the account default.
+  const [useCustomColor, setUseCustomColor] = useState(
+    initialLink ? Boolean(initialLink.branding_color) : Boolean(defaultAccentColor),
+  );
+  const [brandingColor, setBrandingColor] = useState(
+    initialLink?.branding_color ?? defaultAccentColor ?? "#2563eb",
+  );
   const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(initialLink?.branding_logo_url ?? null);
   const [webhookUrl, setWebhookUrl] = useState(initialLink?.webhook_url ?? "");
   const [filenameTemplate, setFilenameTemplate] = useState(initialLink?.filename_template ?? "");
@@ -2015,13 +2026,9 @@ export function LinkForm({
               Custom accent color
             </label>
             {useCustomColor && (
-              <input
-                type="color"
-                value={brandingColor}
-                onChange={(e) => setBrandingColor(e.target.value)}
-                className="mt-2 h-10 w-20 cursor-pointer rounded border border-ink-200 dark:border-ink-700"
-                aria-label="Accent color"
-              />
+              <div className="mt-2">
+                <AccentColorInput value={brandingColor} onChange={setBrandingColor} />
+              </div>
             )}
           </div>
         </div>

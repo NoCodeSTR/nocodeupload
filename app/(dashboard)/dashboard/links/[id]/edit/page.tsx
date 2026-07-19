@@ -16,6 +16,7 @@ import { listProjects, type ProjectSummary } from "@/lib/projects";
 import { listTags, getTagsForLink, type TagSummary } from "@/lib/tags";
 import { getAirtableConnection } from "@/lib/airtable/connection";
 import { getLinkForUser } from "@/lib/links";
+import { getAccountDefaultAccentColor } from "@/lib/account";
 
 export default async function EditLinkPage({ params }: { params: { id: string } }) {
   const user = await requireUser();
@@ -50,6 +51,7 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
   } catch {
     /* non-fatal */
   }
+  const defaultAccentColor = await getAccountDefaultAccentColor(user.id);
   const env = publicGoogleEnv();
   const pickerConfig = {
     apiKey: env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY,
@@ -76,6 +78,7 @@ export default async function EditLinkPage({ params }: { params: { id: string } 
             allTags={allTags}
             initialTags={initialTags}
             airtableConnected={airtableConnected}
+            defaultAccentColor={defaultAccentColor}
           />
         </div>
       </main>
