@@ -744,6 +744,13 @@ $$;
 
 revoke execute on function public.claim_due_jobs(text, int) from public, anon, authenticated;
 
+-- Delivery-ledger linkage to jobs (added here because notification_deliveries
+-- is created earlier in this file, before jobs exists).
+alter table public.notification_deliveries
+  add column if not exists job_id uuid references public.jobs(id) on delete set null;
+create index if not exists notification_deliveries_job_idx
+  on public.notification_deliveries (job_id) where job_id is not null;
+
 -- -----------------------------------------------------------------------------
 -- Done.
 -- -----------------------------------------------------------------------------

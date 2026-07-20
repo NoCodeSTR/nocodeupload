@@ -28,6 +28,7 @@ import "server-only";
 import { createHmac } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isPubliclySafeHttpUrl } from "@/lib/url-safety";
+import { classifyHttpFailure, TRANSPORT_FAILURE, type WebhookRetryInfo } from "@/lib/webhook-classify";
 import { fileCategory } from "@/lib/upload-validation";
 import { resultUrlFor } from "@/lib/result-url";
 import { submissionUrl } from "@/lib/submissions";
@@ -133,13 +134,40 @@ async function loadLink(uploadLinkId: string): Promise<LinkShape | null> {
 }
 
 /** Sign + POST the payload to the link's webhook. Never throws; returns status. */
-async function deliver(link: LinkShape, eventName: string, payload: unknown): Promise<NotifyResult> {
-  if (!link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
+/**
+ * NotifyResult plus retry classification (Jobs Engine Phase 1). The legacy
+ * exports strip `.result` so their public shape is unchanged; the webhook job
+ * handler consumes the classification. `unsafeUrl` marks the fire-time SSRF
+ * rejection so the handler can fail it permanently with a customer-actionable
+ * message rather than treating it as an ordinary skip.
+ */
+export interface ClassifiedWebhookResult {
+  result: NotifyResult;
+  retry: WebhookRetryInfo;
+  unsafeUrl?: boolean;
+  /** The job id, when sent via the Jobs Engine — echoed as a dedupe header. */
+  jobId?: string;
+}
+
+async function deliver(
+  link: LinkShape,
+  eventName: string,
+  jobId: string | undefined,
+  payload: unknown,
+): Promise<ClassifiedWebhookResult> {
+  if (!link.webhook_url) {
+    return { result: { status: "skipped", detail: "no webhook configured" }, retry: { retryable: false } };
+  }
   const target = hostOf(link.webhook_url);
-  // Defense in depth: never POST to an unsafe target even if one slipped past
-  // the save-time check (e.g. a row predating this guard).
+  // Defense in depth, re-checked at fire time: never POST to an unsafe target
+  // even if one slipped past the save-time check (e.g. a row predating this
+  // guard, or DNS that changed since save).
   if (!isPubliclySafeHttpUrl(link.webhook_url).safe) {
-    return { status: "skipped", target, detail: "unsafe webhook URL" };
+    return {
+      result: { status: "skipped", target, detail: "unsafe webhook URL" },
+      retry: { retryable: false },
+      unsafeUrl: true,
+    };
   }
 
   const body = JSON.stringify(payload);
@@ -151,6 +179,8 @@ async function deliver(link: LinkShape, eventName: string, payload: unknown): Pr
     const sig = createHmac("sha256", link.webhook_secret).update(body).digest("hex");
     headers["X-NoCodeUpload-Signature"] = `sha256=${sig}`;
   }
+  // Retries can duplicate a POST (at-least-once); receivers dedupe on this id.
+  if (jobId) headers["X-NoCodeUpload-Job-Id"] = jobId;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -163,18 +193,24 @@ async function deliver(link: LinkShape, eventName: string, payload: unknown): Pr
       cache: "no-store",
     });
     if (!res.ok) {
-      return { status: "failed", target, detail: `responded ${res.status}` };
+      return {
+        result: { status: "failed", target, detail: `responded ${res.status}` },
+        retry: classifyHttpFailure(res.status, res.headers.get("retry-after")),
+      };
     }
-    return { status: "sent", target };
+    return { result: { status: "sent", target }, retry: { retryable: false } };
   } catch (err) {
-    return { status: "failed", target, detail: err instanceof Error ? err.message : "delivery failed" };
+    return {
+      result: { status: "failed", target, detail: err instanceof Error ? err.message : "delivery failed" },
+      retry: TRANSPORT_FAILURE,
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
 /** Single-file webhook — one completed upload. */
-export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult> {
+export async function sendUploadWebhookClassified(uploadId: string, jobId?: string): Promise<ClassifiedWebhookResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
@@ -182,13 +218,13 @@ export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult>
     .eq("id", uploadId)
     .maybeSingle();
   const upload = (data ?? null) as UploadShape | null;
-  if (!upload || upload.status !== "complete") return { status: "skipped", detail: "upload not complete" };
+  if (!upload || upload.status !== "complete") return { result: { status: "skipped", detail: "upload not complete" }, retry: { retryable: false } };
 
   const link = await loadLink(upload.upload_link_id);
-  if (!link || !link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
+  if (!link || !link.webhook_url) return { result: { status: "skipped", detail: "no webhook configured" }, retry: { retryable: false } };
 
   const file = filePayload(upload);
-  return deliver(link, "upload.completed", {
+  return deliver(link, "upload.completed", jobId, {
     event: "upload.completed",
     uploadType: "single",
     uploadId,
@@ -219,7 +255,7 @@ export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult>
  * submission. uploadType "batch", with a `batch` object and the full `files`
  * array. No-ops if the link has no webhook or no files in the batch completed.
  */
-export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyResult> {
+export async function sendBatchUploadWebhookClassified(batchId: string, jobId?: string): Promise<ClassifiedWebhookResult> {
   const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("uploads")
@@ -228,11 +264,11 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
     .eq("status", "complete")
     .order("completed_at", { ascending: true });
   const uploads = (data ?? []) as UploadShape[];
-  if (uploads.length === 0) return { status: "skipped", detail: "no completed files in batch" };
+  if (uploads.length === 0) return { result: { status: "skipped", detail: "no completed files in batch" }, retry: { retryable: false } };
 
   const rep = uploads[0];
   const link = await loadLink(rep.upload_link_id);
-  if (!link || !link.webhook_url) return { status: "skipped", detail: "no webhook configured" };
+  if (!link || !link.webhook_url) return { result: { status: "skipped", detail: "no webhook configured" }, retry: { retryable: false } };
 
   // For per_batch links the submission has ONE canonical Airtable record. The
   // record write and the notification can be won by different requests, so the
@@ -257,7 +293,7 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
       return latest;
     }, null) ?? new Date().toISOString();
 
-  return deliver(link, "batch.completed", {
+  return deliver(link, "batch.completed", jobId, {
     event: "batch.completed",
     uploadType: "batch",
     batch: { id: batchId, fileCount: files.length },
@@ -278,4 +314,17 @@ export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyRes
     customData: rep.custom_data ?? {},
     uploadedAt,
   });
+}
+
+/**
+ * Legacy exports — identical public shape to pre-Jobs-Engine behavior. Used by
+ * the flag-off path in dispatch.ts; the flag-on path goes through the
+ * classified variants via the webhook.deliver job handler.
+ */
+export async function sendUploadWebhook(uploadId: string): Promise<NotifyResult> {
+  return (await sendUploadWebhookClassified(uploadId)).result;
+}
+
+export async function sendBatchUploadWebhook(batchId: string): Promise<NotifyResult> {
+  return (await sendBatchUploadWebhookClassified(batchId)).result;
 }

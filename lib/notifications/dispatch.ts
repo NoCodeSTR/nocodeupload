@@ -25,6 +25,7 @@ import { sendUploadWebhook, sendBatchUploadWebhook } from "@/lib/webhook";
 import { sendSlackForUpload, sendSlackForBatch, type SlackTarget } from "@/lib/notifications/slack";
 import { sendQuoForUpload, sendQuoForBatch, type QuoCreds } from "@/lib/notifications/quo";
 import { logDelivery } from "@/lib/notifications/deliveries";
+import { getJobs, jobsEnabled } from "@/lib/jobs";
 import {
   getDestinationsByIds,
   getSlackBotToken,
@@ -292,9 +293,28 @@ export async function deliverForUpload(uploadId: string): Promise<void> {
   if (emailResult.status === "sent" && ctx.ownerEmail) emailed.add(ctx.ownerEmail);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "email", result: emailResult, uploadId });
 
-  // Default webhook.
-  const webhookResult = await sendUploadWebhook(uploadId);
-  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
+  // Default webhook. Jobs path: durable + retried; the handler logs the
+  // delivery (with job_id). Legacy path: one-shot inline, logged here.
+  // enqueue() only throws BEFORE a job row exists (validation/insert), so the
+  // legacy fallback in the catch can never double-send.
+  if (jobsEnabled()) {
+    try {
+      await getJobs().enqueue({
+        type: "webhook.deliver",
+        payload: { v: 1, mode: "single", uploadId },
+        idempotencyKey: `webhook.deliver:upload:${uploadId}`,
+        userId: ctx.userId,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[dispatch] webhook enqueue failed, falling back to inline:", err);
+      const webhookResult = await sendUploadWebhook(uploadId);
+      await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
+    }
+  } else {
+    const webhookResult = await sendUploadWebhook(uploadId);
+    await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, uploadId });
+  }
 
   // Connected-record values for {{alias.Field}} message tokens + dynamic recipients.
   const sourceValues = await getSubmissionSourceValues(uploadId);
@@ -348,8 +368,25 @@ export async function deliverForBatch(batchId: string): Promise<void> {
   if (emailResult.status === "sent" && ctx.ownerEmail) emailed.add(ctx.ownerEmail);
   await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "email", result: emailResult, batchId });
 
-  const webhookResult = await sendBatchUploadWebhook(batchId);
-  await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
+  // Batch webhook — same flag semantics as the single path above.
+  if (jobsEnabled()) {
+    try {
+      await getJobs().enqueue({
+        type: "webhook.deliver",
+        payload: { v: 1, mode: "batch", batchId },
+        idempotencyKey: `webhook.deliver:batch:${batchId}`,
+        userId: ctx.userId,
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[dispatch] batch webhook enqueue failed, falling back to inline:", err);
+      const webhookResult = await sendBatchUploadWebhook(batchId);
+      await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
+    }
+  } else {
+    const webhookResult = await sendBatchUploadWebhook(batchId);
+    await logDelivery({ userId: ctx.userId, uploadLinkId: ctx.uploadLinkId, channel: "webhook", result: webhookResult, batchId });
+  }
 
   // Connected-record values (same across the batch) — from any row's submission.
   const sourceValues = await getSubmissionSourceValues(rep.id);
