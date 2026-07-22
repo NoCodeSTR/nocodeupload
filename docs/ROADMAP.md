@@ -71,3 +71,43 @@ Package: **`nocodeupload-batch13.tar.gz`** (this handoff). Assume the following 
 - **Regenerating the canonical init schema** to include upgrades 01–35 — deferred (risky to hand-
   merge; documented as debt). Fresh DBs apply init + all upgrades in order for now.
 - **Restoring browser-direct uploads** — deferred; only with explicit approval.
+
+## Jobs Engine — Phase 2.5: Multi-table Airtable writes (scoped, not built)
+
+Requested feature: send different parts of one submission to different Airtable
+tables, linked. Motivating case: photos submission → answers/notes create ONE
+"Upload Sessions" record; each image creates one "Files" record; all linked back
+to a "Project" (which also connects Properties / Service Providers).
+
+**Sequencing (confirmed):** build AFTER Jobs Phase 2 (single-table Airtable →
+job handler), never before. Multi-table is multiple ordered external side
+effects per submission — precisely what the Jobs Engine's checkpoints + chaining
++ per-entity idempotency exist for. Building it on the pre-Jobs synchronous path
+would hand-roll fragile orchestration we'd immediately rebuild. It becomes the
+feature that validates the Jobs chaining design.
+
+**Shape on Jobs:** a parent job creates the per-submission record, checkpoints
+its recId, enqueues one child job per file; each child creates its per-file
+record linked to the checkpointed parent + connected-record ids; children keyed
+idempotently per upload so retries never duplicate.
+
+**V1 scope (confirmed with Sean 2026-07):**
+1. Model = N destination tables, each granularity "one per submission" OR "one
+   per file". Two-level only (parent + per-file); no arbitrary graph.
+2. Linked-record fields must already exist in the user's base (we write links,
+   never create schema). Links resolve via Connected Tables — a unique link to
+   each Project, and the Project row carries the recordIds that tie everything
+   together.
+3. Per-destination action: user chooses create OR update per destination (some
+   update an existing Project; others create Sessions/Files).
+4. Destination cap: 5 (revisit to 10 if no technical reason to cap lower).
+5. Each destination has its OWN full field mapping; the same form answers may
+   be reused across multiple destinations.
+
+**Config change:** `airtable_config` gains a versioned multi-destination shape
+(`v` + `destinations: [...]`) with a read-shim for the legacy single-table
+config (jsonb-versioning rule, see PLAYBOOK §2 / ADR on jsonb versioning).
+
+**Main cost:** the builder UI (single-table mapping editor → multi-destination
+editor with per-destination granularity/action/mappings/link-fields). Backend is
+the smaller, cleaner half.
