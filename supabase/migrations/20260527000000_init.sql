@@ -752,5 +752,17 @@ create index if not exists notification_deliveries_job_idx
   on public.notification_deliveries (job_id) where job_id is not null;
 
 -- -----------------------------------------------------------------------------
+-- schema_migrations — applied-migration ledger (Hardening Phase A). Each upgrade
+-- file records itself; see AGENTS.md. Service-role only.
+-- -----------------------------------------------------------------------------
+create table if not exists public.schema_migrations (
+  version     text primary key,
+  name        text not null,
+  applied_at  timestamptz not null default now(),
+  applied_by  text
+);
+alter table public.schema_migrations enable row level security;
+
+-- -----------------------------------------------------------------------------
 -- Done.
 -- -----------------------------------------------------------------------------

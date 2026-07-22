@@ -38,6 +38,14 @@ Also useful: [`docs/TECHNICAL-DEBT.md`](./docs/TECHNICAL-DEBT.md), [`docs/ROADMA
 ## Hard rules — data & migrations
 - **Flag every migration before deployment.** New schema change = a new numbered file in
   `supabase/upgrades/NN_*.sql`, applied in order via the Supabase SQL editor.
+- **Every migration records itself.** The final statement of every upgrade file must be:
+  `insert into public.schema_migrations (version, name, applied_by) values ('NN','name','dashboard') on conflict (version) do nothing;`
+  The `schema_migrations` table (migration 40) is the source of truth for what has run — never
+  reconstruct applied-state from chat history or docs again. To check prod: `select version from
+  public.schema_migrations order by version;`
+- **Migrations are additive + idempotent** (`add column if not exists`, new tables/views). Anything
+  destructive waits until the code needing the old shape is provably gone, and runs in a transaction
+  with a `select` preview first (see docs/RECOVERY.md).
 - **Update the canonical init schema** (`supabase/migrations/20260527000000_init.sql`) whenever you
   add an upgrade migration, OR record the drift in `docs/MIGRATIONS.md`. (Init currently lags the
   upgrades — see TECHNICAL-DEBT #9.)
