@@ -15,7 +15,7 @@ create table if not exists public.schema_migrations (
 alter table public.schema_migrations enable row level security;
 -- Deliberately no policies: service-role / SQL-editor only.
 
-insert into public.schema_migrations (version, name, applied_by)
+insert into public.schema_migrations (version, name)
 values
     ('00','init_base_schema'),
     ('01','provider_agnostic_refactor'),
